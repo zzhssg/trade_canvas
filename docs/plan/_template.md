@@ -21,6 +21,10 @@ updated: YYYY-MM-DD
 
 ## 验收标准
 
+## E2E 用户故事（门禁）
+
+> 开发前必须准备好覆盖主链路的 E2E 用户故事 + 对应测试用例。
+> 建议直接引用 `tc-e2e-gate` 的模板骨架：`.codex/skills/tc-e2e-gate/assets/e2e_user_story_template.md`
+
 ## 变更记录
 - YYYY-MM-DD: 创建（草稿）
-

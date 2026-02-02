@@ -1,0 +1,63 @@
+import type { APIRequestContext } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+
+const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
+const apiBase =
+  process.env.E2E_API_BASE_URL ?? process.env.VITE_API_BASE ?? process.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+function seriesId(symbol: string) {
+  return `binance:futures:${symbol}:1m`;
+}
+
+async function ingestClosedCandle(request: APIRequestContext, symbol: string, candle_time: number) {
+  const res = await request.post(`${apiBase}/api/market/ingest/candle_closed`, {
+    data: {
+      series_id: seriesId(symbol),
+      candle: {
+        candle_time,
+        open: 1,
+        high: 2,
+        low: 0.5,
+        close: 1.5,
+        volume: 10
+      }
+    }
+  });
+  expect(res.ok()).toBeTruthy();
+}
+
+test("backtest tab runs a backtest and prints output", async ({ page, request }) => {
+  await page.addInitScript(() => localStorage.clear());
+
+  // Seed a tiny candle history so Live chart loads cleanly.
+  await ingestClosedCandle(request, "BTC/USDT", 60);
+  await ingestClosedCandle(request, "BTC/USDT", 120);
+
+  await page.goto(`${frontendBase}/live`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-chart-area="true"] canvas').first()).toBeVisible();
+
+  await page.getByTestId("bottom-tab-Backtest").click();
+  await expect(page.getByTestId("backtest-panel")).toBeVisible();
+
+  const strategySelect = page.getByTestId("backtest-strategy-select");
+  await expect(strategySelect).toBeVisible();
+  await expect(strategySelect).toHaveValue("DemoStrategy");
+
+  await page.getByTestId("backtest-timerange").fill("20260130-20260201");
+
+  const runRespPromise = page.waitForResponse((r) => {
+    return r.url().includes("/api/backtest/run") && r.request().method() === "POST" && r.status() === 200;
+  });
+  await page.getByTestId("backtest-run").click();
+  const runResp = await runRespPromise;
+  const payload = (await runResp.json()) as { ok: boolean };
+  expect(payload.ok).toBeTruthy();
+
+  const out = page.getByTestId("backtest-output");
+  await expect(out).toContainText("TRADE_CANVAS MOCK BACKTEST");
+  await expect(out).toContainText("strategy=DemoStrategy");
+  await expect(out).toContainText("pair=BTC/USDT");
+  await expect(out).toContainText("timeframe=1m");
+  await expect(out).toContainText("timerange=20260130-20260201");
+});
+

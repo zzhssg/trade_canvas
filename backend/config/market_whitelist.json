@@ -1,0 +1,6 @@
+{
+  "series_ids": [
+    "binance:futures:BTC/USDT:1m",
+    "binance:futures:ETH/USDT:1m"
+  ]
+}

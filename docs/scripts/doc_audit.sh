@@ -12,12 +12,28 @@ fi
 fail=0
 
 while IFS= read -r -d '' file; do
-  # Root README.md is allowed as a short entry index only.
-  if [[ "$file" == "./README.md" ]]; then
-    continue
-  fi
+	# Root README.md is allowed as a short entry index only.
+	if [[ "$file" == "./README.md" ]]; then
+	  continue
+	fi
+	# Root AGENTS.md is allowed (agent instructions, not project docs).
+	if [[ "$file" == "./AGENTS.md" ]]; then
+	  continue
+	fi
   # Ignore vendored/node stuff if present.
   if [[ "$file" == "./frontend/node_modules/"* ]] || [[ "$file" == "./node_modules/"* ]]; then
+    continue
+  fi
+  # Ignore project-local Codex config/skills (tooling, not project docs).
+  if [[ "$file" == "./.codex/"* ]]; then
+    continue
+  fi
+  # Ignore build/test artifacts.
+  if [[ "$file" == "./output/"* ]]; then
+    continue
+  fi
+  # Ignore tool caches.
+  if [[ "$file" == "./.pytest_cache/"* ]] || [[ "$file" == "./.ruff_cache/"* ]] || [[ "$file" == "./.mypy_cache/"* ]]; then
     continue
   fi
   # Ignore local virtualenvs.
@@ -35,3 +51,7 @@ if [[ "$fail" -ne 0 ]]; then
 fi
 
 echo "OK: no Markdown files outside docs/ (except README.md)."
+
+if [[ -x "docs/scripts/doc_frontmatter_audit.sh" ]]; then
+  bash "docs/scripts/doc_frontmatter_audit.sh"
+fi

@@ -6,7 +6,18 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    proxy: {
+      "/binance-spot": {
+        target: "https://api.binance.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/binance-spot/, "")
+      },
+      "/binance-fapi": {
+        target: "https://fapi.binance.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/binance-fapi/, "")
+      }
+    }
   }
 });
-

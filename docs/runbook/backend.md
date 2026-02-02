@@ -1,0 +1,100 @@
+---
+title: Backend 运行手册（market kline sync API）
+status: draft
+created: 2026-02-02
+updated: 2026-02-02
+---
+
+# Backend 运行手册（market kline sync API）
+
+## 启动
+
+```bash
+bash scripts/dev_backend.sh
+```
+
+Whitelist 真源：`backend/config/market_whitelist.json`。
+
+### 可选：启用 ingest（Whitelist / On-demand）
+
+```bash
+export TRADE_CANVAS_ENABLE_WHITELIST_INGEST=1
+export TRADE_CANVAS_ENABLE_ONDEMAND_INGEST=1  # 默认已开启（dev_backend.sh）
+export TRADE_CANVAS_ONDEMAND_IDLE_TTL_S=60
+bash scripts/dev_backend.sh
+```
+
+## 回测（freqtrade backtesting）
+
+回测依赖 freqtrade 与可用的历史数据（datadir）。后端会基于 `TRADE_CANVAS_FREQTRADE_CONFIG` 生成一份“最小回测临时 config”，并调用子进程执行。
+
+常用环境变量：
+- `TRADE_CANVAS_FREQTRADE_ROOT`：freqtrade 工作目录（用于相对路径与 PYTHONPATH 注入）
+- `TRADE_CANVAS_FREQTRADE_CONFIG`：base config 路径
+- `TRADE_CANVAS_FREQTRADE_USERDIR`：可选，透传给 `freqtrade --userdir`
+- `TRADE_CANVAS_FREQTRADE_BIN`：可选，默认 `freqtrade`
+- `TRADE_CANVAS_FREQTRADE_STRATEGY_PATH`：可选，默认 `./Strategy`（透传给 `freqtrade --strategy-path`）
+- `TRADE_CANVAS_CORS_ORIGINS`：允许前端跨端口访问（默认已包含 `localhost:5173`）
+
+列出策略：
+
+```bash
+curl -sS "http://localhost:8000/api/backtest/strategies"
+```
+
+运行回测（示例）：
+
+```bash
+curl -sS -X POST "http://localhost:8000/api/backtest/run" \
+  -H 'content-type: application/json' \
+  -d '{"strategy_name":"FactorEngineTestStrategy","pair":"BTC/USDT","timeframe":"1h","timerange":"20260130-20260201"}'
+```
+
+## 写入（显式 ingest，用于本地验证）
+
+```bash
+curl -sS -X POST "http://localhost:8000/api/market/ingest/candle_closed" \
+  -H 'content-type: application/json' \
+  -d '{"series_id":"binance:futures:BTC/USDT:1m","candle":{"candle_time":100,"open":1,"high":2,"low":0.5,"close":1.5,"volume":10}}'
+```
+
+## 读取（HTTP 增量）
+
+```bash
+curl -sS "http://localhost:8000/api/market/candles?series_id=binance:futures:BTC/USDT:1m&since=0&limit=500"
+```
+
+## 市场列表（Top20）
+
+后端统一代理（避免前端直连交易所/CORS/口径漂移）：
+
+```bash
+curl -sS "http://localhost:8000/api/market/top_markets?exchange=binance&market=spot&quote_asset=USDT&limit=20"
+curl -sS "http://localhost:8000/api/market/top_markets?exchange=binance&market=futures&quote_asset=USDT&limit=20"
+```
+
+可选：强制刷新（有频率限制，可能返回 429）：
+
+```bash
+curl -sS "http://localhost:8000/api/market/top_markets?exchange=binance&market=spot&force=1"
+```
+
+可选环境变量（默认值见代码）：
+- `TRADE_CANVAS_BINANCE_SPOT_BASE_URL`
+- `TRADE_CANVAS_BINANCE_FUTURES_BASE_URL`
+- `TRADE_CANVAS_BINANCE_EXCHANGEINFO_TTL_S`
+- `TRADE_CANVAS_BINANCE_TICKER_TTL_S`
+
+### SSE 推送（可选）
+
+```bash
+curl -N "http://localhost:8000/api/market/top_markets/stream?exchange=binance&market=spot&quote_asset=USDT&limit=20"
+```
+
+## WS（订阅）
+
+任意 WS 客户端向 `ws://localhost:8000/ws/market` 连接后发送：
+
+```json
+{"type":"subscribe","series_id":"binance:futures:BTC/USDT:1m","since":100}
+```
