@@ -123,7 +123,8 @@ class OverlayOrchestrator:
                             "position": "aboveBar" if direction == "resistance" else "belowBar",
                             "color": color,
                             "shape": "circle" if level == "pivot.major" else "square",
-                            "text": "P" if level == "pivot.major" else "",
+                            # Keep the field for schema stability, but do not render a letter label.
+                            "text": "",
                         },
                     )
                 )

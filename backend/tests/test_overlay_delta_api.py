@@ -63,6 +63,20 @@ class OverlayDeltaApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(payload["instruction_catalog_patch"]), 1)
         self.assertTrue(any(i.startswith("pivot.major:") or i.startswith("pivot.minor:") for i in payload["active_ids"]))
 
+        # Regression: pivot.major marker keeps `text` field but should be blank (no legacy "P").
+        majors: list[dict] = []
+        for item in payload["instruction_catalog_patch"]:
+            if not isinstance(item, dict) or item.get("kind") != "marker":
+                continue
+            d = item.get("definition")
+            if not isinstance(d, dict):
+                continue
+            if d.get("feature") == "pivot.major":
+                majors.append(d)
+        self.assertTrue(majors, "expected at least one pivot.major marker in patch")
+        self.assertIn("text", majors[0])
+        self.assertEqual(majors[0].get("text"), "")
+
         next_version = int(payload["next_cursor"]["version_id"])
         self.assertGreater(next_version, 0)
 
@@ -84,4 +98,3 @@ class OverlayDeltaApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
