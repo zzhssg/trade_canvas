@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TextIO
@@ -67,6 +69,37 @@ async def list_strategies_async(**kwargs):
 async def run_backtest_async(**kwargs):
     # Keep the event loop responsive: freqtrade runner uses blocking subprocess calls.
     return await run_blocking(run_backtest, **kwargs)
+
+
+def _require_backtest_trades() -> bool:
+    return (os.environ.get("TRADE_CANVAS_BACKTEST_REQUIRE_TRADES") or "").strip() == "1"
+
+
+def _extract_total_trades_from_backtest_zip(*, zip_path: Path, strategy_name: str) -> int:
+    with zipfile.ZipFile(str(zip_path), "r") as zf:
+        candidates = [
+            n
+            for n in zf.namelist()
+            if n.startswith("backtest-result-") and n.endswith(".json") and not n.endswith("_config.json")
+        ]
+        if not candidates:
+            candidates = [n for n in zf.namelist() if n.endswith(".json") and not n.endswith("_config.json")]
+        if not candidates:
+            raise ValueError("missing backtest stats json in zip")
+
+        raw = zf.read(candidates[0]).decode("utf-8", errors="replace")
+        payload = json.loads(raw)
+
+    strat = (payload.get("strategy") or {}).get(strategy_name)
+    if not isinstance(strat, dict):
+        raise ValueError("missing strategy stats in backtest json")
+    total = strat.get("total_trades")
+    if isinstance(total, int):
+        return total
+    trades = strat.get("trades")
+    if isinstance(trades, list):
+        return len(trades)
+    raise ValueError("missing total_trades/trades in strategy stats")
 
 
 def _maybe_enable_faulthandler() -> None:
@@ -965,6 +998,7 @@ def create_app() -> FastAPI:
             cwd=project_root,
             recursive=recursive,
             strategy_path=settings.freqtrade_strategy_path,
+            extra_env={"TRADE_CANVAS_FREQTRADE_OFFLINE_MARKETS_PAIRS": "BTC/USDT"},
         )
         strategies = parse_strategy_list(res.stdout)
         if not res.ok and not strategies:
@@ -1148,17 +1182,25 @@ def create_app() -> FastAPI:
             )
         bt_cfg = build_backtest_config(base_cfg, pair=pair, timeframe=payload.timeframe)
         tmp_config = write_temp_config(bt_cfg, root_dir=project_root / "freqtrade_user_data")
+        export_dir = project_root / "freqtrade_user_data" / "backtest_results" / f"tc_{int(time.time())}_{os.getpid()}"
+        export_dir.mkdir(parents=True, exist_ok=True)
         try:
             res = await run_backtest_async(
                 freqtrade_bin=settings.freqtrade_bin,
                 userdir=userdir,
                 cwd=project_root,
                 config_path=tmp_config,
+                datadir=datadir_path,
                 strategy_name=payload.strategy_name,
                 pair=pair,
                 timeframe=payload.timeframe,
                 timerange=payload.timerange,
                 strategy_path=settings.freqtrade_strategy_path,
+                export="trades",
+                export_dir=export_dir,
+                extra_env={
+                    "TRADE_CANVAS_FREQTRADE_OFFLINE_MARKETS_PAIRS": pair.split(":", 1)[0],
+                },
             )
         finally:
             try:
@@ -1172,6 +1214,42 @@ def create_app() -> FastAPI:
             logger.info("freqtrade backtesting stdout:\n%s", res.stdout.rstrip("\n"))
         if res.stderr.strip():
             logger.info("freqtrade backtesting stderr:\n%s", res.stderr.rstrip("\n"))
+
+        if res.ok and res.exit_code == 0 and _require_backtest_trades():
+            zips = sorted(export_dir.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if not zips:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "message": "no_backtest_export",
+                        "export_dir": str(export_dir),
+                        "hint": "Expected freqtrade to export backtest results but no zip was found.",
+                    },
+                )
+            try:
+                total_trades = _extract_total_trades_from_backtest_zip(
+                    zip_path=zips[0], strategy_name=payload.strategy_name
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "message": "bad_backtest_export",
+                        "export_zip": str(zips[0]),
+                        "error": str(e),
+                    },
+                )
+            if total_trades <= 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "message": "no_trades",
+                        "strategy": payload.strategy_name,
+                        "total_trades": int(total_trades),
+                        "export_zip": str(zips[0]),
+                        "stdout_tail": (res.stdout or "")[-2000:],
+                    },
+                )
 
         return BacktestRunResponse(
             ok=res.ok,

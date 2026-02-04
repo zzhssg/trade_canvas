@@ -5,6 +5,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -114,15 +115,11 @@ def list_strategies(
     cwd: Path | None = None,
     recursive: bool = True,
     strategy_path: Path | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> FreqtradeExecResult:
-    command = [
-        freqtrade_bin,
-        "list-strategies",
-        "-1",
-        "--logfile",
-        "/dev/null",
-        "--no-color",
-    ]
+    # Use `python -c ...` wrapper so we can patch ccxt before freqtrade bootstraps the Exchange.
+    code = "from trade_canvas.offline_bootstrap import maybe_patch_ccxt; maybe_patch_ccxt(); from freqtrade import main as _m; _m.main()"
+    command = [sys.executable, "-c", code, "list-strategies", "-1", "--logfile", "/dev/null", "--no-color"]
     if userdir is not None:
         command.extend(["--userdir", str(userdir)])
     if strategy_path is not None:
@@ -134,6 +131,8 @@ def list_strategies(
     env = os.environ.copy()
     if cwd is not None:
         env["PYTHONPATH"] = f"{cwd}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    if extra_env:
+        env.update(extra_env)
     proc = subprocess.run(
         command,
         capture_output=True,
@@ -172,15 +171,10 @@ async def list_strategies_async(
     recursive: bool = True,
     strategy_path: Path | None = None,
     timeout_s: float | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> FreqtradeExecResult:
-    command = [
-        freqtrade_bin,
-        "list-strategies",
-        "-1",
-        "--logfile",
-        "/dev/null",
-        "--no-color",
-    ]
+    code = "from trade_canvas.offline_bootstrap import maybe_patch_ccxt; maybe_patch_ccxt(); from freqtrade import main as _m; _m.main()"
+    command = [sys.executable, "-c", code, "list-strategies", "-1", "--logfile", "/dev/null", "--no-color"]
     if userdir is not None:
         command.extend(["--userdir", str(userdir)])
     if strategy_path is not None:
@@ -192,6 +186,8 @@ async def list_strategies_async(
     env = os.environ.copy()
     if cwd is not None:
         env["PYTHONPATH"] = f"{cwd}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    if extra_env:
+        env.update(extra_env)
 
     rc, stdout, stderr = await _run_subprocess(
         command,
@@ -217,41 +213,42 @@ def run_backtest(
     userdir: Path | None,
     cwd: Path | None = None,
     config_path: Path | None,
+    datadir: Path | None = None,
     strategy_name: str,
     pair: str,
     timeframe: str,
     timerange: str | None = None,
     strategy_path: Path | None = None,
+    export_dir: Path | None = None,
+    export: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> FreqtradeExecResult:
     if not validate_strategy_name(strategy_name):
         raise ValueError("Invalid strategy name")
 
-    command = [
-        freqtrade_bin,
-        "backtesting",
-        "--strategy",
-        strategy_name,
-        "--logfile",
-        "/dev/null",
-        "--no-color",
-        "--timeframe",
-        timeframe,
-        "--pairs",
-        pair,
-    ]
+    code = "from trade_canvas.offline_bootstrap import maybe_patch_ccxt; maybe_patch_ccxt(); from freqtrade import main as _m; _m.main()"
+    command = [sys.executable, "-c", code, "backtesting", "--strategy", strategy_name, "--logfile", "/dev/null", "--no-color", "--timeframe", timeframe, "--pairs", pair]
     if userdir is not None:
         command.extend(["--userdir", str(userdir)])
     if strategy_path is not None:
         command.extend(["--strategy-path", str(strategy_path)])
     if config_path is not None:
         command.extend(["-c", str(config_path)])
+    if datadir is not None:
+        command.extend(["--datadir", str(datadir)])
     if timerange:
         command.extend(["--timerange", timerange])
+    if export:
+        command.extend(["--export", export])
+    if export_dir is not None:
+        command.extend(["--backtest-directory", str(export_dir)])
 
     start = time.monotonic()
     env = os.environ.copy()
     if cwd is not None:
         env["PYTHONPATH"] = f"{cwd}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    if extra_env:
+        env.update(extra_env)
     proc = subprocess.run(
         command,
         capture_output=True,
@@ -277,42 +274,43 @@ async def run_backtest_async(
     userdir: Path | None,
     cwd: Path | None = None,
     config_path: Path | None,
+    datadir: Path | None = None,
     strategy_name: str,
     pair: str,
     timeframe: str,
     timerange: str | None = None,
     strategy_path: Path | None = None,
     timeout_s: float | None = None,
+    export_dir: Path | None = None,
+    export: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> FreqtradeExecResult:
     if not validate_strategy_name(strategy_name):
         raise ValueError("Invalid strategy name")
 
-    command = [
-        freqtrade_bin,
-        "backtesting",
-        "--strategy",
-        strategy_name,
-        "--logfile",
-        "/dev/null",
-        "--no-color",
-        "--timeframe",
-        timeframe,
-        "--pairs",
-        pair,
-    ]
+    code = "from trade_canvas.offline_bootstrap import maybe_patch_ccxt; maybe_patch_ccxt(); from freqtrade import main as _m; _m.main()"
+    command = [sys.executable, "-c", code, "backtesting", "--strategy", strategy_name, "--logfile", "/dev/null", "--no-color", "--timeframe", timeframe, "--pairs", pair]
     if userdir is not None:
         command.extend(["--userdir", str(userdir)])
     if strategy_path is not None:
         command.extend(["--strategy-path", str(strategy_path)])
     if config_path is not None:
         command.extend(["-c", str(config_path)])
+    if datadir is not None:
+        command.extend(["--datadir", str(datadir)])
     if timerange:
         command.extend(["--timerange", timerange])
+    if export:
+        command.extend(["--export", export])
+    if export_dir is not None:
+        command.extend(["--backtest-directory", str(export_dir)])
 
     start = time.monotonic()
     env = os.environ.copy()
     if cwd is not None:
         env["PYTHONPATH"] = f"{cwd}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    if extra_env:
+        env.update(extra_env)
 
     rc, stdout, stderr = await _run_subprocess(
         command,
