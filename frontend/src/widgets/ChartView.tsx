@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useResizeObserver from "use-resize-observer";
 
 import { apiWsBase } from "../lib/api";
+import { logDebugEvent } from "../debug/debug";
 import { CENTER_SCROLL_SELECTOR, chartWheelZoomRatio, normalizeWheelDeltaY } from "../lib/wheelContract";
 import { FACTOR_CATALOG, getFactorParentsBySubKey } from "../services/factorCatalog";
 import { useFactorStore } from "../state/factorStore";
@@ -812,8 +813,24 @@ export function ChartView() {
         // Initial: load tail (latest N).
         const initial = await fetchCandles({ seriesId, limit: INITIAL_TAIL_LIMIT });
         if (!isActive) return;
+        logDebugEvent({
+          pipe: "read",
+          event: "read.http.market_candles_result",
+          series_id: seriesId,
+          level: "info",
+          message: "initial candles loaded",
+          data: { count: initial.candles.length }
+        });
         if (initial.candles.length > 0) {
           if (replayEnabled) {
+            logDebugEvent({
+              pipe: "read",
+              event: "read.replay.load_initial",
+              series_id: seriesId,
+              level: "info",
+              message: "replay initial load",
+              data: { count: initial.candles.length }
+            });
             replayAllCandlesRef.current = initial.candles;
             replayPatchRef.current = [];
             replayPatchAppliedIdxRef.current = 0;
@@ -878,6 +895,14 @@ export function ChartView() {
         const wsUrl = `${apiWsBase()}/ws/market`;
         ws = new WebSocket(wsUrl);
         ws.onopen = () => {
+          logDebugEvent({
+            pipe: "read",
+            event: "read.ws.market_subscribe",
+            series_id: seriesId,
+            level: "info",
+            message: "ws market subscribe",
+            data: { since: cursor > 0 ? cursor : null }
+          });
           ws?.send(
             JSON.stringify({ type: "subscribe", series_id: seriesId, since: cursor > 0 ? cursor : null, supports_batch: true })
           );
@@ -989,7 +1014,28 @@ export function ChartView() {
               return next;
             });
 
-            if (t != null) scheduleOverlayFollow(t);
+            if (t != null) {
+              logDebugEvent({
+                pipe: "read",
+                event: "read.ws.market_candles_batch",
+                series_id: seriesId,
+                level: "info",
+                message: "ws candles batch",
+                data: { count: msg.candles.length, last_time: t }
+              });
+            }
+
+            if (t != null) {
+              logDebugEvent({
+                pipe: "read",
+                event: "read.ws.market_candle_closed",
+                series_id: seriesId,
+                level: "info",
+                message: "ws candle_closed",
+                data: { candle_time: t }
+              });
+              scheduleOverlayFollow(t);
+            }
             return;
           }
 
@@ -1008,11 +1054,30 @@ export function ChartView() {
             const next = toChartCandle(msg.candle);
             candlesRef.current = mergeCandleWindow(candlesRef.current, next, INITIAL_TAIL_LIMIT);
             setCandles((prev) => mergeCandleWindow(prev, next, INITIAL_TAIL_LIMIT));
+            logDebugEvent({
+              pipe: "read",
+              event: "read.ws.market_candle_closed",
+              series_id: seriesId,
+              level: "info",
+              message: "ws candle_closed",
+              data: { candle_time: t }
+            });
             scheduleOverlayFollow(t);
             return;
           }
 
           if (msg.type === "gap") {
+            logDebugEvent({
+              pipe: "read",
+              event: "read.ws.market_gap",
+              series_id: seriesId,
+              level: "warn",
+              message: "ws gap",
+              data: {
+                expected_next_time: msg.expected_next_time ?? null,
+                actual_time: msg.actual_time ?? null
+              }
+            });
             const last = candlesRef.current[candlesRef.current.length - 1];
             const fetchParams = last
               ? ({ seriesId, since: last.time as number, limit: 5000 } as const)
