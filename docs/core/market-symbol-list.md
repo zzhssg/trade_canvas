@@ -64,7 +64,7 @@ Binance 返回的 `quoteVolume` 单位是 **quote 资产**。为了避免“不�
 
 ### 3.1 Market List 输出模型（前端）
 
-对应实现：`frontend/src/services/binanceTopMarkets.ts`
+对应实现：`frontend/src/services/useTopMarkets.ts`
 
 - `exchange="binance"`
 - `market in ("spot"|"futures")`

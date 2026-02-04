@@ -11,9 +11,10 @@ type Params = {
   quoteAsset?: string;
   limit?: number;
   intervalS?: number;
+  stream?: boolean;
 };
 
-type SseState = "connecting" | "connected";
+type SseState = "connecting" | "connected" | "disabled";
 
 function buildQueryString(params: Required<Pick<Params, "market" | "quoteAsset" | "limit">> & { force?: boolean }) {
   const qs = new URLSearchParams({
@@ -42,6 +43,7 @@ export function useTopMarkets(params: Params) {
   const quoteAsset = (params.quoteAsset ?? "USDT").toUpperCase();
   const limit = params.limit ?? 20;
   const intervalS = params.intervalS ?? 2;
+  const stream = params.stream ?? true;
 
   const queryKey = useMemo(() => ["topMarkets", params.market, quoteAsset, limit] as const, [params.market, quoteAsset, limit]);
   const [sseState, setSseState] = useState<SseState>("connecting");
@@ -56,6 +58,12 @@ export function useTopMarkets(params: Params) {
   });
 
   useEffect(() => {
+    if (!stream) {
+      setSseState("disabled");
+      return;
+    }
+
+    setSseState("connecting");
     const qs = buildStreamQueryString({ market: params.market, quoteAsset, limit, intervalS });
     const url = apiUrl(`/api/market/top_markets/stream?${qs}`);
     const es = new EventSource(url);
@@ -78,7 +86,7 @@ export function useTopMarkets(params: Params) {
     es.addEventListener("top_markets", onTopMarkets);
     es.addEventListener("error", onError);
     return () => es.close();
-  }, [intervalS, limit, params.market, queryClient, queryKey, quoteAsset]);
+  }, [intervalS, limit, params.market, queryClient, queryKey, quoteAsset, stream]);
 
   const refresh = async () => {
     const qs = buildQueryString({ market: params.market, quoteAsset, limit, force: true });
@@ -89,4 +97,3 @@ export function useTopMarkets(params: Params) {
 
   return { ...query, sseState, refresh };
 }
-

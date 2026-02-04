@@ -2,14 +2,15 @@ import { ChartView } from "../widgets/ChartView";
 import { useCenterScrollLock } from "../layout/centerScrollLock";
 import { FactorPanel } from "./FactorPanel";
 import { useUiStore } from "../state/uiStore";
+import { useTopMarkets } from "../services/useTopMarkets";
 
-const DEFAULT_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"] as const;
 const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
 
 export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
   const { market, setMarket, symbol, setSymbol, timeframe, setTimeframe } = useUiStore();
   const scrollLock = useCenterScrollLock();
-  const symbolOptions = Array.from(new Set([symbol, ...DEFAULT_SYMBOLS]));
+  const topMarkets = useTopMarkets({ market, quoteAsset: "USDT", limit: 20, stream: false });
+  const symbolOptions = Array.from(new Set([symbol, ...(topMarkets.data?.items ?? []).map((it) => it.symbol)]));
   const timeframeOptions = (TIMEFRAMES as readonly string[]).includes(timeframe)
     ? TIMEFRAMES
     : ([...TIMEFRAMES, timeframe] as const);
