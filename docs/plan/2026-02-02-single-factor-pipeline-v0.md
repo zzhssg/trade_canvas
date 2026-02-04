@@ -3,7 +3,7 @@ title: 单因子链路打通 v0（闭合K→因子→冷热存储→增量绘图
 status: 已完成
 owner:
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-04
 ---
 
 ## 背景
@@ -62,7 +62,8 @@ v0 改为实现 **旧系统的 Pivot（极值点）算法**，并用其产出最
   - 建议加 unique：`(series_id, candle_time, kind)`，用 upsert 保证幂等；`id` 作为 cursor。
 
 对外接口（对齐 `docs/core/contracts/overlay_v1.md`）：
-- `GET /api/plot/delta?series_id=...&cursor_candle_time=...&cursor_overlay_event_id=...`
+- 历史：`GET /api/plot/delta?series_id=...&cursor_candle_time=...&cursor_overlay_event_id=...`（已于 2026-02-04 移除）
+- 现状：`GET /api/draw/delta?series_id=...&cursor_version_id=...&window_candles=...`
   - 返回 `PlotDeltaV1`：`lines`（增量 points）+ `overlay_events`（增量 events）+ `next_cursor`
 - （可选）`WS /ws/plot`：订阅后推送 `plot_delta`（减少轮询延迟；但 v0 可先只做 HTTP 增量拉取）
 
@@ -73,7 +74,9 @@ v0 改为实现 **旧系统的 Pivot（极值点）算法**，并用其产出最
 ### 3) 事件驱动：以 CandleClosed 为唯一触发源
 
 写入触发点（v0 建议只挂一处，避免双写）：
-- 在 `POST /api/market/ingest/candle_closed` 以及 ingest loops 的批量写入路径之后，统一调用 `PlotOrchestrator.ingest_closed(series_id, candles[])`：
+- 在 `POST /api/market/ingest/candle_closed` 以及 ingest loops 的批量写入路径之后，统一调用：
+  - `FactorOrchestrator.ingest_closed(series_id, up_to_candle_time)`（因子真源）
+  - `OverlayOrchestrator.ingest_closed(series_id, up_to_candle_time)`（绘图指令真源，供 `/api/draw/delta` 读取）
   1) 按时间顺序计算增量（可用查询近窗或内存状态）
   2) 批量 upsert points/events（单事务）
   3) （可选）广播 plot delta（WS）
@@ -87,21 +90,21 @@ v0 改为实现 **旧系统的 Pivot（极值点）算法**，并用其产出最
 `frontend/src/widgets/ChartView.tsx` 迁移思路：
 - 蜡烛仍从 `GET /api/market/candles` + `WS /ws/market` 获取（不动）。
 - Pivot 极值点 markers 改为：
-  - 初始拉取：`GET /api/plot/delta`（cursor 为空）拿到 tail window 的 points/events
+  - 初始拉取：`GET /api/draw/delta`（cursor_version_id=0）拿到 tail window 的指令 patch/active_ids
   - 增量跟随：当收到 `candle_closed` 后，以 cursor 拉取一次 plot delta（或订阅 /ws/plot）
 - UI 可见性仍复用 `visibleFeatures`（feature_key -> 显示/隐藏），但数据来源改为后端。
 
 ## 里程碑
 
-- M0：补齐 PlotStore（SQLite schema + CRUD）+ PlotDelta HTTP API（只读）
+- M0（历史）：PlotStore + PlotDelta HTTP API（只读）。现状：PlotStore/PlotDelta 已移除，读口统一收敛到 `/api/draw/delta`。
 - M1：实现 Pivot v0 增量 ingest（旧系统算法：极值点 + 延迟事件）并在 ingest 路径中触发
 - M2：前端改为消费 PlotDelta（用事件绘制 Pivot 极值点 markers；保留本地计算作为 fallback）
 - M3：补齐最小 E2E 用户故事与门禁（后端 pytest + 前端 Playwright）
 
 ## 任务拆解
 
-- [x] M0（PlotStore + API）
-  - 改什么：`backend/app/plot_store.py`（新）+ `backend/app/main.py` 增加 `/api/plot/delta`
+- [x] M0（PlotStore + API，已于 2026-02-04 废弃并移除）
+  - 改什么（历史）：`backend/app/plot_store.py` + `backend/app/main.py` 增加 `/api/plot/delta`（均已移除）
   - 怎么验收：`python -m pytest backend/tests -q`
   - 怎么回滚：删除 plot 相关文件与 route；不影响 market 链路
 - [x] M1（Pivot v0 ingest：极值点 + 延迟事件）
@@ -139,7 +142,7 @@ v0 改为实现 **旧系统的 Pivot（极值点）算法**，并用其产出最
 
 端到端用户故事（v0）：
 1) SQLite 中已有一段 `CandleClosed` 历史（>= 200 根 1m）。
-2) 请求 `GET /api/plot/delta`（cursor 空）返回非空 `overlay_events`（包含 `pivot.major`/`pivot.minor`，若历史足够长能确认）。
+2) 请求 `GET /api/draw/delta`（cursor_version_id=0）返回非空 `instruction_catalog_patch`，并且 `active_ids` 包含 `pivot.major`/`pivot.minor`。
 3) 写入一根新的 `CandleClosed` 后，再次请求增量 cursor：
    - 在满足确认条件时，overlay_events 追加 `pivot.major`/`pivot.minor`（event.candle_time == visible_time）
    - payload 中 `pivot_time/pivot_price` 可用于前端把点画到 pivot_time 的蜡烛上（延迟回填）

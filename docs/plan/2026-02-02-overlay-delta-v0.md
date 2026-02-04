@@ -3,21 +3,21 @@ title: Overlay Delta v0（instruction_catalog_patch + active_ids，统一绘图�
 status: in_progress
 owner:
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-04
 ---
 
 ## 背景
 
 当前问题（需要收敛架构）：
 - 前端同时消费 `plot_delta`（pivot markers）与 `factor_slices`（pen polyline），在前端做“状态机/拼装”。
-- 统一的绘图契约（`docs/core/contracts/overlay_v1.md`）与当前实现存在偏差：代码里已出现 `/api/overlay/delta`（instruction catalog patch），但前端与 E2E 仍主要跑 `/api/plot/delta`（overlay events）+ `/api/factor/slices`（pen）。
+- 统一的绘图契约（现以 `docs/core/contracts/draw_delta_v1.md` 为准）与当时实现存在偏差：代码里已出现 `/api/overlay/delta`（instruction catalog patch），但前端与 E2E 仍主要跑 `/api/plot/delta`（overlay events）+ `/api/factor/slices`（pen）。现状（2026-02-04）：`/api/plot/delta` 与 `/api/overlay/delta` 已移除，读口统一收敛到 `/api/draw/delta`。
 
 目标是把“做图”收敛成：**后端产出统一指令 + 落库 + 增量协议**，前端只负责渲染，避免屎山。
 
 ## 现状盘点（截至 2026-02-02）
 
 - 后端已具备 v0 基座：
-  - `GET /api/overlay/delta`（`backend/app/main.py`）
+  - `GET /api/draw/delta`（`backend/app/main.py`）
   - `OverlayStore`（`backend/app/overlay_store.py`）+ `OverlayOrchestrator`（`backend/app/overlay_orchestrator.py`）
 - 前端仍未接入：`frontend/src/widgets/ChartView.tsx` 仍以 `plot_delta + factor_slices` 拼装。
 - Playwright 门禁用例仍断言 “pivot markers 来自 plot delta”（`frontend/e2e/market_kline_sync.spec.ts`）。
@@ -25,11 +25,11 @@ updated: 2026-02-02
 ## 目标 / 非目标
 
 ### 目标（Do）
-- 引入统一 overlay 增量接口：`GET /api/overlay/delta`
+- 引入统一绘图增量接口：`GET /api/draw/delta`
   - 返回 `instruction_catalog_patch + active_ids + next_cursor`
   - 指令定义为 JSON 友好的 `OverlayInstructionV1`（marker / polyline）
 - 后端落库 overlay 指令（SQLite），并支持增量 patch（按 version_id 单调递增）
-- 前端只消费 `/api/overlay/delta` 来渲染 pivot/pen（不再拼装 plot+factor 两路）
+- 前端只消费 `/api/draw/delta` 来渲染 pivot/pen（不再拼装 plot+factor 两路）
 
 ### 非目标（Don’t）
 - 不引入 slot-delta/replay 复杂度（v0 先用 active_ids 全量快照 + catalog patch 增量）
@@ -105,13 +105,13 @@ updated: 2026-02-02
 ### Persona / Goal
 
 - Persona：策略开发者（观察结构因子在 live 图上的证据）
-- Goal：同一份 closed K 线输入驱动后端生成 overlay 指令；前端仅通过 `/api/overlay/delta` 渲染出 pivot markers + pen polyline，并能在 WS 收到新收线后增量更新
+- Goal：同一份 closed K 线输入驱动后端生成绘图指令；前端仅通过 `/api/draw/delta` 渲染出 pivot markers + pen polyline，并能在 WS 收到新收线后增量更新
 
 ### Entry / Exit
 
 - Entry：通过 `POST /api/market/ingest/candle_closed` 注入一段闭合 K 线序列（`series_id` 固定）
 - Exit：
-  - 后端：`GET /api/overlay/delta` 返回 `active_ids.length > 0` 且 `instruction_catalog_patch` 可合并复现
+  - 后端：`GET /api/draw/delta` 返回 `active_ids.length > 0` 且 `instruction_catalog_patch` 可合并复现
   - 前端：`/live` 页面渲染出 `pivot markers > 0`，且 `pen` 折线点数 > 0（窗口内）
   - 增量：再注入 1 根新 closed candle 后，WS 推进 + overlay delta cursor 推进（仍能渲染）
 
@@ -127,7 +127,7 @@ updated: 2026-02-02
    - Assertions：
      - `GET /api/market/candles` 能返回该 series 的 tail candles（>=2）
    - Evidence：Playwright trace（`output/playwright/`）
-2) 前端加载 `/live`，拉取 `/api/overlay/delta` 并渲染
+2) 前端加载 `/live`，拉取 `/api/draw/delta` 并渲染
    - Assertions：
      - `[data-testid="chart-view"][data-pivot-count] > 0`
      - `[data-testid="chart-view"][data-pen-point-count] > 0`
@@ -142,7 +142,7 @@ updated: 2026-02-02
 
 - 场景：让 CandleStore 推进到 `t`，但 overlay 未推进（禁用 `TRADE_CANVAS_ENABLE_OVERLAY_INGEST=0` 或人为制造 overlay lag）
 - 断言：前端不得展示“对不齐的伪证据”
-  - 可接受行为：`/api/overlay/delta` 的 `to_candle_time < market.head_time`，或明确返回 `ledger_missing/build_required`
+  - 可接受行为：`/api/draw/delta` 的 `to_candle_time < market.head_time`，或明确返回 `ledger_missing/build_required`
   - 不可接受行为：`to_candle_time` 超过 candle 真源 / 或渲染出与真源不一致的指令
 
 ## 里程碑（小步可回滚）
@@ -150,7 +150,7 @@ updated: 2026-02-02
 ### M1：锁死契约 + 对齐文档（只动文档/类型，不改行为）
 
 - 改什么：
-  - 更新 `docs/core/contracts/overlay_v1.md`：以 `OverlayDeltaV1`（catalog patch）为主契约，标注 `/api/plot/delta` 为 legacy（保留兼容期）
+  - 更新 `docs/core/contracts/draw_delta_v1.md`：以 `DrawDeltaV1`（catalog patch）为主契约；`overlay_v1` 标记 deprecated；旧的 `/api/plot/delta`/`/api/overlay/delta` 已移除
   -（可选）在 `docs/core/contracts/delta_ledger_v1.md` 补一句：overlay 指令流将作为 delta 的一个子流接入
 - 怎么验收：
   - `bash docs/scripts/doc_audit.sh`
@@ -183,8 +183,8 @@ updated: 2026-02-02
 ### M4：收敛/清理（可选，放到 v0 完成后再做）
 
 - 改什么：
-  - 停止在 chart 主路径调用 `/api/plot/delta` 与 `/api/factor/slices`（保留 debug 页或 debug tab 再调用）
-  - 为 `/api/plot/delta` 写 deprecation 注记，并在稳定期后移除 `PlotStore/PlotOrchestrator`
+  - 停止在 chart 主路径调用 `/api/plot/delta` 与 `/api/factor/slices`（现状：已收敛为 `/api/draw/delta` + world frame）
+  - `PlotStore/PlotOrchestrator` 已于 2026-02-04 移除
 - 怎么验收：
   - `pytest -q`
   - `bash scripts/e2e_acceptance.sh`
