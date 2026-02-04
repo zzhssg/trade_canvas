@@ -84,7 +84,37 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(payload2["instruction_catalog_patch"], [])
         self.assertEqual(payload2["series_points"], {})
 
+    def test_draw_delta_supports_at_time_and_fails_when_overlay_lags(self) -> None:
+        base = 60
+        prices = [1, 2, 5, 2, 1, 2, 5, 2, 1]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        # at_time clamps the upper-bound to an aligned closed candle_time.
+        t_mid = times[4]
+        res_mid = self.client.get(
+            "/api/draw/delta",
+            params={"series_id": self.series_id, "cursor_version_id": 0, "at_time": t_mid},
+        )
+        self.assertEqual(res_mid.status_code, 200, res_mid.text)
+        payload_mid = res_mid.json()
+        self.assertEqual(payload_mid["to_candle_time"], t_mid)
+        self.assertEqual(payload_mid["to_candle_id"], f"{self.series_id}:{t_mid}")
+
+        # Force overlay head_time to lag behind, then requesting a later at_time must fail-safe.
+        overlay_store = self.client.app.state.overlay_store
+        with overlay_store.connect() as conn:
+            overlay_store.upsert_head_time_in_conn(conn, series_id=self.series_id, head_time=t_mid)
+            conn.commit()
+
+        res_late = self.client.get(
+            "/api/draw/delta",
+            params={"series_id": self.series_id, "cursor_version_id": 0, "at_time": times[-1]},
+        )
+        self.assertEqual(res_late.status_code, 409, res_late.text)
+        self.assertIn("ledger_out_of_sync", res_late.text)
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -6,6 +6,13 @@ import { useUiStore } from "../state/uiStore";
 
 type StrategyListResponse = { strategies: string[] };
 
+type BacktestPairTimeframesResponse = {
+  pair: string;
+  trading_mode: string;
+  datadir: string;
+  available_timeframes: string[];
+};
+
 type BacktestRunRequest = {
   strategy_name: string;
   pair: string;
@@ -32,7 +39,14 @@ export function BacktestPanel({ containerClassName }: { containerClassName?: str
     queryFn: () => apiJson<StrategyListResponse>("/api/backtest/strategies")
   });
 
+  const timeframesQuery = useQuery({
+    queryKey: ["backtest", "pair_timeframes", symbol],
+    queryFn: () => apiJson<BacktestPairTimeframesResponse>(`/api/backtest/pair_timeframes?pair=${encodeURIComponent(symbol)}`)
+  });
+
   const strategies = strategiesQuery.data?.strategies ?? [];
+  const availableTimeframes = timeframesQuery.data?.available_timeframes ?? [];
+  const timeframeAvailable = availableTimeframes.length === 0 ? true : availableTimeframes.includes(timeframe);
 
   const defaultStrategy = useMemo(() => strategies[0] ?? "", [strategies]);
   const selectedStrategy = selected || defaultStrategy;
@@ -59,7 +73,7 @@ export function BacktestPanel({ containerClassName }: { containerClassName?: str
   }, [runMutation.data]);
 
   return (
-    <div className={["h-full w-full", containerClassName ?? ""].join(" ")} data-testid="backtest-panel">
+    <div className={["w-full", containerClassName ?? ""].join(" ")} data-testid="backtest-panel">
       <div className="mb-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/80">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="font-semibold">Backtest (freqtrade)</div>
@@ -70,7 +84,7 @@ export function BacktestPanel({ containerClassName }: { containerClassName?: str
         </div>
       </div>
 
-      <div className="grid min-h-0 gap-3 md:grid-cols-[360px,1fr]">
+      <div className="grid gap-3 md:grid-cols-[360px,1fr]">
         <div className="rounded-lg border border-white/10 bg-black/20 p-3">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/60">Run</div>
 
@@ -109,7 +123,7 @@ export function BacktestPanel({ containerClassName }: { containerClassName?: str
               "mt-2 w-full rounded border border-white/10 px-3 py-2 text-xs font-semibold",
               runMutation.isPending ? "bg-white/10 text-white/50" : "bg-white/15 text-white hover:bg-white/20"
             ].join(" ")}
-            disabled={runMutation.isPending || !selectedStrategy}
+            disabled={runMutation.isPending || !selectedStrategy || !timeframeAvailable}
             onClick={() =>
               runMutation.mutate({
                 strategy_name: selectedStrategy,
@@ -123,9 +137,22 @@ export function BacktestPanel({ containerClassName }: { containerClassName?: str
             {runMutation.isPending ? "Running..." : "Run backtest"}
           </button>
 
+          {!timeframesQuery.isLoading && !timeframeAvailable ? (
+            <div className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">
+              No local OHLCV history for timeframe <span className="font-mono">{timeframe}</span>. Available:{" "}
+              <span className="font-mono">{availableTimeframes.join(", ") || "(none)"}</span>
+            </div>
+          ) : null}
+
           {strategiesQuery.isError ? (
             <div className="mt-3 rounded border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-200">
               Failed to load strategies: {(strategiesQuery.error as Error).message}
+            </div>
+          ) : null}
+
+          {timeframesQuery.isError ? (
+            <div className="mt-3 rounded border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-200">
+              Failed to check datadir: {(timeframesQuery.error as Error).message}
             </div>
           ) : null}
 
@@ -136,7 +163,7 @@ export function BacktestPanel({ containerClassName }: { containerClassName?: str
           ) : null}
         </div>
 
-        <div className="flex min-h-[220px] min-w-0 flex-col rounded-lg border border-white/10 bg-black/20 p-3">
+        <div className="min-w-0 rounded-lg border border-white/10 bg-black/20 p-3">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-white/60">Output</div>
             <button
@@ -150,7 +177,7 @@ export function BacktestPanel({ containerClassName }: { containerClassName?: str
             </button>
           </div>
           <pre
-            className="min-h-0 w-full flex-1 overflow-auto rounded border border-white/10 bg-black/30 p-2 text-[11px] leading-relaxed text-white/80"
+            className="tc-scrollbar-none w-full rounded border border-white/10 bg-black/30 p-2 text-[11px] leading-relaxed text-white/80 whitespace-pre-wrap break-words"
             data-testid="backtest-output"
           >
             {output || "No output yet."}
@@ -160,4 +187,3 @@ export function BacktestPanel({ containerClassName }: { containerClassName?: str
     </div>
   );
 }
-

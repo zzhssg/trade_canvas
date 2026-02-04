@@ -147,6 +147,78 @@ test("live chart loads catchup and follows WS", async ({ page, request }) => {
   await expect(chart).toHaveAttribute("data-last-ws-candle-time", String(base * (total + 1)));
 });
 
+test("@smoke live backfill burst does not hammer delta/slices", async ({ page, request }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "trade-canvas-ui",
+      JSON.stringify({
+        version: 2,
+        state: {
+          exchange: "binance",
+          market: "futures",
+          symbol: "BTC/USDT",
+          timeframe: "5m",
+          sidebarCollapsed: false,
+          sidebarWidth: 280,
+          bottomCollapsed: false,
+          bottomHeight: 240,
+          activeSidebarTab: "Market",
+          activeBottomTab: "Ledger"
+        }
+      })
+    );
+  });
+
+  const base = 300;
+  for (let i = 0; i < 20; i++) {
+    await ingestClosedCandle(request, base * (i + 1), i + 1);
+  }
+
+  let deltaGets = 0;
+  let slicesGets = 0;
+  page.on("request", (r) => {
+    if (r.method() !== "GET") return;
+    const url = r.url();
+    if (url.includes("/api/") && url.includes("/delta")) deltaGets += 1;
+    if (url.includes("/api/factor/slices")) slicesGets += 1;
+  });
+
+  // Set up cold-start probe before navigation so we don't miss the first fast response.
+  const sidQuery = `series_id=${encodeURIComponent(seriesId())}`;
+  const frameRespPromise = page.waitForResponse(
+    (r) => r.url().includes("/api/frame/live") && r.url().includes(sidQuery) && r.request().method() === "GET" && r.status() === 200
+  );
+
+  await page.goto(`${frontendBase}/live`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-chart-area="true"]')).toBeVisible();
+
+  // Wait for the cold-start world frame pull so we don't count it in the burst window.
+  await frameRespPromise;
+
+  // Reset counters after cold-start.
+  deltaGets = 0;
+  slicesGets = 0;
+
+  // Burst-ingest many candles in parallel to simulate "fresh-db backfill" behavior.
+  const start = 20;
+  const count = 120;
+  const tasks: Array<Promise<void>> = [];
+  for (let i = 0; i < count; i++) {
+    const t = base * (start + i + 1);
+    tasks.push(ingestClosedCandle(request, t, 1));
+  }
+  await Promise.all(tasks);
+
+  const lastTime = base * (start + count);
+  const chart = page.locator('[data-testid="chart-view"]');
+  await expect(chart).toHaveAttribute("data-last-ws-candle-time", String(lastTime), { timeout: 20_000 });
+
+  // Guardrail (world-frame default): no /api/factor/slices spam; deltas are coalesced.
+  expect(slicesGets).toBe(0);
+  expect(deltaGets).toBeLessThan(15);
+});
+
 test("live chart loads history once and forming candle jumps", async ({ page, request }) => {
   await page.addInitScript(() => {
     localStorage.clear();

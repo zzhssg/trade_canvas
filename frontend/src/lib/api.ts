@@ -1,4 +1,8 @@
-const rawBase = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_BASE ?? (import.meta.env.DEV ? "http://localhost:8000" : "");
+// Dev default uses 127.0.0.1 instead of localhost to avoid some proxy setups hijacking `localhost`.
+const rawBase =
+  import.meta.env.VITE_API_BASE_URL ??
+  import.meta.env.VITE_API_BASE ??
+  (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
 const API_BASE = String(rawBase).trim().replace(/\/+$/, "");
 
 export function apiUrl(path: string) {

@@ -14,3 +14,9 @@
 - 市场币种列表：`docs/core/contracts/market_list_v1.md`
 - 策略类数据结构：`docs/core/contracts/strategy_v1.md`
 - 绘图数据结构：`docs/core/contracts/overlay_v1.md`
+- 绘图增量输出：`docs/core/contracts/draw_delta_v1.md`
+- 回放帧（因子切片 + 绘图指令）：`docs/core/contracts/replay_frame_v1.md`
+- 中枢（dead + alive）：`docs/core/contracts/zhongshu_v1.md`
+- 锚（current + switches）：`docs/core/contracts/anchor_v1.md`
+- 世界状态（frame）：`docs/core/contracts/world_state_v1.md`
+- 世界增量（delta）：`docs/core/contracts/world_delta_v1.md`

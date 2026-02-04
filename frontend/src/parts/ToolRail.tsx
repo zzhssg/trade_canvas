@@ -35,9 +35,9 @@ export function ToolRail() {
   );
 
   return (
-    <div className="flex h-full w-full flex-col overflow-visible border-r border-white/10 bg-white/[0.04]">
+    <div className="flex h-full w-full flex-col overflow-visible border-r border-white/10 bg-white/[0.04] backdrop-blur">
       <div className="flex h-14 items-center justify-center border-b border-white/10">
-        <div className="grid h-8 w-8 place-items-center rounded-md border border-white/10 bg-black/40 text-[11px] font-semibold text-white/80">
+        <div className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-black/35 text-[11px] font-semibold tracking-wide text-white/80 shadow-[0_0_0_1px_rgba(255,255,255,0.03)_inset]">
           TC
         </div>
       </div>
@@ -94,13 +94,15 @@ function ToolButton({
       aria-pressed={active}
       onClick={onClick}
       className={[
-        "group relative grid h-9 w-full place-items-center rounded-lg border text-white/80 outline-none transition",
+        "group relative grid h-9 w-full place-items-center rounded-xl border text-white/80 outline-none transition",
         "focus-visible:ring-2 focus-visible:ring-sky-500/60",
-        active ? "border-white/15 bg-white/10" : "border-transparent hover:border-white/10 hover:bg-white/5"
+        active
+          ? "border-sky-500/25 bg-sky-500/10 text-white shadow-[0_0_0_1px_rgba(56,189,248,0.10)_inset]"
+          : "border-transparent hover:border-white/10 hover:bg-white/5"
       ].join(" ")}
     >
       <span className={active ? "text-white" : "text-white/75 group-hover:text-white"}>{icon}</span>
-      <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 hidden -translate-y-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/80 px-2 py-1 text-[11px] text-white/90 shadow-xl shadow-black/30 group-hover:block">
+      <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 hidden -translate-y-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/80 px-2 py-1 text-[11px] text-white/90 shadow-xl shadow-black/30 backdrop-blur group-hover:block">
         {label}
       </span>
     </button>

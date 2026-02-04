@@ -12,9 +12,9 @@ export function FactorPanel() {
   }, [applyFeatureDefaults, factors]);
 
   return (
-    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+    <div className="relative z-20 rounded-xl border border-white/10 bg-white/5 px-3 py-2 shadow-[0_0_0_1px_rgba(255,255,255,0.03)_inset] backdrop-blur">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-white/60">Factors</div>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Factors</div>
         <div className="text-[11px] text-white/40">feature → sub_feature (visibility)</div>
       </div>
 
@@ -63,8 +63,10 @@ function FactorChip({
         onClick={() => onToggle(factor.key)}
         onMouseEnter={() => hasSubs && setOpen(true)}
         className={[
-          "flex items-center gap-2 rounded border px-2 py-1 text-[11px] transition-colors",
-          checked ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-200" : "border-white/10 bg-black/20 text-white/70 hover:bg-white/10"
+          "flex items-center gap-2 rounded-md border px-2 py-1 text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
+          checked
+            ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-200 shadow-[0_0_0_1px_rgba(16,185,129,0.10)_inset]"
+            : "border-white/10 bg-black/20 text-white/70 hover:bg-white/10"
         ].join(" ")}
       >
         <span className="font-semibold">{factor.label}</span>
@@ -72,8 +74,8 @@ function FactorChip({
       </button>
 
       {open && hasSubs ? (
-        <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded border border-white/10 bg-[#111827]/95 p-2 shadow-lg backdrop-blur">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/40">Sub Features</div>
+        <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded-xl border border-white/10 bg-[#0d1422]/95 p-2 shadow-xl shadow-black/30 backdrop-blur">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">Sub Features</div>
           <div className="flex flex-col gap-1">
             {factor.sub_features.map((sf) => {
               const sfChecked = visibleFeatures[sf.key] ?? sf.default_visible ?? true;

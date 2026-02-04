@@ -93,7 +93,7 @@ trade_system 参考：
 - `TRADE_CANVAS_MARKET_HISTORY_SOURCE=freqtrade`：空库时尝试从 freqtrade datadir 导入（tail）
 - `TRADE_CANVAS_FREQTRADE_DATADIR=/abs/path/to/user_data/data/binance`：显式指定 datadir（优先于 config 推导）
 - `TRADE_CANVAS_MARKET_REALTIME_SOURCE=binance_ws`：使用 Binance kline WS（finalized-only）；默认 `ccxt`
-- `TRADE_CANVAS_ONDEMAND_MAX_JOBS=<n>`：非白名单按需 ingest 的最大并发 job 数（满了会优先驱逐 idle job；否则 WS 会收到 `error code=capacity`）
+- `TRADE_CANVAS_ONDEMAND_MAX_JOBS=<n>`：非白名单按需 ingest 的最大并发 job 数（满了会优先驱逐 idle job；否则 WS 会收到 `error code=capacity`，订阅失败且不会推送 catchup/stream）
 - `TRADE_CANVAS_ENABLE_DEBUG_API=1`：开启 `GET /api/market/debug/ingest_state`
 - `TRADE_CANVAS_BINANCE_WS_BATCH_MAX=<n>` / `TRADE_CANVAS_BINANCE_WS_FLUSH_S=<seconds>`：Binance WS ingest 的批量落库阈值
 

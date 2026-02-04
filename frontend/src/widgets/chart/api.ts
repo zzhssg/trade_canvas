@@ -7,8 +7,10 @@ import type {
   GetFactorSlicesResponseV1,
   OverlayDeltaV1,
   PlotCursorV1,
-  PlotDeltaV1
+  PlotDeltaV1,
+  WorldDeltaPollResponseV1
 } from "./types";
+import type { WorldStateV1 } from "./types";
 
 const CANDLES_FETCH_CACHE_MS = 1000;
 const candlesFetchCache = new Map<
@@ -90,11 +92,13 @@ export async function fetchDrawDelta(params: {
   seriesId: string;
   windowCandles: number;
   cursorVersionId?: number;
+  atTime?: number;
 }): Promise<DrawDeltaV1> {
   const url = new URL(apiUrl("/api/draw/delta"), window.location.origin);
   url.searchParams.set("series_id", params.seriesId);
   url.searchParams.set("window_candles", String(params.windowCandles));
   url.searchParams.set("cursor_version_id", String(params.cursorVersionId ?? 0));
+  if (params.atTime !== undefined) url.searchParams.set("at_time", String(params.atTime));
 
   const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -113,4 +117,46 @@ export async function fetchFactorSlices(params: {
   const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as GetFactorSlicesResponseV1;
+}
+
+export async function fetchWorldFrameLive(params: {
+  seriesId: string;
+  windowCandles: number;
+}): Promise<WorldStateV1> {
+  const url = new URL(apiUrl("/api/frame/live"), window.location.origin);
+  url.searchParams.set("series_id", params.seriesId);
+  url.searchParams.set("window_candles", String(params.windowCandles));
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as WorldStateV1;
+}
+
+export async function fetchWorldFrameAtTime(params: {
+  seriesId: string;
+  atTime: number;
+  windowCandles: number;
+}): Promise<WorldStateV1> {
+  const url = new URL(apiUrl("/api/frame/at_time"), window.location.origin);
+  url.searchParams.set("series_id", params.seriesId);
+  url.searchParams.set("at_time", String(params.atTime));
+  url.searchParams.set("window_candles", String(params.windowCandles));
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as WorldStateV1;
+}
+
+export async function pollWorldDelta(params: {
+  seriesId: string;
+  afterId: number;
+  windowCandles: number;
+  limit?: number;
+}): Promise<WorldDeltaPollResponseV1> {
+  const url = new URL(apiUrl("/api/delta/poll"), window.location.origin);
+  url.searchParams.set("series_id", params.seriesId);
+  url.searchParams.set("after_id", String(params.afterId));
+  url.searchParams.set("window_candles", String(params.windowCandles));
+  url.searchParams.set("limit", String(params.limit ?? 2000));
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as WorldDeltaPollResponseV1;
 }

@@ -42,7 +42,8 @@ Response:
 ```
 
 说明：
-- 策略列表由 `freqtrade list-strategies` 的 stdout 解析得到（仅保留合法的 Python 标识符行）。
+- 策略列表由 `freqtrade list-strategies --strategy-path ./Strategy` 的 stdout 解析得到（仅保留合法的 Python 标识符行）。
+- 约束：回测只读取本项目 `./Strategy` 下的策略（不从 userdir/strategies 扫描）。
 
 ### 2.2 运行回测
 
@@ -74,6 +75,7 @@ Response:
 - `strategy_name` 必须是合法标识符，并且必须存在于 `list-strategies` 结果中。
 - `pair/timeframe/timerange` 只作为 freqtrade CLI 参数透传（MVP 不做更深层校验）。
 - 后端会 **打印** stdout/stderr（满足“打印回测结果”的需求），同时回传给前端展示。
+- 若 `datadir` 中不存在对应 `pair+timeframe(+trading_mode)` 的 OHLCV 历史数据，后端会在运行前直接返回 `422`（`detail.message=no_ohlcv_history`），并给出 `expected_paths / available_timeframes / download_data_cmd` 作为可执行修复指引。
 
 ---
 

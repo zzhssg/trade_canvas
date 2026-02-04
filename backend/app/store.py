@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from .schemas import CandleClosed
+from .sqlite_util import connect as sqlite_connect
+
+
+_schema_inited: set[str] = set()
+_schema_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -12,12 +18,13 @@ class CandleStore:
     db_path: Path
 
     def connect(self) -> sqlite3.Connection:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA foreign_keys=ON;")
-        self._ensure_schema(conn)
+        conn = sqlite_connect(self.db_path)
+        key = str(self.db_path)
+        if key not in _schema_inited:
+            with _schema_lock:
+                if key not in _schema_inited:
+                    self._ensure_schema(conn)
+                    _schema_inited.add(key)
         return conn
 
     def ensure_schema(self, conn: sqlite3.Connection) -> None:

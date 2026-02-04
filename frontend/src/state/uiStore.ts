@@ -19,7 +19,6 @@ type UiState = {
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   bottomCollapsed: boolean;
-  bottomHeight: number;
 
   activeSidebarTab: SidebarTab;
   activeBottomTab: BottomTab;
@@ -31,7 +30,6 @@ type UiState = {
   toggleSidebarCollapsed: () => void;
   toggleBottomCollapsed: () => void;
   setSidebarWidth: (width: number) => void;
-  setBottomHeight: (height: number) => void;
   setActiveSidebarTab: (tab: SidebarTab) => void;
   setActiveBottomTab: (tab: BottomTab) => void;
 };
@@ -48,7 +46,6 @@ export const useUiStore = create<UiState>()(
       sidebarCollapsed: false,
       sidebarWidth: 280,
       bottomCollapsed: false,
-      bottomHeight: 240,
 
       activeSidebarTab: "Market",
       activeBottomTab: "Ledger",
@@ -60,13 +57,12 @@ export const useUiStore = create<UiState>()(
       toggleSidebarCollapsed: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       toggleBottomCollapsed: () => set((s) => ({ bottomCollapsed: !s.bottomCollapsed })),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth: clamp(sidebarWidth, 220, 520) }),
-      setBottomHeight: (bottomHeight) => set({ bottomHeight: clamp(bottomHeight, 40, 640) }),
       setActiveSidebarTab: (activeSidebarTab) => set({ activeSidebarTab }),
       setActiveBottomTab: (activeBottomTab) => set({ activeBottomTab })
     }),
     {
       name: "trade-canvas-ui",
-      version: 3,
+      version: 4,
       migrate: (persisted) => {
         const state = persisted as Partial<UiState> | undefined;
         return {
@@ -74,8 +70,7 @@ export const useUiStore = create<UiState>()(
           exchange: "binance",
           market: (state?.market as MarketMode | undefined) ?? "futures",
           toolRailWidth: clamp(Number(state?.toolRailWidth ?? 52), 44, 96),
-          sidebarWidth: clamp(Number(state?.sidebarWidth ?? 280), 220, 520),
-          bottomHeight: clamp(Number(state?.bottomHeight ?? 240), 40, 640)
+          sidebarWidth: clamp(Number(state?.sidebarWidth ?? 280), 220, 520)
         } as UiState;
       }
     }

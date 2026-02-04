@@ -33,6 +33,7 @@ class FactorOrchestrator:
       - Pivot.minor (confirmed, delayed visibility; segment-scoped)
       - Pen.confirmed (confirmed pens, delayed by next reverse pivot)
       - Zhongshu.dead (append-only; derived from confirmed pens)
+      - Anchor.switch (append-only; stable anchor switches derived from confirmed pens)
     """
 
     def __init__(self, *, candle_store: CandleStore, factor_store: FactorStore, settings: FactorSettings | None = None) -> None:
@@ -223,6 +224,42 @@ class FactorOrchestrator:
                         "formed_time": int(zs.formed_time),
                         "death_time": int(zs.death_time),
                         "visible_time": int(zs.visible_time),
+                    },
+                )
+            )
+
+        # Anchor switches (stable): choose "strongest confirmed pen so far" and emit a switch when it changes.
+        # This is deterministic and append-only (no candidate/head noise).
+        best: dict | None = None
+        best_strength = -1.0
+        for pen in pen_confirmed:
+            if int(pen.visible_time) > up_to:
+                continue
+            strength = abs(float(pen.end_price) - float(pen.start_price))
+            if strength <= best_strength:
+                continue
+            old = best
+            best = {
+                "kind": "confirmed",
+                "start_time": int(pen.start_time),
+                "end_time": int(pen.end_time),
+                "direction": int(pen.direction),
+            }
+            best_strength = float(strength)
+            key = f"strong_pen:{int(pen.visible_time)}:{best['start_time']}:{best['end_time']}:{best['direction']}"
+            events.append(
+                FactorEventWrite(
+                    series_id=series_id,
+                    factor_name="anchor",
+                    candle_time=int(pen.visible_time),
+                    kind="anchor.switch",
+                    event_key=key,
+                    payload={
+                        "switch_time": int(pen.visible_time),
+                        "reason": "strong_pen",
+                        "old_anchor": dict(old) if isinstance(old, dict) else None,
+                        "new_anchor": dict(best),
+                        "visible_time": int(pen.visible_time),
                     },
                 )
             )

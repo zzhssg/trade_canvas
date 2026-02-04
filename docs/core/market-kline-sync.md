@@ -2,7 +2,7 @@
 title: 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
 status: draft
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-03
 ---
 
 # 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
@@ -158,13 +158,18 @@ Response（示例）：
 
 Client → Server：
 - `hello { client, version }`（可选）
-- `subscribe { series_id, since }`
+- `subscribe { series_id, since, supports_batch? }`
 - `unsubscribe { series_id }`
 
 Server → Client：
 - `candle_closed { series_id, candle }`
+- `candles_batch { series_id, candles[] }`（可选：当 client 声明 `supports_batch=true` 时，用于 catchup/回填批量下发）
 - `gap { series_id, expected_next_time, actual_time }`（发现缺口/乱序时）
 - `error { code, message }`
+
+补充约束：
+- `supports_batch` 缺省为 `false`（服务端对旧客户端保持逐条 `candle_closed` 兼容）
+- `candles_batch.candles` 必须按 `candle_time` 升序；客户端应去重后合并到本地序列（以 `candle_time` 为主键）
 
 ### 4.3 Gap 处理（必须有明确策略）
 

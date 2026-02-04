@@ -59,6 +59,30 @@ skip_doc_audit="${E2E_SKIP_DOC_AUDIT:-$skip_doc_audit}"
 backend_base="http://${backend_host}:${backend_port}"
 frontend_base="http://${frontend_host}:${frontend_port}"
 
+ensure_no_proxy() {
+  local extra="$1"
+  local cur="${NO_PROXY:-${no_proxy:-}}"
+  if [[ -z "${cur}" ]]; then
+    cur="$extra"
+  else
+    # Append entries not already present (comma separated).
+    IFS=',' read -r -a extras <<<"${extra}"
+    local e
+    for e in "${extras[@]}"; do
+      e="$(echo "$e" | xargs || true)"
+      [[ -z "$e" ]] && continue
+      if [[ ",${cur}," != *",${e},"* ]]; then
+        cur="${cur},${e}"
+      fi
+    done
+  fi
+  export NO_PROXY="${cur}"
+  export no_proxy="${cur}"
+}
+
+# Avoid hanging local curl healthchecks under environments with http_proxy/https_proxy set.
+ensure_no_proxy "localhost,127.0.0.1,::1,${backend_host},${frontend_host}"
+
 is_listening() {
   local host="$1"
   local port="$2"

@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -19,6 +19,12 @@ class BacktestApiTests(unittest.TestCase):
 
         self.config_path = root / "config.json"
         self.config_path.write_text('{"trading_mode":"futures","stake_currency":"USDT","datadir":"user_data/data"}', encoding="utf-8")
+
+        # Provide a minimal OHLCV fixture so /api/backtest/run passes the "data availability" preflight.
+        # The API checks for files relative to the configured datadir (not exchange subdir in this fixture).
+        futures_dir = root / "user_data" / "data" / "futures"
+        futures_dir.mkdir(parents=True, exist_ok=True)
+        (futures_dir / "BTC_USDT_USDT-1h-futures.feather").write_bytes(b"")
 
         os.environ["TRADE_CANVAS_FREQTRADE_ROOT"] = str(root)
         os.environ["TRADE_CANVAS_FREQTRADE_CONFIG"] = str(self.config_path)
@@ -42,14 +48,16 @@ class BacktestApiTests(unittest.TestCase):
         from backend.app.freqtrade_runner import FreqtradeExecResult
 
         with patch(
-            "backend.app.main.list_strategies",
-            return_value=FreqtradeExecResult(
+            "backend.app.main.list_strategies_async",
+            new=AsyncMock(
+                return_value=FreqtradeExecResult(
                 ok=True,
                 exit_code=0,
                 duration_ms=1,
                 command=["freqtrade", "list-strategies"],
                 stdout="Zeta\nAlpha\n\nnot-a-strategy\n",
                 stderr="",
+                )
             ),
         ):
             resp = self.client.get("/api/backtest/strategies")
@@ -60,14 +68,16 @@ class BacktestApiTests(unittest.TestCase):
         from backend.app.freqtrade_runner import FreqtradeExecResult
 
         with patch(
-            "backend.app.main.list_strategies",
-            return_value=FreqtradeExecResult(
+            "backend.app.main.list_strategies_async",
+            new=AsyncMock(
+                return_value=FreqtradeExecResult(
                 ok=True,
                 exit_code=0,
                 duration_ms=1,
                 command=["freqtrade", "list-strategies"],
                 stdout="KnownStrategy\n",
                 stderr="",
+                )
             ),
         ):
             resp = self.client.post(
@@ -96,8 +106,8 @@ class BacktestApiTests(unittest.TestCase):
             stderr="",
         )
 
-        with patch("backend.app.main.list_strategies", return_value=list_ok), patch(
-            "backend.app.main.run_backtest", return_value=run_ok
+        with patch("backend.app.main.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
+            "backend.app.main.run_backtest_async", new=AsyncMock(return_value=run_ok)
         ) as mock_run:
             resp = self.client.post(
                 "/api/backtest/run",
@@ -128,8 +138,8 @@ class BacktestApiTests(unittest.TestCase):
             stderr="WARNINGS",
         )
 
-        with patch("backend.app.main.list_strategies", return_value=list_ok), patch(
-            "backend.app.main.run_backtest", return_value=run_ok
+        with patch("backend.app.main.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
+            "backend.app.main.run_backtest_async", new=AsyncMock(return_value=run_ok)
         ), patch("backend.app.main.logger") as mock_logger:
             resp = self.client.post(
                 "/api/backtest/run",

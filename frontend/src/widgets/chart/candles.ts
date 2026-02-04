@@ -19,3 +19,15 @@ export function mergeCandle(list: Candle[], next: Candle): Candle[] {
   return list;
 }
 
+export function mergeCandleWindow(list: Candle[], next: Candle, limit: number): Candle[] {
+  const merged = mergeCandle(list, next);
+  if (limit > 0 && merged.length > limit) return merged.slice(-limit);
+  return merged;
+}
+
+export function mergeCandlesWindow(list: Candle[], next: Candle[], limit: number): Candle[] {
+  let out = list;
+  for (const c of next) out = mergeCandle(out, c);
+  if (limit > 0 && out.length > limit) out = out.slice(-limit);
+  return out;
+}

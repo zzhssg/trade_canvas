@@ -12,12 +12,14 @@ export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
   const togglePos = side === "left" ? "right-2" : "left-2";
 
   return (
-    <div className={["h-full overflow-hidden border-white/10 bg-white/5", borderSide].join(" ")}>
+    <div className={["h-full overflow-hidden border-white/10 bg-white/[0.045] backdrop-blur", borderSide].join(" ")}>
       <div className="relative flex h-14 items-center border-b border-white/10 px-2">
-        <div className="w-full text-center text-xs font-semibold text-white/80">{sidebarCollapsed ? "TC" : "Panels"}</div>
+        <div className="w-full text-center text-xs font-semibold tracking-wide text-white/80">
+          {sidebarCollapsed ? "TC" : "Panels"}
+        </div>
         <button
           className={[
-            "absolute top-1/2 -translate-y-1/2 rounded border border-white/10 bg-black/30 px-2 py-1 text-xs text-white/80 hover:bg-black/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
+            "absolute top-1/2 -translate-y-1/2 rounded-md border border-white/10 bg-black/25 px-2 py-1 text-xs text-white/80 hover:bg-black/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
             togglePos
           ].join(" ")}
           onClick={toggleSidebarCollapsed}
@@ -36,7 +38,7 @@ export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
               title={tab}
               onClick={() => setActiveSidebarTab(tab)}
               className={[
-                "w-full rounded border border-white/10 bg-black/20 py-2 text-[11px] font-semibold text-white/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
+                "w-full rounded-md border border-white/10 bg-black/20 py-2 text-[11px] font-semibold text-white/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
                 activeSidebarTab === tab ? "bg-white/15" : "hover:bg-white/10"
               ].join(" ")}
             >
@@ -46,15 +48,17 @@ export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
         </div>
       ) : (
         <div className="flex h-[calc(100%-56px)] flex-col gap-3 overflow-auto p-3">
-          <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-black/20 p-1">
+          <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
             {TABS.map((tab) => (
               <button
                 key={tab}
                 type="button"
                 onClick={() => setActiveSidebarTab(tab)}
                 className={[
-                  "flex-1 rounded px-2 py-1 text-[11px] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
-                  activeSidebarTab === tab ? "bg-white/15 text-white" : "text-white/70 hover:bg-white/10"
+                  "flex-1 rounded-lg px-2 py-1 text-[11px] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
+                  activeSidebarTab === tab
+                    ? "bg-white/15 text-white"
+                    : "text-white/70 hover:bg-white/10 hover:text-white/85"
                 ].join(" ")}
               >
                 {tab}
@@ -90,8 +94,8 @@ export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/60">{title}</div>
+    <div className="rounded-xl border border-white/10 bg-black/20 p-3 shadow-[0_0_0_1px_rgba(255,255,255,0.03)_inset]">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/60">{title}</div>
       {children}
     </div>
   );
@@ -113,7 +117,7 @@ function MarketPanel() {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1 rounded border border-white/10 bg-black/20 p-1">
+        <div className="flex items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1">
           <TabButton active={market === "spot"} onClick={() => setMarket("spot")}>
             Spot
           </TabButton>
@@ -123,7 +127,7 @@ function MarketPanel() {
         </div>
         <button
           type="button"
-          className="ml-auto rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
+          className="ml-auto rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
           onClick={() => void active.refresh()}
         >
           Refresh
@@ -135,7 +139,7 @@ function MarketPanel() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter (e.g. BTC / BTCUSDT)"
-          className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-white/80 placeholder:text-white/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
+          className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-white/80 placeholder:text-white/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
         />
       </div>
 
@@ -145,7 +149,7 @@ function MarketPanel() {
         {active.isSuccess ? `Binance 24h quoteVolume (USDT pairs) · stream: ${active.sseState}` : null}
       </div>
 
-      <div className="max-h-[52vh] overflow-auto rounded border border-white/10 bg-black/10">
+      <div className="max-h-[52vh] overflow-auto rounded-xl border border-white/10 bg-black/10 shadow-[0_0_0_1px_rgba(255,255,255,0.02)_inset]">
         {filtered.length === 0 ? (
           <div className="p-2 text-[11px] text-white/50">No matches.</div>
         ) : (

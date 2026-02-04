@@ -1,5 +1,15 @@
-import { BacktestPanel } from "../parts/BacktestPanel";
+import { useEffect } from "react";
+
+import { ChartPanel } from "../parts/ChartPanel";
+import { useUiStore } from "../state/uiStore";
 
 export function BacktestPage() {
-  return <BacktestPanel containerClassName="p-4" />;
+  const { bottomCollapsed, toggleBottomCollapsed, setActiveBottomTab } = useUiStore();
+
+  useEffect(() => {
+    setActiveBottomTab("Backtest");
+    if (bottomCollapsed) toggleBottomCollapsed();
+  }, [bottomCollapsed, setActiveBottomTab, toggleBottomCollapsed]);
+
+  return <ChartPanel mode="live" />;
 }

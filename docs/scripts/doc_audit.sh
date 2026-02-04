@@ -55,3 +55,7 @@ echo "OK: no Markdown files outside docs/ (except README.md)."
 if [[ -x "docs/scripts/doc_frontmatter_audit.sh" ]]; then
   bash "docs/scripts/doc_frontmatter_audit.sh"
 fi
+
+if [[ -x "docs/scripts/api_docs_audit.sh" ]]; then
+  bash "docs/scripts/api_docs_audit.sh"
+fi

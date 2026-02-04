@@ -8,8 +8,8 @@
 - `tc-skill-authoring`：本项目 skill 编写指南（新增/修改 skills，并与文档索引联动）
 - `tc-planning`：任务拆解与计划（每步可验收/可回滚；大改动落盘 `docs/plan/`）
 - `tc-market-kline-fastpath-v2`：市场 K 线 Fastpath v2（freqtrade 历史复用 + 批量落库 + 可插拔实时源；保持 HTTP/WS 契约与可回滚验收）
-- `tc-fupan`：复盘（错误/经验沉淀；必要时同步 `docs/core/`；并做最近模块的技术债/bug 审计与产品迭代建议；每次只输出 2 个主题）
-- `tc-e2e-gate`：E2E 用户故事门禁（规划阶段必须给完整 E2E 用户故事；必须写“具体场景与具体数值”；开发结束必须验证通过并给证据）
+- `tc-fupan`：复盘（主题 1：一个主题内合并“错误复盘 + 经验沉淀”；主题 2：技术债/bug 审计；主题 3：技术债取舍（修债 vs 继续开发功能）给出明确建议；必要时同步 `docs/core/`；每次必输出 3 个主题）
+- `tc-e2e-gate`：E2E 用户故事门禁（规划阶段必须给完整 E2E 用户故事；必须写“具体场景与具体数值”；开发结束必须验证通过并给证据；新增/变更 API 必须同步维护 `docs/core/api/v1/` 且通过 `doc_audit`）
 - `tc-acceptance-e2e`：最终验收（宣称 done 前必须跑通 `scripts/e2e_acceptance.sh`，并交付 `output/playwright/` 证据；包含 E2E 漂移/隔离常见坑位清单）
 - `tc-agent-browser`：浏览器自动化（`agent-browser` 替代/补充 Playwright；`snapshot` + refs 更适合 LLM；用于快速跑流程、复现 UI、出截图/trace 证据）
 - `tc-debug`：调试流程（可复现→定位→根因→最小修复→回归保护）

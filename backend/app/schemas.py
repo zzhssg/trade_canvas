@@ -63,6 +63,13 @@ class BacktestRunResponse(BaseModel):
     stderr: str
 
 
+class BacktestPairTimeframesResponse(BaseModel):
+    pair: str
+    trading_mode: str
+    datadir: str
+    available_timeframes: list[str]
+
+
 LimitQuery = Annotated[int, Field(ge=1, le=5000)]
 SinceQuery = Annotated[int | None, Field(None, ge=0)]
 
@@ -180,3 +187,37 @@ class DrawDeltaV1(BaseModel):
     instruction_catalog_patch: list[OverlayInstructionPatchItemV1] = Field(default_factory=list)
     series_points: dict[str, list[PlotLinePointV1]] = Field(default_factory=dict)
     next_cursor: DrawCursorV1
+
+
+class WorldTimeV1(BaseModel):
+    at_time: int = Field(..., ge=0, description="Requested time (unix seconds)")
+    aligned_time: int = Field(..., ge=0, description="Aligned closed candle_time (floor)")
+    candle_id: str = Field(..., min_length=1)
+
+
+class WorldStateV1(BaseModel):
+    schema_version: int = 1
+    series_id: str
+    time: WorldTimeV1
+    factor_slices: GetFactorSlicesResponseV1
+    draw_state: DrawDeltaV1
+
+
+class WorldCursorV1(BaseModel):
+    id: int = Field(0, ge=0)
+
+
+class WorldDeltaRecordV1(BaseModel):
+    id: int = Field(..., ge=0)
+    series_id: str
+    to_candle_id: str
+    to_candle_time: int = Field(..., ge=0)
+    draw_delta: DrawDeltaV1
+    factor_slices: GetFactorSlicesResponseV1 | None = None
+
+
+class WorldDeltaPollResponseV1(BaseModel):
+    schema_version: int = 1
+    series_id: str
+    records: list[WorldDeltaRecordV1] = Field(default_factory=list)
+    next_cursor: WorldCursorV1

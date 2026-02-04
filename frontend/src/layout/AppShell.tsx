@@ -5,27 +5,33 @@ import { Sidebar } from "../parts/Sidebar";
 import { TopBar } from "../parts/TopBar";
 import { ToolRail } from "../parts/ToolRail";
 import { useUiStore } from "../state/uiStore";
-import { useEffect } from "react";
+import { CenterScrollLockProvider } from "./centerScrollLock";
+import { useEffect, useMemo, useState } from "react";
 
 export function AppShell() {
+  const [centerScrollLocked, setCenterScrollLocked] = useState(false);
   const {
     bottomCollapsed,
-    bottomHeight,
-    setBottomHeight,
     sidebarCollapsed,
     sidebarWidth,
     setSidebarWidth,
     toolRailWidth,
     setToolRailWidth
   } = useUiStore();
+  const scrollLockApi = useMemo(
+    () => ({
+      lock: () => setCenterScrollLocked(true),
+      unlock: () => setCenterScrollLocked(false)
+    }),
+    []
+  );
 
   useEffect(() => {
     if (bottomCollapsed) return;
-    if (bottomHeight < 40) setBottomHeight(240);
-  }, [bottomCollapsed, bottomHeight, setBottomHeight]);
+  }, [bottomCollapsed]);
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-[#0b0f14]">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-transparent">
       <TopBar />
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className="flex h-full w-full overflow-hidden">
@@ -34,14 +40,20 @@ export function AppShell() {
           </div>
           <ResizeX onResize={setToolRailWidth} collapsed={false} side="left" min={44} max={96} />
           <div className="min-w-0 flex-1 overflow-hidden">
-            <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <Outlet />
-              </div>
-              <ResizeY peek={bottomHeight} onResize={setBottomHeight} collapsed={bottomCollapsed} />
-              <div className="shrink-0" style={{ height: bottomCollapsed ? 40 : bottomHeight }}>
-                <BottomTabs />
-              </div>
+            <div className="h-full w-full overflow-hidden">
+              <CenterScrollLockProvider value={scrollLockApi}>
+                <div
+                  className={[
+                    "tc-scrollbar-none h-full w-full overscroll-contain",
+                    centerScrollLocked ? "overflow-hidden" : "overflow-y-auto"
+                  ].join(" ")}
+                  data-testid="middle-scroll"
+                  data-center-scroll="true"
+                >
+                  <Outlet />
+                  <BottomTabs />
+                </div>
+              </CenterScrollLockProvider>
             </div>
           </div>
           <ResizeX onResize={setSidebarWidth} collapsed={sidebarCollapsed} side="right" />
@@ -100,34 +112,4 @@ function ResizeX({
   );
 }
 
-function ResizeY({ peek, onResize, collapsed }: { peek: number; onResize: (height: number) => void; collapsed: boolean }) {
-  if (collapsed) return null;
-  return (
-    <div
-      className="h-1 w-full shrink-0 cursor-row-resize bg-transparent hover:bg-white/10"
-      title="Scroll or drag to resize"
-      onMouseDown={(event) => {
-        const startY = event.clientY;
-        const startPeek = peek;
-
-        // Move up => larger bottom peek. Move down => smaller bottom peek.
-        const onMove = (e: MouseEvent) => onResize(clamp(startPeek - (e.clientY - startY), 40, 640));
-        const onUp = () => {
-          window.removeEventListener("mousemove", onMove);
-          window.removeEventListener("mouseup", onUp);
-        };
-
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
-      }}
-      onWheel={(event) => {
-        event.preventDefault();
-        const dy = event.deltaY;
-        if (!Number.isFinite(dy) || dy === 0) return;
-        const step = Math.max(8, Math.min(80, Math.abs(dy) * 0.8));
-        const next = dy < 0 ? peek + step : peek - step;
-        onResize(clamp(next, 40, 640));
-      }}
-    />
-  );
-}
+// ResizeY removed: BottomTabs lives inside the middle scroll container.

@@ -41,7 +41,7 @@ npm run dev:port -- 5174
 
 ## 连接后端 API（开发态）
 
-Vite dev server 与后端（默认 `http://localhost:8000`）是跨端口的，建议设置：
+Vite dev server 与后端（默认 `http://127.0.0.1:8000`）是跨端口的，建议设置：
 
 ```bash
 cd frontend
@@ -61,4 +61,4 @@ bash scripts/e2e_acceptance.sh
 
 ## 备注
 
-默认后端地址：`http://localhost:8000`（WS：`ws://localhost:8000`）。
+默认后端地址：`http://127.0.0.1:8000`（WS：`ws://127.0.0.1:8000`）。

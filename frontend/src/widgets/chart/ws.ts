@@ -16,6 +16,7 @@ type MarketWsError = {
 export type MarketWsMessage =
   | { type: "candle_forming"; candle: CandleClosed }
   | { type: "candle_closed"; candle: CandleClosed }
+  | { type: "candles_batch"; candles: CandleClosed[] }
   | MarketWsGap
   | MarketWsError;
 
@@ -54,6 +55,17 @@ export function parseMarketWsMessage(payload: string): MarketWsMessage | null {
     return { type, candle: raw.candle };
   }
 
+  if (type === "candles_batch") {
+    const candlesRaw = raw.candles;
+    if (!Array.isArray(candlesRaw)) return null;
+    const candles: CandleClosed[] = [];
+    for (const c of candlesRaw) {
+      if (!isCandleClosed(c)) return null;
+      candles.push(c);
+    }
+    return { type: "candles_batch", candles };
+  }
+
   if (type === "gap") {
     return {
       type: "gap",
@@ -73,4 +85,3 @@ export function parseMarketWsMessage(payload: string): MarketWsMessage | null {
 
   return null;
 }
-

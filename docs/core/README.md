@@ -6,6 +6,7 @@
 - 开发协作说明（agent）：`AGENTS.md`
 - 市场 K 线同步：`docs/core/market-kline-sync.md`
 - backtest（freqtrade bridge）：`docs/core/backtest.md`
+- API 文档 v1（endpoints + 示例）：`docs/core/api/v1/README.md`
 - 市场币种列表：`docs/core/market-symbol-list.md`
 - 真源（Source of Truth）：`docs/core/source-of-truth.md`
 - 文档状态（status）约定：`docs/core/doc-status.md`

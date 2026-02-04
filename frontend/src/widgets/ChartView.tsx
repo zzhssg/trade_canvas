@@ -1,5 +1,6 @@
 import {
   LineSeries,
+  LineStyle,
   type IChartApi,
   type ISeriesApi,
   type SeriesMarker,
@@ -10,23 +11,41 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useResizeObserver from "use-resize-observer";
 
 import { apiWsBase } from "../lib/api";
+import { CENTER_SCROLL_SELECTOR, chartWheelZoomRatio, normalizeWheelDeltaY } from "../lib/wheelContract";
 import { FACTOR_CATALOG, getFactorParentsBySubKey } from "../services/factorCatalog";
 import { useFactorStore } from "../state/factorStore";
 import { useUiStore } from "../state/uiStore";
 
-import { fetchCandles, fetchDrawDelta, fetchOverlayDelta } from "./chart/api";
-import { mergeCandle, toChartCandle } from "./chart/candles";
+import {
+  fetchCandles,
+  fetchDrawDelta,
+  fetchFactorSlices,
+  fetchOverlayDelta,
+  fetchWorldFrameAtTime,
+  fetchWorldFrameLive,
+  pollWorldDelta
+} from "./chart/api";
+import { MAX_BAR_SPACING_ON_FIT_CONTENT, clampBarSpacing } from "./chart/barSpacing";
+import { mergeCandlesWindow, mergeCandleWindow, toChartCandle } from "./chart/candles";
 import { buildSmaLineData, computeSmaAtIndex, isSmaKey } from "./chart/sma";
 import type { Candle, OverlayInstructionPatchItemV1, OverlayLikeDeltaV1 } from "./chart/types";
+import type { GetFactorSlicesResponseV1, WorldStateV1 } from "./chart/types";
+import { timeframeToSeconds } from "./chart/timeframe";
 import { useLightweightChart } from "./chart/useLightweightChart";
 import { parseMarketWsMessage } from "./chart/ws";
 
 const INITIAL_TAIL_LIMIT = 2000;
 const ENABLE_DRAW_DELTA = import.meta.env.VITE_ENABLE_DRAW_DELTA === "1";
+const ENABLE_REPLAY_V1 = import.meta.env.VITE_ENABLE_REPLAY_V1 === "1";
+const ENABLE_PEN_SEGMENT_COLOR = import.meta.env.VITE_ENABLE_PEN_SEGMENT_COLOR === "1";
+// Default to enabled (unless explicitly disabled) to avoid "delta + slices" double-fetch loops in live mode.
+const ENABLE_WORLD_FRAME = String(import.meta.env.VITE_ENABLE_WORLD_FRAME ?? "1") === "1";
+const PEN_SEGMENT_RENDER_LIMIT = 200;
 
 export function ChartView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { ref: resizeRef, width, height } = useResizeObserver<HTMLDivElement>();
+  const wheelGuardRef = useRef<HTMLDivElement | null>(null);
 
   const [candles, setCandles] = useState<Candle[]>([]);
   const [barSpacing, setBarSpacing] = useState<number | null>(null);
@@ -50,10 +69,35 @@ export function ChartView() {
   const overlayPullInFlightRef = useRef(false);
   const entryEnabledRef = useRef<boolean>(false);
   const [pivotCount, setPivotCount] = useState(0);
+  const [replayEnabled, setReplayEnabled] = useState<boolean>(ENABLE_REPLAY_V1);
+  const [replayPlaying, setReplayPlaying] = useState<boolean>(ENABLE_REPLAY_V1);
+  const [replayIndex, setReplayIndex] = useState<number>(0);
+  const [replaySpeedMs, setReplaySpeedMs] = useState<number>(200);
+  const replayAllCandlesRef = useRef<Candle[]>([]);
+  const replayPatchRef = useRef<OverlayInstructionPatchItemV1[]>([]);
+  const replayPatchAppliedIdxRef = useRef<number>(0);
+  const followPendingTimeRef = useRef<number | null>(null);
+  const followTimerIdRef = useRef<number | null>(null);
 
   const penSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const penPointsRef = useRef<Array<{ time: UTCTimestamp; value: number }>>([]);
   const [penPointCount, setPenPointCount] = useState(0);
+  const [anchorHighlightEpoch, setAnchorHighlightEpoch] = useState(0);
+
+  const penSegmentSeriesByKeyRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  const penSegmentsRef = useRef<
+    Array<{
+      key: string;
+      points: Array<{ time: UTCTimestamp; value: number }>;
+      highlighted: boolean;
+    }>
+  >([]);
+
+  const anchorPenSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const anchorPenPointsRef = useRef<Array<{ time: UTCTimestamp; value: number }> | null>(null);
+  const anchorPenIsDashedRef = useRef<boolean>(false);
+  const factorPullInFlightRef = useRef(false);
+  const lastFactorAtTimeRef = useRef<number | null>(null);
 
   const { chartRef, candleSeriesRef: seriesRef, markersApiRef, chartEpoch } = useLightweightChart({
     containerRef,
@@ -64,6 +108,9 @@ export function ChartView() {
       if (existing.length > 0) {
         candleSeries.setData(existing);
         chart.timeScale().fitContent();
+        const cur = chart.timeScale().options().barSpacing;
+        const next = clampBarSpacing(cur, MAX_BAR_SPACING_ON_FIT_CONTENT);
+        if (next !== cur) chart.applyOptions({ timeScale: { barSpacing: next } });
         const last = existing[existing.length - 1]!;
         appliedRef.current = { len: existing.length, lastTime: last.time as number };
       }
@@ -77,11 +124,53 @@ export function ChartView() {
       overlayCursorVersionRef.current = 0;
       penPointsRef.current = [];
       penSeriesRef.current = null;
+      anchorPenPointsRef.current = null;
+      anchorPenIsDashedRef.current = false;
+      anchorPenSeriesRef.current = null;
+      for (const s of penSegmentSeriesByKeyRef.current.values()) chartRef.current?.removeSeries(s);
+      penSegmentSeriesByKeyRef.current.clear();
+      penSegmentsRef.current = [];
       overlayPullInFlightRef.current = false;
+      factorPullInFlightRef.current = false;
+      lastFactorAtTimeRef.current = null;
       entryEnabledRef.current = false;
       appliedRef.current = { len: 0, lastTime: null };
     }
   });
+
+  useEffect(() => {
+    const el = wheelGuardRef.current;
+    if (!el) return;
+    const onWheel = (event: WheelEvent) => {
+      const chart = chartRef.current;
+      if (!chart) return;
+      if (event.deltaY === 0) return;
+
+      const center = el.closest(CENTER_SCROLL_SELECTOR) as HTMLElement | null;
+      if (center) {
+        const oy = window.getComputedStyle(center).overflowY;
+        if (oy !== "hidden") return;
+      }
+
+      // UX rule:
+      // - wheel inside chart => horizontal zoom (barSpacing)
+      // - do NOT scroll the surrounding container while hovering the chart
+      const cur = chart.timeScale().options().barSpacing;
+      const dy = normalizeWheelDeltaY(event);
+      const ratio = chartWheelZoomRatio(dy);
+      if (!ratio) return;
+      const next = clampBarSpacing(cur * ratio, MAX_BAR_SPACING_ON_FIT_CONTENT);
+      if (next !== cur) {
+        chart.applyOptions({ timeScale: { barSpacing: next } });
+        setBarSpacing((prev) => (prev === next ? prev : next));
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel as EventListener);
+  }, [chartEpoch]);
 
   useEffect(() => {
     visibleFeaturesRef.current = visibleFeatures;
@@ -239,6 +328,247 @@ export function ChartView() {
     penPointsRef.current = out;
   }, []);
 
+  const applyPenAndAnchorFromFactorSlices = useCallback(
+    (slices: GetFactorSlicesResponseV1) => {
+      const anchor = slices.snapshots?.["anchor"];
+      const pen = slices.snapshots?.["pen"];
+      const candlesRange = candlesRef.current;
+      const minTime = candlesRange.length > 0 ? (candlesRange[0]!.time as number) : null;
+      const maxTime = candlesRange.length > 0 ? (candlesRange[candlesRange.length - 1]!.time as number) : null;
+
+      const head = (anchor?.head ?? {}) as Record<string, unknown>;
+      const cur = head["current_anchor_ref"];
+      const rev = head["reverse_anchor_ref"];
+
+      const pickRef = (v: unknown) => {
+        if (!v || typeof v !== "object") return null;
+        const d = v as Record<string, unknown>;
+        const kind = d["kind"] === "candidate" || d["kind"] === "confirmed" ? (d["kind"] as string) : null;
+        const st = Number(d["start_time"]);
+        const et = Number(d["end_time"]);
+        const dir = Number(d["direction"]);
+        if (!kind || !Number.isFinite(st) || !Number.isFinite(et) || !Number.isFinite(dir)) return null;
+        return { kind, start_time: Math.floor(st), end_time: Math.floor(et), direction: Math.floor(dir) };
+      };
+
+      const setHighlight = (pts: Array<{ time: UTCTimestamp; value: number }> | null, opts?: { dashed?: boolean }) => {
+        anchorPenPointsRef.current = pts;
+        anchorPenIsDashedRef.current = Boolean(opts?.dashed);
+      };
+
+      const curRef = pickRef(cur);
+      const revRef = pickRef(rev);
+
+      // Segment coloring: highlight the stable confirmed anchor when available.
+      const confirmedHighlightKey =
+        curRef?.kind === "confirmed" ? `pen:${curRef.start_time}:${curRef.end_time}:${curRef.direction}` : null;
+
+      const confirmedPens = (pen?.history as Record<string, unknown> | undefined)?.["confirmed"];
+      const segments: Array<{ key: string; points: Array<{ time: UTCTimestamp; value: number }>; highlighted: boolean }> =
+        [];
+      if (Array.isArray(confirmedPens)) {
+        const tail = confirmedPens.slice(Math.max(0, confirmedPens.length - PEN_SEGMENT_RENDER_LIMIT));
+        for (const item of tail) {
+          if (!item || typeof item !== "object") continue;
+          const p = item as Record<string, unknown>;
+          const st = Math.floor(Number(p["start_time"]));
+          const et = Math.floor(Number(p["end_time"]));
+          const sp = Number(p["start_price"]);
+          const ep = Number(p["end_price"]);
+          const dir = Math.floor(Number(p["direction"]));
+          if (!Number.isFinite(st) || !Number.isFinite(et) || !Number.isFinite(sp) || !Number.isFinite(ep) || !Number.isFinite(dir))
+            continue;
+          if (st <= 0 || et <= 0 || st >= et) continue;
+          if (minTime != null && maxTime != null && (st < minTime || et > maxTime)) continue;
+          const key = `pen:${st}:${et}:${dir}`;
+          segments.push({
+            key,
+            points: [
+              { time: st as UTCTimestamp, value: sp },
+              { time: et as UTCTimestamp, value: ep }
+            ],
+            highlighted: confirmedHighlightKey != null && key === confirmedHighlightKey
+          });
+        }
+      }
+      penSegmentsRef.current = segments;
+
+      // Candidate highlight: prefer reverse_anchor_ref when it's a candidate; draw it as a separate segment.
+      if (revRef?.kind === "candidate") {
+        const ph = (pen?.head ?? {}) as Record<string, unknown>;
+        const cand = ph["candidate"];
+        if (
+          cand &&
+          typeof cand === "object" &&
+          revRef.start_time > 0 &&
+          revRef.end_time > revRef.start_time &&
+          (minTime == null || maxTime == null || (revRef.start_time >= minTime && revRef.end_time <= maxTime))
+        ) {
+          const c = cand as Record<string, unknown>;
+          const sp = Number(c["start_price"]);
+          const ep = Number(c["end_price"]);
+          if (Number.isFinite(sp) && Number.isFinite(ep)) {
+            setHighlight(
+              [
+                { time: revRef.start_time as UTCTimestamp, value: sp },
+                { time: revRef.end_time as UTCTimestamp, value: ep }
+              ],
+              { dashed: true }
+            );
+          } else {
+            setHighlight(null);
+          }
+        } else {
+          setHighlight(null);
+        }
+      } else {
+        // Confirmed anchor highlight: only draw a separate segment when we're NOT doing segmented pen coloring.
+        if (!ENABLE_PEN_SEGMENT_COLOR && confirmedHighlightKey) {
+          const hit = segments.find((s) => s.key === confirmedHighlightKey);
+          if (hit) setHighlight(hit.points, { dashed: false });
+          else setHighlight(null);
+        } else {
+          setHighlight(null);
+        }
+      }
+
+      setAnchorHighlightEpoch((v) => v + 1);
+    },
+    [setAnchorHighlightEpoch]
+  );
+
+  const fetchAndApplyAnchorHighlightAtTime = useCallback(
+    async (t: number) => {
+      const at = Math.max(0, Math.floor(t));
+      if (at <= 0) return;
+      if (factorPullInFlightRef.current) return;
+      if (lastFactorAtTimeRef.current === at) return;
+      factorPullInFlightRef.current = true;
+      try {
+        const slices = await fetchFactorSlices({ seriesId, atTime: at, windowCandles: INITIAL_TAIL_LIMIT });
+        lastFactorAtTimeRef.current = at;
+        applyPenAndAnchorFromFactorSlices(slices);
+      } catch {
+        // ignore (best-effort)
+      } finally {
+        factorPullInFlightRef.current = false;
+      }
+    },
+    [applyPenAndAnchorFromFactorSlices, seriesId]
+  );
+
+  const applyWorldFrame = useCallback(
+    (frame: WorldStateV1) => {
+      overlayCatalogRef.current.clear();
+      overlayActiveIdsRef.current.clear();
+      overlayCursorVersionRef.current = 0;
+
+      const draw = frame.draw_state;
+      applyOverlayDelta({
+        active_ids: draw.active_ids ?? [],
+        instruction_catalog_patch: draw.instruction_catalog_patch ?? [],
+        next_cursor: { version_id: draw.next_cursor?.version_id ?? 0 }
+      });
+
+      rebuildPivotMarkersFromOverlay();
+      syncMarkers();
+      rebuildPenPointsFromOverlay();
+      setPenPointCount(ENABLE_PEN_SEGMENT_COLOR ? penSegmentsRef.current.length * 2 : penPointsRef.current.length);
+      if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
+        penSeriesRef.current.setData(penPointsRef.current);
+      }
+
+      applyPenAndAnchorFromFactorSlices(frame.factor_slices);
+    },
+    [
+      applyOverlayDelta,
+      applyPenAndAnchorFromFactorSlices,
+      effectiveVisible,
+      rebuildPenPointsFromOverlay,
+      rebuildPivotMarkersFromOverlay,
+      syncMarkers
+    ]
+  );
+
+  const recomputeActiveIdsFromCatalog = useCallback((params: { cutoffTime: number; toTime: number }): string[] => {
+    const out: string[] = [];
+    for (const [id, item] of overlayCatalogRef.current.entries()) {
+      if (!item) continue;
+      if (item.kind === "marker") {
+        const def = item.definition && typeof item.definition === "object" ? (item.definition as Record<string, unknown>) : {};
+        const t = Number(def["time"]);
+        if (!Number.isFinite(t)) continue;
+        if (t < params.cutoffTime || t > params.toTime) continue;
+        out.push(id);
+        continue;
+      }
+      if (item.kind === "polyline") {
+        const def = item.definition && typeof item.definition === "object" ? (item.definition as Record<string, unknown>) : {};
+        const pts = def["points"];
+        if (!Array.isArray(pts) || pts.length === 0) continue;
+        let ok = false;
+        for (const p of pts) {
+          if (!p || typeof p !== "object") continue;
+          const t = Number((p as Record<string, unknown>)["time"]);
+          if (!Number.isFinite(t)) continue;
+          if (params.cutoffTime <= t && t <= params.toTime) {
+            ok = true;
+            break;
+          }
+        }
+        if (!ok) continue;
+        out.push(id);
+      }
+    }
+    out.sort();
+    return out;
+  }, []);
+
+  const applyReplayOverlayAtTime = useCallback(
+    (toTime: number) => {
+      const patch = replayPatchRef.current;
+      let i = replayPatchAppliedIdxRef.current;
+      for (; i < patch.length; i++) {
+        const p = patch[i]!;
+        if (p.visible_time > toTime) break;
+        overlayCatalogRef.current.set(p.instruction_id, p);
+      }
+      replayPatchAppliedIdxRef.current = i;
+
+      const tfSeconds = timeframeToSeconds(timeframe);
+      const cutoffTime = tfSeconds ? Math.max(0, Math.floor(toTime - INITIAL_TAIL_LIMIT * tfSeconds)) : 0;
+      overlayActiveIdsRef.current = new Set(recomputeActiveIdsFromCatalog({ cutoffTime, toTime }));
+
+      rebuildPivotMarkersFromOverlay();
+      rebuildPenPointsFromOverlay();
+      if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
+        penSeriesRef.current.setData(penPointsRef.current);
+      }
+      setPenPointCount(penPointsRef.current.length);
+      syncMarkers();
+    },
+    [effectiveVisible, recomputeActiveIdsFromCatalog, rebuildPenPointsFromOverlay, rebuildPivotMarkersFromOverlay, syncMarkers, timeframe]
+  );
+
+  const setReplayIndexAndCandles = useCallback(
+    (nextIndex: number, opts?: { pause?: boolean }) => {
+      const all = replayAllCandlesRef.current;
+      if (all.length === 0) return;
+      const clamped = Math.max(0, Math.min(nextIndex, all.length - 1));
+      if (opts?.pause) setReplayPlaying(false);
+      setReplayIndex(clamped);
+      setCandles((prev) => {
+        // Append-only fast-path for smooth playback.
+        const next =
+          clamped === prev.length && clamped < all.length ? [...prev, all[clamped]!] : all.slice(0, clamped + 1);
+        candlesRef.current = next;
+        return next;
+      });
+      applyReplayOverlayAtTime(all[clamped]!.time as number);
+    },
+    [applyReplayOverlayAtTime]
+  );
+
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
@@ -261,6 +591,12 @@ export function ChartView() {
     if (prev.len === 0) {
       syncAll();
       chartRef.current?.timeScale().fitContent();
+      const chart = chartRef.current;
+      if (chart) {
+        const cur = chart.timeScale().options().barSpacing;
+        const next = clampBarSpacing(cur, MAX_BAR_SPACING_ON_FIT_CONTENT);
+        if (next !== cur) chart.applyOptions({ timeScale: { barSpacing: next } });
+      }
     } else if (isAppendOne || isUpdateLast) {
       series.update(last);
       // Incremental SMA update.
@@ -363,17 +699,82 @@ export function ChartView() {
         chart.removeSeries(penSeriesRef.current);
         penSeriesRef.current = null;
       }
+      for (const s of penSegmentSeriesByKeyRef.current.values()) chart.removeSeries(s);
+      penSegmentSeriesByKeyRef.current.clear();
+      if (anchorPenSeriesRef.current) {
+        chart.removeSeries(anchorPenSeriesRef.current);
+        anchorPenSeriesRef.current = null;
+      }
       setPenPointCount(0);
     } else {
-      if (!penSeriesRef.current) {
-        penSeriesRef.current = chart.addSeries(LineSeries, { color: "#a78bfa", lineWidth: 2 });
+      if (ENABLE_PEN_SEGMENT_COLOR && !replayEnabled) {
+        if (penSeriesRef.current) {
+          chart.removeSeries(penSeriesRef.current);
+          penSeriesRef.current = null;
+        }
+        const segs = penSegmentsRef.current;
+        const want = new Set(segs.map((s) => s.key));
+        for (const [k, s] of penSegmentSeriesByKeyRef.current.entries()) {
+          if (!want.has(k)) {
+            chart.removeSeries(s);
+            penSegmentSeriesByKeyRef.current.delete(k);
+          }
+        }
+        for (const seg of segs) {
+          const color = seg.highlighted ? "#f59e0b" : "#a78bfa";
+          const lineWidth = 2;
+          let s = penSegmentSeriesByKeyRef.current.get(seg.key);
+          if (!s) {
+            s = chart.addSeries(LineSeries, {
+              color,
+              lineWidth,
+              lineStyle: LineStyle.Solid,
+              priceLineVisible: false,
+              lastValueVisible: false
+            });
+            penSegmentSeriesByKeyRef.current.set(seg.key, s);
+          } else {
+            s.applyOptions({ color, lineWidth, lineStyle: LineStyle.Solid, priceLineVisible: false, lastValueVisible: false });
+          }
+          s.setData(seg.points);
+        }
+        setPenPointCount(segs.length * 2);
+      } else {
+        for (const s of penSegmentSeriesByKeyRef.current.values()) chart.removeSeries(s);
+        penSegmentSeriesByKeyRef.current.clear();
+        if (!penSeriesRef.current) {
+          penSeriesRef.current = chart.addSeries(LineSeries, { color: "#a78bfa", lineWidth: 2, lineStyle: LineStyle.Solid });
+        }
+        penSeriesRef.current.applyOptions({ lineStyle: LineStyle.Solid });
+        penSeriesRef.current.setData(penPointsRef.current);
+        setPenPointCount(penPointsRef.current.length);
       }
-      penSeriesRef.current.setData(penPointsRef.current);
-      setPenPointCount(penPointsRef.current.length);
+
+      const anchorPts = anchorPenPointsRef.current;
+      if (!anchorPts || anchorPts.length < 2) {
+        if (anchorPenSeriesRef.current) {
+          chart.removeSeries(anchorPenSeriesRef.current);
+          anchorPenSeriesRef.current = null;
+        }
+      } else {
+        const lineStyle = anchorPenIsDashedRef.current ? LineStyle.Dashed : LineStyle.Solid;
+        if (!anchorPenSeriesRef.current) {
+          anchorPenSeriesRef.current = chart.addSeries(LineSeries, {
+            color: "#f59e0b",
+            lineWidth: 2,
+            lineStyle,
+            priceLineVisible: false,
+            lastValueVisible: false
+          });
+        } else {
+          anchorPenSeriesRef.current.applyOptions({ color: "#f59e0b", lineWidth: 2, lineStyle });
+        }
+        anchorPenSeriesRef.current.setData(anchorPts);
+      }
     }
 
     syncMarkers();
-  }, [chartEpoch, effectiveVisible, rebuildPivotMarkersFromOverlay, seriesId, syncMarkers, visibleFeatures]);
+  }, [anchorHighlightEpoch, chartEpoch, effectiveVisible, rebuildPivotMarkersFromOverlay, seriesId, syncMarkers, visibleFeatures]);
 
   useEffect(() => {
     let isActive = true;
@@ -391,6 +792,15 @@ export function ChartView() {
         overlayActiveIdsRef.current.clear();
         overlayCursorVersionRef.current = 0;
         overlayPullInFlightRef.current = false;
+        followPendingTimeRef.current = null;
+        if (followTimerIdRef.current != null) {
+          window.clearTimeout(followTimerIdRef.current);
+          followTimerIdRef.current = null;
+        }
+        penSegmentsRef.current = [];
+        anchorPenPointsRef.current = null;
+        lastFactorAtTimeRef.current = null;
+        setAnchorHighlightEpoch((v) => v + 1);
         setPivotCount(0);
         setPenPointCount(0);
         setError(null);
@@ -400,6 +810,36 @@ export function ChartView() {
         const initial = await fetchCandles({ seriesId, limit: INITIAL_TAIL_LIMIT });
         if (!isActive) return;
         if (initial.candles.length > 0) {
+          if (replayEnabled) {
+            replayAllCandlesRef.current = initial.candles;
+            replayPatchRef.current = [];
+            replayPatchAppliedIdxRef.current = 0;
+            setReplayIndex(0);
+            setReplayPlaying(true);
+
+            const endTime = initial.candles[initial.candles.length - 1]!.time as number;
+            try {
+              const draw = await fetchDrawDelta({ seriesId, cursorVersionId: 0, windowCandles: INITIAL_TAIL_LIMIT, atTime: endTime });
+              if (!isActive) return;
+              const raw = Array.isArray(draw.instruction_catalog_patch) ? draw.instruction_catalog_patch : [];
+              replayPatchRef.current = raw
+                .slice()
+                .sort((a, b) => (a.visible_time - b.visible_time !== 0 ? a.visible_time - b.visible_time : a.version_id - b.version_id));
+            } catch {
+              replayPatchRef.current = [];
+            }
+
+            overlayCatalogRef.current.clear();
+            overlayActiveIdsRef.current.clear();
+            overlayCursorVersionRef.current = 0;
+
+            const first = initial.candles[0]!;
+            candlesRef.current = [first];
+            setCandles([first]);
+            applyReplayOverlayAtTime(first.time as number);
+            return;
+          }
+
           candlesRef.current = initial.candles;
           setCandles(initial.candles);
           cursor = initial.candles[initial.candles.length - 1]!.time as number;
@@ -407,35 +847,153 @@ export function ChartView() {
 
         // No HTTP catchup probe: WS subscribe catchup + gap handling covers the race window.
 
-        // Initial overlay delta (tail window).
+        // Initial world frame (preferred) or overlay delta (legacy).
         try {
-          const delta = await fetchOverlayLikeDelta({ seriesId, cursorVersionId: 0, windowCandles: INITIAL_TAIL_LIMIT });
-          if (!isActive) return;
-          applyOverlayDelta(delta);
-          rebuildPivotMarkersFromOverlay();
-          syncMarkers();
-          rebuildPenPointsFromOverlay();
-          setPenPointCount(penPointsRef.current.length);
-          if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
-            penSeriesRef.current.setData(penPointsRef.current);
+          if (ENABLE_WORLD_FRAME && !replayEnabled) {
+            const frame = await fetchWorldFrameLive({ seriesId, windowCandles: INITIAL_TAIL_LIMIT });
+            if (!isActive) return;
+            applyWorldFrame(frame);
+          } else {
+            const delta = await fetchOverlayLikeDelta({ seriesId, cursorVersionId: 0, windowCandles: INITIAL_TAIL_LIMIT });
+            if (!isActive) return;
+            applyOverlayDelta(delta);
+            rebuildPivotMarkersFromOverlay();
+            syncMarkers();
+            rebuildPenPointsFromOverlay();
+            setPenPointCount(ENABLE_PEN_SEGMENT_COLOR ? penSegmentsRef.current.length * 2 : penPointsRef.current.length);
+            if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
+              penSeriesRef.current.setData(penPointsRef.current);
+            }
+            if (cursor > 0) {
+              void fetchAndApplyAnchorHighlightAtTime(cursor);
+            }
           }
         } catch {
-          // ignore overlay errors (best-effort)
+          // ignore overlay/frame errors (best-effort)
         }
 
         const wsUrl = `${apiWsBase()}/ws/market`;
         ws = new WebSocket(wsUrl);
         ws.onopen = () => {
-          ws?.send(JSON.stringify({ type: "subscribe", series_id: seriesId, since: cursor > 0 ? cursor : null }));
+          ws?.send(
+            JSON.stringify({ type: "subscribe", series_id: seriesId, since: cursor > 0 ? cursor : null, supports_batch: true })
+          );
         };
+
+        const FOLLOW_DEBOUNCE_MS = 1000;
+
+        function scheduleOverlayFollow(t: number) {
+          followPendingTimeRef.current = Math.max(followPendingTimeRef.current ?? 0, t);
+          if (!isActive) return;
+          if (overlayPullInFlightRef.current) return;
+          if (followTimerIdRef.current != null) return;
+          followTimerIdRef.current = window.setTimeout(() => {
+            followTimerIdRef.current = null;
+            const next = followPendingTimeRef.current;
+            followPendingTimeRef.current = null;
+            if (next == null || !isActive) return;
+            runOverlayFollowNow(next);
+          }, FOLLOW_DEBOUNCE_MS);
+        }
+
+        function runOverlayFollowNow(t: number) {
+          if (!isActive) return;
+          if (overlayPullInFlightRef.current) {
+            followPendingTimeRef.current = Math.max(followPendingTimeRef.current ?? 0, t);
+            return;
+          }
+          overlayPullInFlightRef.current = true;
+
+          if (ENABLE_WORLD_FRAME && !replayEnabled) {
+            const afterId = overlayCursorVersionRef.current;
+            void pollWorldDelta({ seriesId, afterId, windowCandles: INITIAL_TAIL_LIMIT })
+              .then((resp) => {
+                if (!isActive) return;
+                const rec = resp.records?.[0];
+                if (rec?.draw_delta) {
+                  applyOverlayDelta({
+                    active_ids: rec.draw_delta.active_ids ?? [],
+                    instruction_catalog_patch: rec.draw_delta.instruction_catalog_patch ?? [],
+                    next_cursor: { version_id: rec.draw_delta.next_cursor?.version_id ?? afterId }
+                  });
+                  rebuildPivotMarkersFromOverlay();
+                  syncMarkers();
+                  rebuildPenPointsFromOverlay();
+                  setPenPointCount(ENABLE_PEN_SEGMENT_COLOR ? penSegmentsRef.current.length * 2 : penPointsRef.current.length);
+                  if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
+                    penSeriesRef.current.setData(penPointsRef.current);
+                  }
+                }
+                if (rec?.factor_slices) {
+                  applyPenAndAnchorFromFactorSlices(rec.factor_slices);
+                } else {
+                  void fetchAndApplyAnchorHighlightAtTime(t);
+                }
+              })
+              .catch(() => {
+                // ignore
+              })
+              .finally(() => {
+                overlayPullInFlightRef.current = false;
+                const pending = followPendingTimeRef.current;
+                followPendingTimeRef.current = null;
+                if (pending != null && isActive) scheduleOverlayFollow(pending);
+              });
+            return;
+          }
+
+          const cur = overlayCursorVersionRef.current;
+          void fetchOverlayLikeDelta({ seriesId, cursorVersionId: cur, windowCandles: INITIAL_TAIL_LIMIT })
+            .then((delta) => {
+              if (!isActive) return;
+              applyOverlayDelta(delta);
+              rebuildPivotMarkersFromOverlay();
+              syncMarkers();
+              rebuildPenPointsFromOverlay();
+              if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
+                penSeriesRef.current.setData(penPointsRef.current);
+              }
+              setPenPointCount(ENABLE_PEN_SEGMENT_COLOR ? penSegmentsRef.current.length * 2 : penPointsRef.current.length);
+            })
+            .catch(() => {
+              // ignore
+            })
+            .finally(() => {
+              overlayPullInFlightRef.current = false;
+              const pending = followPendingTimeRef.current;
+              followPendingTimeRef.current = null;
+              if (pending != null && isActive) scheduleOverlayFollow(pending);
+            });
+
+          void fetchAndApplyAnchorHighlightAtTime(t);
+        }
+
         ws.onmessage = (evt) => {
           const msg = typeof evt.data === "string" ? parseMarketWsMessage(evt.data) : null;
           if (!msg) return;
 
+          if (msg.type === "candles_batch") {
+            const last = msg.candles.length > 0 ? msg.candles[msg.candles.length - 1] : null;
+            const t = last ? last.candle_time : null;
+            if (t != null) {
+              lastWsCandleTimeRef.current = t;
+              setLastWsCandleTime(t);
+            }
+
+            setCandles((prev) => {
+              const next = mergeCandlesWindow(prev, msg.candles.map(toChartCandle), INITIAL_TAIL_LIMIT);
+              candlesRef.current = next;
+              return next;
+            });
+
+            if (t != null) scheduleOverlayFollow(t);
+            return;
+          }
+
           if (msg.type === "candle_forming") {
             const next = toChartCandle(msg.candle);
-            candlesRef.current = mergeCandle(candlesRef.current, next);
-            setCandles((prev) => mergeCandle(prev, next));
+            candlesRef.current = mergeCandleWindow(candlesRef.current, next, INITIAL_TAIL_LIMIT);
+            setCandles((prev) => mergeCandleWindow(prev, next, INITIAL_TAIL_LIMIT));
             return;
           }
 
@@ -445,31 +1003,9 @@ export function ChartView() {
             setLastWsCandleTime(t);
 
             const next = toChartCandle(msg.candle);
-            candlesRef.current = mergeCandle(candlesRef.current, next);
-            setCandles((prev) => mergeCandle(prev, next));
-
-            if (!overlayPullInFlightRef.current) {
-              overlayPullInFlightRef.current = true;
-              const cur = overlayCursorVersionRef.current;
-              void fetchOverlayLikeDelta({ seriesId, cursorVersionId: cur, windowCandles: INITIAL_TAIL_LIMIT })
-                .then((delta) => {
-                  if (!isActive) return;
-                  applyOverlayDelta(delta);
-                  rebuildPivotMarkersFromOverlay();
-                  syncMarkers();
-                  rebuildPenPointsFromOverlay();
-                  if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
-                    penSeriesRef.current.setData(penPointsRef.current);
-                  }
-                  setPenPointCount(penPointsRef.current.length);
-                })
-                .catch(() => {
-                  // ignore
-                })
-                .finally(() => {
-                  overlayPullInFlightRef.current = false;
-                });
-            }
+            candlesRef.current = mergeCandleWindow(candlesRef.current, next, INITIAL_TAIL_LIMIT);
+            setCandles((prev) => mergeCandleWindow(prev, next, INITIAL_TAIL_LIMIT));
+            scheduleOverlayFollow(t);
             return;
           }
 
@@ -483,8 +1019,7 @@ export function ChartView() {
               if (!isActive) return;
               if (chunk.length === 0) return;
               setCandles((prev) => {
-                let next = prev;
-                for (const c of chunk) next = mergeCandle(next, c);
+                const next = mergeCandlesWindow(prev, chunk, INITIAL_TAIL_LIMIT);
                 candlesRef.current = next;
                 return next;
               });
@@ -493,21 +1028,40 @@ export function ChartView() {
             overlayCatalogRef.current.clear();
             overlayActiveIdsRef.current.clear();
             overlayCursorVersionRef.current = 0;
-            void fetchOverlayLikeDelta({ seriesId, cursorVersionId: 0, windowCandles: INITIAL_TAIL_LIMIT })
-              .then((delta) => {
-                if (!isActive) return;
-                applyOverlayDelta(delta);
-                rebuildPivotMarkersFromOverlay();
-                syncMarkers();
-                rebuildPenPointsFromOverlay();
-                if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
-                  penSeriesRef.current.setData(penPointsRef.current);
-                }
-                setPenPointCount(penPointsRef.current.length);
-              })
-              .catch(() => {
-                // ignore
-              });
+            anchorPenPointsRef.current = null;
+            setAnchorHighlightEpoch((v) => v + 1);
+            lastFactorAtTimeRef.current = null;
+            if (ENABLE_WORLD_FRAME && !replayEnabled) {
+              void fetchWorldFrameLive({ seriesId, windowCandles: INITIAL_TAIL_LIMIT })
+                .then((frame) => {
+                  if (!isActive) return;
+                  applyWorldFrame(frame);
+                })
+                .catch(() => {
+                  // ignore
+                });
+            } else {
+              void fetchOverlayLikeDelta({ seriesId, cursorVersionId: 0, windowCandles: INITIAL_TAIL_LIMIT })
+                .then((delta) => {
+                  if (!isActive) return;
+                  applyOverlayDelta(delta);
+                  rebuildPivotMarkersFromOverlay();
+                  syncMarkers();
+                  rebuildPenPointsFromOverlay();
+                  if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
+                    penSeriesRef.current.setData(penPointsRef.current);
+                  }
+                  setPenPointCount(
+                    ENABLE_PEN_SEGMENT_COLOR ? penSegmentsRef.current.length * 2 : penPointsRef.current.length
+                  );
+                })
+                .catch(() => {
+                  // ignore
+                });
+              if (last && last.time != null) {
+                void fetchAndApplyAnchorHighlightAtTime(last.time as number);
+              }
+            }
           }
         };
         ws.onerror = () => {
@@ -524,23 +1078,47 @@ export function ChartView() {
 
     return () => {
       isActive = false;
+      if (followTimerIdRef.current != null) {
+        window.clearTimeout(followTimerIdRef.current);
+        followTimerIdRef.current = null;
+      }
       ws?.close();
       setCandles([]);
     };
   }, [
     applyOverlayDelta,
+    applyReplayOverlayAtTime,
+    applyWorldFrame,
     effectiveVisible,
+    fetchAndApplyAnchorHighlightAtTime,
     fetchOverlayLikeDelta,
+    fetchWorldFrameAtTime,
+    fetchWorldFrameLive,
     rebuildPenPointsFromOverlay,
     rebuildPivotMarkersFromOverlay,
+    replayEnabled,
     seriesId,
     syncMarkers
   ]);
 
+  useEffect(() => {
+    if (!replayEnabled) return;
+    if (!replayPlaying) return;
+    const all = replayAllCandlesRef.current;
+    if (all.length === 0) return;
+    if (replayIndex >= all.length - 1) return;
+    const id = window.setTimeout(() => {
+      setReplayIndexAndCandles(replayIndex + 1);
+    }, replaySpeedMs);
+    return () => window.clearTimeout(id);
+  }, [replayEnabled, replayIndex, replayPlaying, replaySpeedMs, setReplayIndexAndCandles]);
+
   return (
     <div
+      ref={wheelGuardRef}
       data-testid="chart-view"
       data-series-id={seriesId}
+      data-candles-len={String(candles.length)}
       data-last-time={candles.length ? String(candles[candles.length - 1]!.time) : ""}
       data-last-open={candles.length ? String(candles[candles.length - 1]!.open) : ""}
       data-last-high={candles.length ? String(candles[candles.length - 1]!.high) : ""}
@@ -554,6 +1132,57 @@ export function ChartView() {
       className="relative h-full w-full"
       title={error ?? undefined}
     >
+      {ENABLE_REPLAY_V1 ? (
+        <div className="absolute right-2 top-2 z-20 flex items-center gap-2 rounded border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-white/80">
+          <button
+            className="rounded bg-white/10 px-2 py-1 text-white/90 hover:bg-white/15"
+            onClick={() => {
+              setReplayEnabled((v) => {
+                const next = !v;
+                setReplayPlaying(next);
+                return next;
+              });
+            }}
+          >
+            Replay {replayEnabled ? "ON" : "OFF"}
+          </button>
+          {replayEnabled ? (
+            <>
+              <button
+                className="rounded bg-white/10 px-2 py-1 text-white/90 hover:bg-white/15"
+                onClick={() => setReplayPlaying((v) => !v)}
+              >
+                {replayPlaying ? "Pause" : "Play"}
+              </button>
+              <select
+                className="rounded bg-white/10 px-2 py-1 text-white/90"
+                value={replaySpeedMs}
+                onChange={(e) => setReplaySpeedMs(Number(e.target.value))}
+                title="Replay speed"
+              >
+                <option value={50}>20x</option>
+                <option value={100}>10x</option>
+                <option value={200}>5x</option>
+                <option value={400}>2x</option>
+                <option value={800}>1x</option>
+              </select>
+              <input
+                className="w-56"
+                type="range"
+                min={0}
+                max={Math.max(0, replayAllCandlesRef.current.length - 1)}
+                value={replayIndex}
+                onChange={(e) => setReplayIndexAndCandles(Number(e.target.value), { pause: true })}
+                title="Seek"
+              />
+              <span className="font-mono text-white/70" title="index / total">
+                {replayAllCandlesRef.current.length ? `${replayIndex + 1}/${replayAllCandlesRef.current.length}` : "0/0"}
+              </span>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
       <div
         ref={(el) => {
           containerRef.current = el;

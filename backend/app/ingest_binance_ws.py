@@ -5,7 +5,9 @@ import json
 import logging
 import os
 import time
+from time import perf_counter
 
+from .blocking import run_blocking
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .store import CandleStore
@@ -123,144 +125,143 @@ async def run_binance_ws_ingest_loop(
 
     url = build_binance_kline_ws_url(series)
 
-    # Keep one sqlite connection per ingestor task to avoid repeated connect/pragma overhead.
-    conn = store.connect()
+    batch_max_raw = (os.environ.get("TRADE_CANVAS_BINANCE_WS_BATCH_MAX") or "").strip()
+    flush_s_raw = (os.environ.get("TRADE_CANVAS_BINANCE_WS_FLUSH_S") or "").strip()
     try:
-        batch_max_raw = (os.environ.get("TRADE_CANVAS_BINANCE_WS_BATCH_MAX") or "").strip()
-        flush_s_raw = (os.environ.get("TRADE_CANVAS_BINANCE_WS_FLUSH_S") or "").strip()
-        try:
-            batch_max = max(1, int(batch_max_raw)) if batch_max_raw else 200
-        except ValueError:
-            batch_max = 200
-        try:
-            flush_s = max(0.05, float(flush_s_raw)) if flush_s_raw else 0.5
-        except ValueError:
-            flush_s = 0.5
+        batch_max = max(1, int(batch_max_raw)) if batch_max_raw else 200
+    except ValueError:
+        batch_max = 200
+    try:
+        flush_s = max(0.05, float(flush_s_raw)) if flush_s_raw else 0.5
+    except ValueError:
+        flush_s = 0.5
 
-        last_emitted_time = store.head_time(series_id) or 0
-        buf: list[CandleClosed] = []
+    last_emitted_time = store.head_time(series_id) or 0
+    buf: list[CandleClosed] = []
+    last_flush_at = time.time()
+
+    forming_min_interval_raw = (os.environ.get("TRADE_CANVAS_MARKET_FORMING_MIN_INTERVAL_MS") or "").strip()
+    try:
+        forming_min_interval_ms = max(0, int(forming_min_interval_raw)) if forming_min_interval_raw else 250
+    except ValueError:
+        forming_min_interval_ms = 250
+    forming_min_interval_s = forming_min_interval_ms / 1000.0
+    last_forming_emit_at = 0.0
+    last_forming_candle_time: int | None = None
+
+    async def flush(reason: str) -> None:
+        nonlocal buf, last_flush_at, last_emitted_time
+        if not buf:
+            return
+        buf.sort(key=lambda c: c.candle_time)
+
+        deduped: list[CandleClosed] = []
+        last_time: int | None = None
+        for candle in buf:
+            if candle.candle_time <= last_emitted_time:
+                continue
+            if last_time is not None and candle.candle_time == last_time:
+                deduped[-1] = candle
+            else:
+                deduped.append(candle)
+                last_time = candle.candle_time
+
+        buf = []
         last_flush_at = time.time()
+        if not deduped:
+            return
 
-        forming_min_interval_raw = (os.environ.get("TRADE_CANVAS_MARKET_FORMING_MIN_INTERVAL_MS") or "").strip()
-        try:
-            forming_min_interval_ms = max(0, int(forming_min_interval_raw)) if forming_min_interval_raw else 250
-        except ValueError:
-            forming_min_interval_ms = 250
-        forming_min_interval_s = forming_min_interval_ms / 1000.0
-        last_forming_emit_at = 0.0
-        last_forming_candle_time: int | None = None
+        up_to_time = int(deduped[-1].candle_time)
 
-        async def flush(reason: str) -> None:
-            nonlocal buf, last_flush_at, last_emitted_time
-            if not buf:
-                return
-            buf.sort(key=lambda c: c.candle_time)
-
-            deduped: list[CandleClosed] = []
-            last_time: int | None = None
-            for candle in buf:
-                if candle.candle_time <= last_emitted_time:
-                    continue
-                if last_time is not None and candle.candle_time == last_time:
-                    deduped[-1] = candle
-                else:
-                    deduped.append(candle)
-                    last_time = candle.candle_time
-
-            buf = []
-            last_flush_at = time.time()
-            if not deduped:
-                return
-
-            t0 = time.perf_counter()
-            store.upsert_many_closed_in_conn(conn, series_id, deduped)
-            conn.commit()
-            db_ms = int((time.perf_counter() - t0) * 1000)
+        # IMPORTANT: keep the asyncio event loop responsive.
+        # SQLite writes and factor/overlay computation are sync and may take seconds.
+        def _persist_and_compute() -> int:
+            t0 = perf_counter()
+            with store.connect() as conn:
+                store.upsert_many_closed_in_conn(conn, series_id, deduped)
+                conn.commit()
 
             if plot_orchestrator is not None:
                 try:
-                    plot_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=deduped[-1].candle_time)
+                    plot_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
                 except Exception:
                     pass
             if factor_orchestrator is not None:
                 try:
-                    factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=deduped[-1].candle_time)
+                    factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
                 except Exception:
                     pass
             if overlay_orchestrator is not None:
                 try:
-                    overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=deduped[-1].candle_time)
+                    overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
                 except Exception:
                     pass
+            return int((perf_counter() - t0) * 1000)
 
-            t1 = time.perf_counter()
-            for candle in deduped:
-                await hub.publish_closed(series_id=series_id, candle=candle)
-            publish_ms = int((time.perf_counter() - t1) * 1000)
+        db_ms = await run_blocking(_persist_and_compute)
 
-            last_emitted_time = max(last_emitted_time, deduped[-1].candle_time)
+        t1 = time.perf_counter()
+        await hub.publish_closed_batch(series_id=series_id, candles=deduped)
+        publish_ms = int((time.perf_counter() - t1) * 1000)
 
-            logger.info(
-                "market_ingest_batch source=binance_ws series_id=%s rows=%d db_ms=%d publish_ms=%d head_time=%d reason=%s",
-                series_id,
-                len(deduped),
-                db_ms,
-                publish_ms,
-                last_emitted_time,
-                reason,
-            )
+        last_emitted_time = max(last_emitted_time, up_to_time)
 
-        while not stop.is_set():
-            try:
-                import websockets
+        logger.info(
+            "market_ingest_batch source=binance_ws series_id=%s rows=%d db_ms=%d publish_ms=%d head_time=%d reason=%s",
+            series_id,
+            len(deduped),
+            db_ms,
+            publish_ms,
+            last_emitted_time,
+            reason,
+        )
 
-                async with websockets.connect(
-                    url,
-                    ping_interval=20,
-                    ping_timeout=20,
-                    close_timeout=2,
-                    max_queue=32,
-                ) as upstream:
-                    while not stop.is_set():
-                        try:
-                            raw = await asyncio.wait_for(upstream.recv(), timeout=1.0)
-                        except asyncio.TimeoutError:
-                            if buf and (time.time() - last_flush_at) >= flush_s:
-                                await flush("timeout")
-                            continue
-
-                        try:
-                            payload = json.loads(raw)
-                        except Exception:
-                            continue
-
-                        parsed = parse_binance_kline_payload_any(payload)
-                        if parsed is None:
-                            continue
-                        candle, is_final = parsed
-
-                        if not is_final:
-                            if candle.candle_time > last_emitted_time:
-                                now = time.monotonic()
-                                if (
-                                    candle.candle_time != last_forming_candle_time
-                                    or (now - last_forming_emit_at) >= forming_min_interval_s
-                                ):
-                                    await hub.publish_forming(series_id=series_id, candle=candle)
-                                    last_forming_emit_at = now
-                                    last_forming_candle_time = candle.candle_time
-                            continue
-
-                        buf.append(candle)
-                        if len(buf) >= batch_max or (time.time() - last_flush_at) >= flush_s:
-                            await flush("threshold")
-                    await flush("disconnect")
-            except asyncio.CancelledError:
-                return
-            except Exception:
-                await asyncio.sleep(2.0)
-    finally:
+    while not stop.is_set():
         try:
-            conn.close()
+            import websockets
+
+            async with websockets.connect(
+                url,
+                ping_interval=20,
+                ping_timeout=20,
+                close_timeout=2,
+                max_queue=32,
+            ) as upstream:
+                while not stop.is_set():
+                    try:
+                        raw = await asyncio.wait_for(upstream.recv(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        if buf and (time.time() - last_flush_at) >= flush_s:
+                            await flush("timeout")
+                        continue
+
+                    try:
+                        payload = json.loads(raw)
+                    except Exception:
+                        continue
+
+                    parsed = parse_binance_kline_payload_any(payload)
+                    if parsed is None:
+                        continue
+                    candle, is_final = parsed
+
+                    if not is_final:
+                        if candle.candle_time > last_emitted_time:
+                            now = time.monotonic()
+                            if (
+                                candle.candle_time != last_forming_candle_time
+                                or (now - last_forming_emit_at) >= forming_min_interval_s
+                            ):
+                                await hub.publish_forming(series_id=series_id, candle=candle)
+                                last_forming_emit_at = now
+                                last_forming_candle_time = candle.candle_time
+                        continue
+
+                    buf.append(candle)
+                    if len(buf) >= batch_max or (time.time() - last_flush_at) >= flush_s:
+                        await flush("threshold")
+                await flush("disconnect")
+        except asyncio.CancelledError:
+            return
         except Exception:
-            pass
+            await asyncio.sleep(2.0)

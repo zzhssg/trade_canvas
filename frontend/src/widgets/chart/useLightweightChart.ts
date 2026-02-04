@@ -62,13 +62,13 @@ export function useLightweightChart({ containerRef, width, height, onCreated, on
       timeScale: { borderColor: "rgba(255,255,255,0.15)" },
       crosshair: { mode: 0 },
       handleScroll: {
-        mouseWheel: true,
+        mouseWheel: false,
         pressedMouseMove: true,
         horzTouchDrag: true,
         vertTouchDrag: true
       },
       handleScale: {
-        mouseWheel: true,
+        mouseWheel: false,
         pinch: true,
         axisPressedMouseMove: true
       }

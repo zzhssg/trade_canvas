@@ -1,21 +1,28 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import TextIO
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 
+from .blocking import run_blocking
 from .config import load_settings
 from .freqtrade_config import build_backtest_config, load_json, write_temp_config
+from .freqtrade_data import check_history_available, list_available_timeframes
 from .freqtrade_runner import list_strategies, parse_strategy_list, run_backtest, validate_strategy_name
 from .ingest_supervisor import IngestSupervisor
 from .schemas import (
     BacktestRunRequest,
     BacktestRunResponse,
+    BacktestPairTimeframesResponse,
+    DrawDeltaV1,
     GetCandlesResponse,
     GetFactorSlicesResponseV1,
     IngestCandleClosedRequest,
@@ -23,13 +30,17 @@ from .schemas import (
     IngestCandleFormingRequest,
     IngestCandleFormingResponse,
     LimitQuery,
-    DrawDeltaV1,
     OverlayDeltaV1,
     PlotDeltaV1,
     SinceQuery,
     StrategyListResponse,
     TopMarketsLimitQuery,
     TopMarketsResponse,
+    WorldCursorV1,
+    WorldDeltaPollResponseV1,
+    WorldDeltaRecordV1,
+    WorldStateV1,
+    WorldTimeV1,
 )
 from .market_list import BinanceMarketListService, MinIntervalLimiter
 from .factor_orchestrator import FactorOrchestrator
@@ -45,9 +56,54 @@ from .ws_hub import CandleHub
 
 logger = logging.getLogger(__name__)
 
+_faulthandler_file: TextIO | None = None
+
+
+async def list_strategies_async(**kwargs):
+    # Keep the event loop responsive: freqtrade runner uses blocking subprocess calls.
+    return await run_blocking(list_strategies, **kwargs)
+
+
+async def run_backtest_async(**kwargs):
+    # Keep the event loop responsive: freqtrade runner uses blocking subprocess calls.
+    return await run_blocking(run_backtest, **kwargs)
+
+
+def _maybe_enable_faulthandler() -> None:
+    """
+    Optional: allow dumping stack traces even when Ctrl+C appears stuck.
+
+    Usage (when enabled): `kill -USR1 <pid>` to print all thread tracebacks to stderr.
+    """
+    if os.environ.get("TRADE_CANVAS_ENABLE_FAULTHANDLER") != "1":
+        return
+    try:
+        import faulthandler
+        import signal
+        import sys
+
+        file: TextIO = sys.stderr
+        path_raw = (os.environ.get("TRADE_CANVAS_FAULTHANDLER_PATH") or "").strip()
+        if path_raw:
+            p = Path(path_raw).expanduser()
+            if not p.is_absolute():
+                p = (Path.cwd() / p).resolve()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            global _faulthandler_file
+            _faulthandler_file = p.open("a", encoding="utf-8", buffering=1)
+            file = _faulthandler_file
+
+        faulthandler.enable(file=file)
+        if hasattr(signal, "SIGUSR1"):
+            faulthandler.register(signal.SIGUSR1, file=file, all_threads=True)
+    except Exception:
+        pass
+
 
 def create_app() -> FastAPI:
+    _maybe_enable_faulthandler()
     settings = load_settings()
+    project_root = Path(__file__).resolve().parents[2]
     store = CandleStore(db_path=settings.db_path)
     plot_store = PlotStore(db_path=settings.db_path)
     plot_orchestrator = PlotOrchestrator(candle_store=store, plot_store=plot_store)
@@ -89,6 +145,11 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
+            # Close websockets first so uvicorn doesn't wait on them.
+            try:
+                await hub.close_all()
+            except Exception:
+                pass
             await supervisor.close()
 
     app = FastAPI(title="trade_canvas API", version="0.1.0", lifespan=lifespan)
@@ -125,22 +186,33 @@ def create_app() -> FastAPI:
 
     @app.post("/api/market/ingest/candle_closed", response_model=IngestCandleClosedResponse)
     async def ingest_candle_closed(req: IngestCandleClosedRequest) -> IngestCandleClosedResponse:
-        store.upsert_closed(req.series_id, req.candle)
-        try:
-            app.state.plot_orchestrator.ingest_closed(series_id=req.series_id, up_to_candle_time=req.candle.candle_time)
-        except Exception:
-            # Plot ingest must never break market ingest (best-effort).
-            pass
-        try:
-            app.state.factor_orchestrator.ingest_closed(series_id=req.series_id, up_to_candle_time=req.candle.candle_time)
-        except Exception:
-            # Factor ingest must never break market ingest (best-effort).
-            pass
-        try:
-            app.state.overlay_orchestrator.ingest_closed(series_id=req.series_id, up_to_candle_time=req.candle.candle_time)
-        except Exception:
-            # Overlay ingest must never break market ingest (best-effort).
-            pass
+        # IMPORTANT: keep the asyncio event loop responsive.
+        # SQLite writes and factor/overlay computation are sync and may take seconds for large bursts.
+        def _persist_and_sidecars() -> None:
+            store.upsert_closed(req.series_id, req.candle)
+            try:
+                app.state.plot_orchestrator.ingest_closed(
+                    series_id=req.series_id, up_to_candle_time=req.candle.candle_time
+                )
+            except Exception:
+                # Plot ingest must never break market ingest (best-effort).
+                pass
+            try:
+                app.state.factor_orchestrator.ingest_closed(
+                    series_id=req.series_id, up_to_candle_time=req.candle.candle_time
+                )
+            except Exception:
+                # Factor ingest must never break market ingest (best-effort).
+                pass
+            try:
+                app.state.overlay_orchestrator.ingest_closed(
+                    series_id=req.series_id, up_to_candle_time=req.candle.candle_time
+                )
+            except Exception:
+                # Overlay ingest must never break market ingest (best-effort).
+                pass
+
+        await run_blocking(_persist_and_sidecars)
         await hub.publish_closed(series_id=req.series_id, candle=req.candle)
         return IngestCandleClosedResponse(ok=True, series_id=req.series_id, candle_time=req.candle.candle_time)
 
@@ -296,6 +368,7 @@ def create_app() -> FastAPI:
         series_id: str = Query(..., min_length=1),
         cursor_version_id: int = Query(0, ge=0),
         window_candles: LimitQuery = 2000,
+        at_time: int | None = Query(default=None, ge=0, description="Optional replay upper-bound (Unix seconds)"),
     ) -> DrawDeltaV1:
         """
         Unified draw delta (v1 base):
@@ -306,7 +379,26 @@ def create_app() -> FastAPI:
 
         store_head = store.head_time(series_id)
         overlay_head = app.state.overlay_store.head_time(series_id)
-        to_time = overlay_head if overlay_head is not None else store_head
+
+        if at_time is not None:
+            aligned = store.floor_time(series_id, at_time=int(at_time))
+            if aligned is None:
+                return DrawDeltaV1(
+                    series_id=series_id,
+                    to_candle_id=None,
+                    to_candle_time=None,
+                    active_ids=[],
+                    instruction_catalog_patch=[],
+                    series_points={},
+                    next_cursor=DrawCursorV1(version_id=int(cursor_version_id), point_time=None),
+                )
+            # Replay/point-query semantics must be fail-safe: draw output cannot claim it is aligned to t
+            # unless the overlay store has actually been built up to that aligned time.
+            if overlay_head is None or int(overlay_head) < int(aligned):
+                raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
+            to_time = int(aligned)
+        else:
+            to_time = overlay_head if overlay_head is not None else store_head
         to_candle_id = f"{series_id}:{to_time}" if to_time is not None else None
 
         if to_time is None:
@@ -415,6 +507,7 @@ def create_app() -> FastAPI:
         piv_minor: list[dict] = []
         pen_confirmed: list[dict] = []
         zhongshu_dead: list[dict] = []
+        anchor_switches: list[dict] = []
 
         def is_visible(payload: dict, *, at_time: int) -> bool:
             vt = payload.get("visible_time")
@@ -442,9 +535,14 @@ def create_app() -> FastAPI:
                 payload = dict(r.payload or {})
                 if is_visible(payload, at_time=int(aligned)):
                     zhongshu_dead.append(payload)
+            elif r.factor_name == "anchor" and r.kind == "anchor.switch":
+                payload = dict(r.payload or {})
+                if is_visible(payload, at_time=int(aligned)):
+                    anchor_switches.append(payload)
 
         piv_major.sort(key=lambda d: (int(d.get("visible_time", 0)), int(d.get("pivot_time", 0))))
         pen_confirmed.sort(key=lambda d: (int(d.get("visible_time", 0)), int(d.get("start_time", 0))))
+        anchor_switches.sort(key=lambda d: (int(d.get("visible_time", 0)), int(d.get("switch_time", 0))))
 
         snapshots: dict[str, FactorSliceV1] = {}
         factors: list[str] = []
@@ -464,10 +562,53 @@ def create_app() -> FastAPI:
             )
 
         if pen_confirmed:
+            # Candidate pen (head-only): from last confirmed pen end_time to the most extreme point
+            # in the reverse direction within the current tail window.
+            pen_head: dict = {}
+            try:
+                candles = store.get_closed(series_id, since=int(start_time), limit=int(window_candles) + 5)
+                candles = [c for c in candles if int(c.candle_time) <= int(aligned)]
+            except Exception:
+                candles = []
+
+            last = pen_confirmed[-1]
+            try:
+                last_end_time = int(last.get("end_time") or 0)
+                last_end_price = float(last.get("end_price") or 0.0)
+                last_dir = int(last.get("direction") or 0)
+            except Exception:
+                last_end_time = 0
+                last_end_price = 0.0
+                last_dir = 0
+
+            if candles and last_end_time > 0 and last_dir in (-1, 1):
+                tail = [c for c in candles if int(c.candle_time) > int(last_end_time) and int(c.candle_time) <= int(aligned)]
+                if tail:
+                    if last_dir == 1:
+                        # Last confirmed pen was up; candidate is down to min(low).
+                        best = min(tail, key=lambda c: float(c.low))
+                        pen_head["candidate"] = {
+                            "start_time": int(last_end_time),
+                            "end_time": int(best.candle_time),
+                            "start_price": float(last_end_price),
+                            "end_price": float(best.low),
+                            "direction": -1,
+                        }
+                    else:
+                        # Last confirmed pen was down; candidate is up to max(high).
+                        best = max(tail, key=lambda c: float(c.high))
+                        pen_head["candidate"] = {
+                            "start_time": int(last_end_time),
+                            "end_time": int(best.candle_time),
+                            "start_price": float(last_end_price),
+                            "end_price": float(best.high),
+                            "direction": 1,
+                        }
+
             factors.append("pen")
             snapshots["pen"] = FactorSliceV1(
                 history={"confirmed": pen_confirmed},
-                head={},
+                head=pen_head,
                 meta=FactorMetaV1(
                     series_id=series_id,
                     at_time=int(aligned),
@@ -476,16 +617,85 @@ def create_app() -> FastAPI:
                 ),
             )
 
-        if zhongshu_dead:
+        # Zhongshu head.alive is derived from confirmed pens at t (head-only); dead is append-only history slice.
+        zhongshu_head: dict = {}
+        if pen_confirmed:
+            try:
+                from .zhongshu import build_alive_zhongshu_from_confirmed_pens
+
+                alive = build_alive_zhongshu_from_confirmed_pens(pen_confirmed, up_to_visible_time=int(aligned))
+            except Exception:
+                alive = None
+            if alive is not None and int(alive.visible_time) == int(aligned):
+                zhongshu_head["alive"] = [
+                    {
+                        "start_time": int(alive.start_time),
+                        "end_time": int(alive.end_time),
+                        "zg": float(alive.zg),
+                        "zd": float(alive.zd),
+                        "formed_time": int(alive.formed_time),
+                        "death_time": None,
+                        "visible_time": int(alive.visible_time),
+                    }
+                ]
+
+        if zhongshu_dead or zhongshu_head.get("alive"):
             factors.append("zhongshu")
             snapshots["zhongshu"] = FactorSliceV1(
                 history={"dead": zhongshu_dead},
-                head={},
+                head=zhongshu_head,
                 meta=FactorMetaV1(
                     series_id=series_id,
                     at_time=int(aligned),
                     candle_id=candle_id,
                     factor_name="zhongshu",
+                ),
+            )
+
+        # Anchor snapshot:
+        # - history.switches: append-only stable switches from FactorStore
+        # - head.current_anchor_ref: the latest stable anchor (confirmed) if available
+        # - head.reverse_anchor_ref: optional (candidate pen derived from pen head)
+        if pen_confirmed or anchor_switches:
+            current_anchor_ref = None
+            if anchor_switches:
+                cur = anchor_switches[-1].get("new_anchor")
+                if isinstance(cur, dict):
+                    current_anchor_ref = cur
+            elif pen_confirmed:
+                last = pen_confirmed[-1]
+                current_anchor_ref = {
+                    "kind": "confirmed",
+                    "start_time": int(last.get("start_time") or 0),
+                    "end_time": int(last.get("end_time") or 0),
+                    "direction": int(last.get("direction") or 0),
+                }
+
+            reverse_anchor_ref = None
+            try:
+                pen_head_candidate = (snapshots.get("pen").head or {}).get("candidate") if "pen" in snapshots else None
+            except Exception:
+                pen_head_candidate = None
+            if isinstance(pen_head_candidate, dict):
+                try:
+                    reverse_anchor_ref = {
+                        "kind": "candidate",
+                        "start_time": int(pen_head_candidate.get("start_time") or 0),
+                        "end_time": int(pen_head_candidate.get("end_time") or 0),
+                        "direction": int(pen_head_candidate.get("direction") or 0),
+                    }
+                except Exception:
+                    reverse_anchor_ref = None
+
+            factors.append("anchor")
+            snapshots["anchor"] = FactorSliceV1(
+                history={"switches": anchor_switches},
+                head={"current_anchor_ref": current_anchor_ref, "reverse_anchor_ref": reverse_anchor_ref},
+                meta=FactorMetaV1(
+                    series_id=series_id,
+                    at_time=int(aligned),
+                    candle_id=candle_id,
+                    factor_name="anchor",
                 ),
             )
 
@@ -496,6 +706,94 @@ def create_app() -> FastAPI:
             factors=factors,
             snapshots=snapshots,
         )
+
+    @app.get("/api/frame/live", response_model=WorldStateV1)
+    def get_world_frame_live(
+        series_id: str = Query(..., min_length=1),
+        window_candles: LimitQuery = 2000,
+    ) -> WorldStateV1:
+        """
+        Unified world frame (live): latest aligned world state.
+        v1 implementation is a projection of existing factor_slices + draw/delta.
+        """
+        store_head = store.head_time(series_id)
+        if store_head is None:
+            raise HTTPException(status_code=404, detail="no_data")
+        aligned = store.floor_time(series_id, at_time=int(store_head))
+        if aligned is None:
+            raise HTTPException(status_code=404, detail="no_data")
+
+        factor_slices = get_factor_slices(series_id=series_id, at_time=int(aligned), window_candles=window_candles)
+        draw_state = get_draw_delta(series_id=series_id, cursor_version_id=0, window_candles=window_candles, at_time=int(aligned))
+        candle_id = f"{series_id}:{int(aligned)}"
+        if factor_slices.candle_id != candle_id or draw_state.to_candle_id != candle_id:
+            raise HTTPException(status_code=409, detail="ledger_out_of_sync")
+        return WorldStateV1(
+            series_id=series_id,
+            time=WorldTimeV1(at_time=int(store_head), aligned_time=int(aligned), candle_id=candle_id),
+            factor_slices=factor_slices,
+            draw_state=draw_state,
+        )
+
+    @app.get("/api/frame/at_time", response_model=WorldStateV1)
+    def get_world_frame_at_time(
+        series_id: str = Query(..., min_length=1),
+        at_time: int = Query(..., ge=0),
+        window_candles: LimitQuery = 2000,
+    ) -> WorldStateV1:
+        """
+        Unified world frame (replay point query): aligned world state at time t.
+        """
+        aligned = store.floor_time(series_id, at_time=int(at_time))
+        if aligned is None:
+            raise HTTPException(status_code=404, detail="no_data")
+
+        factor_slices = get_factor_slices(series_id=series_id, at_time=int(aligned), window_candles=window_candles)
+        draw_state = get_draw_delta(series_id=series_id, cursor_version_id=0, window_candles=window_candles, at_time=int(aligned))
+        candle_id = f"{series_id}:{int(aligned)}"
+        if factor_slices.candle_id != candle_id or draw_state.to_candle_id != candle_id:
+            raise HTTPException(status_code=409, detail="ledger_out_of_sync")
+        return WorldStateV1(
+            series_id=series_id,
+            time=WorldTimeV1(at_time=int(at_time), aligned_time=int(aligned), candle_id=candle_id),
+            factor_slices=factor_slices,
+            draw_state=draw_state,
+        )
+
+    @app.get("/api/delta/poll", response_model=WorldDeltaPollResponseV1)
+    def poll_world_delta(
+        series_id: str = Query(..., min_length=1),
+        after_id: int = Query(0, ge=0),
+        limit: LimitQuery = 2000,
+        window_candles: LimitQuery = 2000,
+    ) -> WorldDeltaPollResponseV1:
+        """
+        v1 world delta (live):
+        - Uses draw/delta cursor as the minimal incremental source (compat projection).
+        - Emits at most 1 record per poll (if cursor advances); otherwise returns empty records.
+        """
+        _ = int(limit)  # reserved for future multi-record batching (delta ledger)
+        draw = get_draw_delta(series_id=series_id, cursor_version_id=int(after_id), window_candles=window_candles, at_time=None)
+        next_id = int(draw.next_cursor.version_id or 0)
+        if draw.to_candle_id is None or draw.to_candle_time is None:
+            return WorldDeltaPollResponseV1(series_id=series_id, records=[], next_cursor=WorldCursorV1(id=int(after_id)))
+
+        if next_id <= int(after_id):
+            return WorldDeltaPollResponseV1(series_id=series_id, records=[], next_cursor=WorldCursorV1(id=int(after_id)))
+
+        rec = WorldDeltaRecordV1(
+            id=int(next_id),
+            series_id=series_id,
+            to_candle_id=str(draw.to_candle_id),
+            to_candle_time=int(draw.to_candle_time),
+            draw_delta=draw,
+            factor_slices=get_factor_slices(
+                series_id=series_id,
+                at_time=int(draw.to_candle_time),
+                window_candles=window_candles,
+            ),
+        )
+        return WorldDeltaPollResponseV1(series_id=series_id, records=[rec], next_cursor=WorldCursorV1(id=int(next_id)))
 
     @app.get("/api/market/whitelist")
     def get_market_whitelist() -> dict[str, list[str]]:
@@ -646,14 +944,25 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/backtest/strategies", response_model=StrategyListResponse)
-    def get_backtest_strategies(recursive: bool = True) -> StrategyListResponse:
+    async def get_backtest_strategies(recursive: bool = True) -> StrategyListResponse:
         if os.environ.get("TRADE_CANVAS_FREQTRADE_MOCK") == "1":
             return StrategyListResponse(strategies=["DemoStrategy"])
 
-        res = list_strategies(
+        if settings.freqtrade_strategy_path is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Strategy directory not configured. Create ./Strategy or set TRADE_CANVAS_FREQTRADE_STRATEGY_PATH.",
+            )
+
+        # Backtest: only read strategies from this repo's Strategy/ directory.
+        # Freqtrade still expects a userdir to exist; prefer a repo-local empty userdir when available.
+        backtest_userdir = project_root / "freqtrade_user_data"
+        userdir = backtest_userdir if backtest_userdir.exists() else settings.freqtrade_userdir
+
+        res = await list_strategies_async(
             freqtrade_bin=settings.freqtrade_bin,
-            userdir=settings.freqtrade_userdir,
-            cwd=settings.freqtrade_root,
+            userdir=userdir,
+            cwd=project_root,
             recursive=recursive,
             strategy_path=settings.freqtrade_strategy_path,
         )
@@ -669,8 +978,45 @@ def create_app() -> FastAPI:
             )
         return StrategyListResponse(strategies=strategies)
 
+    @app.get("/api/backtest/pair_timeframes", response_model=BacktestPairTimeframesResponse)
+    async def get_backtest_pair_timeframes(pair: str = Query(..., min_length=1)) -> BacktestPairTimeframesResponse:
+        if os.environ.get("TRADE_CANVAS_FREQTRADE_MOCK") == "1":
+            return BacktestPairTimeframesResponse(pair=pair, trading_mode="mock", datadir="", available_timeframes=[])
+
+        if settings.freqtrade_config_path is None:
+            raise HTTPException(status_code=500, detail="Freqtrade config not configured. Set TRADE_CANVAS_FREQTRADE_CONFIG.")
+        if not settings.freqtrade_config_path.exists():
+            raise HTTPException(status_code=500, detail=f"Freqtrade config not found: {settings.freqtrade_config_path}")
+
+        base_cfg = load_json(settings.freqtrade_config_path)
+        trading_mode = str(base_cfg.get("trading_mode") or "spot")
+        stake_currency = str(base_cfg.get("stake_currency") or "USDT")
+
+        datadir_raw = base_cfg.get("datadir")
+        datadir_path = Path(datadir_raw) if isinstance(datadir_raw, str) and datadir_raw else Path("user_data/data")
+        if not datadir_path.is_absolute():
+            datadir_path = (settings.freqtrade_config_path.parent / datadir_path).resolve()
+
+        # Mirror the pair normalization in /api/backtest/run.
+        eff_pair = pair
+        if trading_mode == "futures" and "/" in eff_pair and ":" not in eff_pair:
+            eff_pair = f"{eff_pair}:{stake_currency}"
+
+        available = list_available_timeframes(
+            datadir=datadir_path,
+            pair=eff_pair,
+            trading_mode=trading_mode,
+            stake_currency=stake_currency,
+        )
+        return BacktestPairTimeframesResponse(
+            pair=pair,
+            trading_mode=trading_mode,
+            datadir=str(datadir_path),
+            available_timeframes=available,
+        )
+
     @app.post("/api/backtest/run", response_model=BacktestRunResponse)
-    def run_backtest_job(payload: BacktestRunRequest) -> BacktestRunResponse:
+    async def run_backtest_job(payload: BacktestRunRequest) -> BacktestRunResponse:
         if not validate_strategy_name(payload.strategy_name):
             raise HTTPException(status_code=400, detail="Invalid strategy_name")
 
@@ -709,6 +1055,12 @@ def create_app() -> FastAPI:
                 stderr="",
             )
 
+        if settings.freqtrade_strategy_path is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Strategy directory not configured. Create ./Strategy or set TRADE_CANVAS_FREQTRADE_STRATEGY_PATH.",
+            )
+
         if settings.freqtrade_config_path is None:
             raise HTTPException(
                 status_code=500,
@@ -724,22 +1076,22 @@ def create_app() -> FastAPI:
                 status_code=500,
                 detail=f"Freqtrade root not found: {settings.freqtrade_root}",
             )
-        if settings.freqtrade_userdir is not None and not settings.freqtrade_userdir.exists():
-            raise HTTPException(
-                status_code=500,
-                detail=f"Freqtrade userdir not found: {settings.freqtrade_userdir}",
-            )
 
-        strategies_res = list_strategies(
+        backtest_userdir = project_root / "freqtrade_user_data"
+        userdir = backtest_userdir if backtest_userdir.exists() else settings.freqtrade_userdir
+        if userdir is not None and not userdir.exists():
+            raise HTTPException(status_code=500, detail=f"Freqtrade userdir not found: {userdir}")
+
+        strategies_res = await list_strategies_async(
             freqtrade_bin=settings.freqtrade_bin,
-            userdir=settings.freqtrade_userdir,
-            cwd=settings.freqtrade_root,
+            userdir=userdir,
+            cwd=project_root,
             recursive=True,
             strategy_path=settings.freqtrade_strategy_path,
         )
         strategies = set(parse_strategy_list(strategies_res.stdout))
         if payload.strategy_name not in strategies:
-            raise HTTPException(status_code=404, detail="Strategy not found in userdir")
+            raise HTTPException(status_code=404, detail="Strategy not found in ./Strategy")
 
         pair = payload.pair
         base_cfg: dict = {}
@@ -754,13 +1106,53 @@ def create_app() -> FastAPI:
 
         if not base_cfg:
             base_cfg = load_json(settings.freqtrade_config_path)
+
+        # Normalize datadir to an absolute path so subprocess `cwd` is irrelevant.
+        datadir = base_cfg.get("datadir")
+        if isinstance(datadir, str) and datadir:
+            p = Path(datadir)
+            if not p.is_absolute():
+                base_cfg["datadir"] = str((settings.freqtrade_config_path.parent / p).resolve())
+
+        trading_mode = str(base_cfg.get("trading_mode") or "spot")
+        stake_currency = str(base_cfg.get("stake_currency") or "USDT")
+        datadir_path = Path(str(base_cfg.get("datadir") or ""))
+
+        availability = check_history_available(
+            datadir=datadir_path,
+            pair=pair,
+            timeframe=payload.timeframe,
+            trading_mode=trading_mode,
+            stake_currency=stake_currency,
+        )
+        if not availability.ok:
+            expected = [str(p) for p in availability.expected_paths]
+            cmd = (
+                f"{settings.freqtrade_bin} download-data -c {settings.freqtrade_config_path} "
+                f"--userdir {userdir} --pairs {pair} --timeframes {payload.timeframe}"
+                + (" --trading-mode futures" if trading_mode == "futures" else "")
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "no_ohlcv_history",
+                    "pair": pair,
+                    "timeframe": payload.timeframe,
+                    "trading_mode": trading_mode,
+                    "datadir": str(datadir_path),
+                    "expected_paths": expected,
+                    "available_timeframes": availability.available_timeframes,
+                    "hint": "Download the missing timeframe data into datadir, or switch to an available timeframe.",
+                    "download_data_cmd": cmd,
+                },
+            )
         bt_cfg = build_backtest_config(base_cfg, pair=pair, timeframe=payload.timeframe)
-        tmp_config = write_temp_config(bt_cfg, root_dir=settings.freqtrade_root)
+        tmp_config = write_temp_config(bt_cfg, root_dir=project_root / "freqtrade_user_data")
         try:
-            res = run_backtest(
+            res = await run_backtest_async(
                 freqtrade_bin=settings.freqtrade_bin,
-                userdir=settings.freqtrade_userdir,
-                cwd=settings.freqtrade_root,
+                userdir=userdir,
+                cwd=project_root,
                 config_path=tmp_config,
                 strategy_name=payload.strategy_name,
                 pair=pair,
@@ -793,6 +1185,7 @@ def create_app() -> FastAPI:
     @app.websocket("/ws/market")
     async def ws_market(ws: WebSocket) -> None:
         await ws.accept()
+        subscribed_series: list[str] = []
         try:
             while True:
                 msg = await ws.receive_json()
@@ -806,6 +1199,12 @@ def create_app() -> FastAPI:
                     if since is not None and not isinstance(since, int):
                         await ws.send_json({"type": "error", "code": "bad_request", "message": "invalid since"})
                         continue
+                    supports_batch = msg.get("supports_batch")
+                    if supports_batch is not None and not isinstance(supports_batch, bool):
+                        await ws.send_json(
+                            {"type": "error", "code": "bad_request", "message": "invalid supports_batch"}
+                        )
+                        continue
 
                     if os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1":
                         ok = await ws.app.state.ingest_supervisor.subscribe(series_id)
@@ -818,15 +1217,28 @@ def create_app() -> FastAPI:
                                     "series_id": series_id,
                                 }
                             )
+                            continue
 
-                    await hub.subscribe(ws, series_id=series_id, since=since)
+                    await hub.subscribe(ws, series_id=series_id, since=since, supports_batch=bool(supports_batch))
+                    if series_id not in subscribed_series:
+                        subscribed_series.append(series_id)
 
                     catchup = store.get_closed(series_id, since=since, limit=5000)
-                    for candle in catchup:
+                    if bool(supports_batch) and catchup:
                         await ws.send_json(
-                            {"type": "candle_closed", "series_id": series_id, "candle": candle.model_dump()}
+                            {
+                                "type": "candles_batch",
+                                "series_id": series_id,
+                                "candles": [c.model_dump() for c in catchup],
+                            }
                         )
-                        await hub.set_last_sent(ws, series_id=series_id, candle_time=candle.candle_time)
+                        await hub.set_last_sent(ws, series_id=series_id, candle_time=int(catchup[-1].candle_time))
+                    else:
+                        for candle in catchup:
+                            await ws.send_json(
+                                {"type": "candle_closed", "series_id": series_id, "candle": candle.model_dump()}
+                            )
+                            await hub.set_last_sent(ws, series_id=series_id, candle_time=candle.candle_time)
 
                 elif msg_type == "unsubscribe":
                     series_id = msg.get("series_id")
@@ -834,10 +1246,27 @@ def create_app() -> FastAPI:
                         if os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1":
                             await ws.app.state.ingest_supervisor.unsubscribe(series_id)
                         await hub.unsubscribe(ws, series_id=series_id)
+                        subscribed_series = [s for s in subscribed_series if s != series_id]
                 else:
                     await ws.send_json({"type": "error", "code": "bad_request", "message": "unknown message type"})
         except WebSocketDisconnect:
-            await hub.remove_ws(ws)
+            pass
+        finally:
+            # Ensure that an abrupt disconnect releases ondemand ingest refcounts.
+            try:
+                hub_series = await hub.pop_ws(ws)
+            except Exception:
+                hub_series = []
+            for series_id in set(subscribed_series) | set(hub_series):
+                if os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1":
+                    try:
+                        await ws.app.state.ingest_supervisor.unsubscribe(series_id)
+                    except Exception:
+                        pass
+            try:
+                await ws.close(code=1001)
+            except Exception:
+                pass
 
     return app
 

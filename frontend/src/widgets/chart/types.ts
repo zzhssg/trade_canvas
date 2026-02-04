@@ -82,3 +82,37 @@ export type OverlayLikeDeltaV1 = {
   instruction_catalog_patch: OverlayInstructionPatchItemV1[];
   next_cursor: { version_id: number };
 };
+
+export type WorldTimeV1 = {
+  at_time: number;
+  aligned_time: number;
+  candle_id: string;
+};
+
+export type WorldStateV1 = {
+  schema_version: number;
+  series_id: string;
+  time: WorldTimeV1;
+  factor_slices: GetFactorSlicesResponseV1;
+  draw_state: DrawDeltaV1;
+};
+
+export type WorldCursorV1 = {
+  id: number;
+};
+
+export type WorldDeltaRecordV1 = {
+  id: number;
+  series_id: string;
+  to_candle_id: string;
+  to_candle_time: number;
+  draw_delta: DrawDeltaV1;
+  factor_slices?: GetFactorSlicesResponseV1 | null;
+};
+
+export type WorldDeltaPollResponseV1 = {
+  schema_version: number;
+  series_id: string;
+  records: WorldDeltaRecordV1[];
+  next_cursor: WorldCursorV1;
+};

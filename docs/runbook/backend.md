@@ -21,6 +21,8 @@ Whitelist 真源：`backend/config/market_whitelist.json`。
 export TRADE_CANVAS_ENABLE_WHITELIST_INGEST=1
 export TRADE_CANVAS_ENABLE_ONDEMAND_INGEST=1  # 默认已开启（dev_backend.sh）
 export TRADE_CANVAS_ONDEMAND_IDLE_TTL_S=60
+export TRADE_CANVAS_ONDEMAND_MAX_JOBS=8  # 避免同时订阅过多标的导致本机卡顿
+export TRADE_CANVAS_SQLITE_TIMEOUT_S=5   # sqlite 连接 busy 超时（秒）
 bash scripts/dev_backend.sh
 ```
 
@@ -39,13 +41,13 @@ bash scripts/dev_backend.sh
 列出策略：
 
 ```bash
-curl -sS "http://localhost:8000/api/backtest/strategies"
+curl --noproxy '*' -sS "http://127.0.0.1:8000/api/backtest/strategies"
 ```
 
 运行回测（示例）：
 
 ```bash
-curl -sS -X POST "http://localhost:8000/api/backtest/run" \
+curl --noproxy '*' -sS -X POST "http://127.0.0.1:8000/api/backtest/run" \
   -H 'content-type: application/json' \
   -d '{"strategy_name":"FactorEngineTestStrategy","pair":"BTC/USDT","timeframe":"1h","timerange":"20260130-20260201"}'
 ```
@@ -53,7 +55,7 @@ curl -sS -X POST "http://localhost:8000/api/backtest/run" \
 ## 写入（显式 ingest，用于本地验证）
 
 ```bash
-curl -sS -X POST "http://localhost:8000/api/market/ingest/candle_closed" \
+curl --noproxy '*' -sS -X POST "http://127.0.0.1:8000/api/market/ingest/candle_closed" \
   -H 'content-type: application/json' \
   -d '{"series_id":"binance:futures:BTC/USDT:1m","candle":{"candle_time":100,"open":1,"high":2,"low":0.5,"close":1.5,"volume":10}}'
 ```
@@ -61,7 +63,7 @@ curl -sS -X POST "http://localhost:8000/api/market/ingest/candle_closed" \
 ## 读取（HTTP 增量）
 
 ```bash
-curl -sS "http://localhost:8000/api/market/candles?series_id=binance:futures:BTC/USDT:1m&since=0&limit=500"
+curl --noproxy '*' -sS "http://127.0.0.1:8000/api/market/candles?series_id=binance:futures:BTC/USDT:1m&since=0&limit=500"
 ```
 
 ## 市场列表（Top20）
@@ -69,14 +71,14 @@ curl -sS "http://localhost:8000/api/market/candles?series_id=binance:futures:BTC
 后端统一代理（避免前端直连交易所/CORS/口径漂移）：
 
 ```bash
-curl -sS "http://localhost:8000/api/market/top_markets?exchange=binance&market=spot&quote_asset=USDT&limit=20"
-curl -sS "http://localhost:8000/api/market/top_markets?exchange=binance&market=futures&quote_asset=USDT&limit=20"
+curl --noproxy '*' -sS "http://127.0.0.1:8000/api/market/top_markets?exchange=binance&market=spot&quote_asset=USDT&limit=20"
+curl --noproxy '*' -sS "http://127.0.0.1:8000/api/market/top_markets?exchange=binance&market=futures&quote_asset=USDT&limit=20"
 ```
 
 可选：强制刷新（有频率限制，可能返回 429）：
 
 ```bash
-curl -sS "http://localhost:8000/api/market/top_markets?exchange=binance&market=spot&force=1"
+curl --noproxy '*' -sS "http://127.0.0.1:8000/api/market/top_markets?exchange=binance&market=spot&force=1"
 ```
 
 可选环境变量（默认值见代码）：
@@ -88,13 +90,25 @@ curl -sS "http://localhost:8000/api/market/top_markets?exchange=binance&market=s
 ### SSE 推送（可选）
 
 ```bash
-curl -N "http://localhost:8000/api/market/top_markets/stream?exchange=binance&market=spot&quote_asset=USDT&limit=20"
+curl --noproxy '*' -N "http://127.0.0.1:8000/api/market/top_markets/stream?exchange=binance&market=spot&quote_asset=USDT&limit=20"
 ```
 
 ## WS（订阅）
 
-任意 WS 客户端向 `ws://localhost:8000/ws/market` 连接后发送：
+任意 WS 客户端向 `ws://127.0.0.1:8000/ws/market` 连接后发送：
 
 ```json
 {"type":"subscribe","series_id":"binance:futures:BTC/USDT:1m","since":100}
+```
+
+## Troubleshooting：curl 访问 localhost 卡住
+
+如果你的环境设置了 `http_proxy/https_proxy`（常见于 Clash / Surge / 其他代理工具），`curl` 可能会把 `localhost/127.0.0.1` 也走代理，表现为请求卡住或超时。
+
+- 推荐：统一用 `127.0.0.1` 并加 `--noproxy '*'`（本手册已按此写法）
+- 或设置（一次性或写进 shell 配置）：
+
+```bash
+export NO_PROXY="localhost,127.0.0.1,::1"
+export no_proxy="$NO_PROXY"
 ```

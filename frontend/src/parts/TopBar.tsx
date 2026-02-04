@@ -7,11 +7,11 @@ export function TopBar() {
   const { market, symbol, timeframe } = useUiStore();
 
   return (
-    <div className="flex h-14 items-center justify-between gap-3 border-b border-white/10 bg-white/5 px-3">
+    <div className="flex h-14 items-center justify-between gap-3 border-b border-white/10 bg-white/5 px-3 backdrop-blur">
       <div className="flex items-center gap-2">
-        <div className="text-sm font-semibold">Trade Canvas</div>
+        <div className="text-sm font-semibold tracking-wide text-white/90">Trade Canvas</div>
         <div className="ml-3 hidden items-center gap-2 text-xs text-white/50 md:flex">
-          <span className="rounded border border-white/10 bg-black/30 px-2 py-1 font-mono">
+          <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono">
             {market}:{symbol}:{timeframe}
           </span>
         </div>
@@ -21,7 +21,7 @@ export function TopBar() {
         <NavLink to="/replay" active={location.pathname === "/replay"} label="Replay" />
         <NavLink to="/backtest" active={location.pathname === "/backtest"} label="Backtest" />
         <NavLink to="/settings" active={location.pathname === "/settings"} label="Settings" />
-        <div className="ml-3 rounded border border-white/10 bg-black/30 px-2 py-1 font-mono">
+        <div className="ml-3 rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[11px] text-white/70">
           feed: mock
         </div>
       </div>
