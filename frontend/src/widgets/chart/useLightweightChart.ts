@@ -68,7 +68,7 @@ export function useLightweightChart({ containerRef, width, height, onCreated, on
         vertTouchDrag: true
       },
       handleScale: {
-        mouseWheel: false,
+        mouseWheel: true,
         pinch: true,
         axisPressedMouseMove: true
       }

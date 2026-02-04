@@ -12,7 +12,7 @@ import useResizeObserver from "use-resize-observer";
 
 import { apiWsBase } from "../lib/api";
 import { logDebugEvent } from "../debug/debug";
-import { CENTER_SCROLL_SELECTOR, chartWheelZoomRatio, normalizeWheelDeltaY } from "../lib/wheelContract";
+import { CENTER_SCROLL_SELECTOR } from "../lib/wheelContract";
 import { FACTOR_CATALOG, getFactorParentsBySubKey } from "../services/factorCatalog";
 import { useFactorStore } from "../state/factorStore";
 import { useUiStore } from "../state/uiStore";
@@ -151,21 +151,9 @@ export function ChartView() {
         if (oy !== "hidden") return;
       }
 
-      // UX rule:
-      // - wheel inside chart => horizontal zoom (barSpacing)
-      // - do NOT scroll the surrounding container while hovering the chart
-      const cur = chart.timeScale().options().barSpacing;
-      const dy = normalizeWheelDeltaY(event);
-      const ratio = chartWheelZoomRatio(dy);
-      if (!ratio) return;
-      const next = clampBarSpacing(cur * ratio, MAX_BAR_SPACING_ON_FIT_CONTENT);
-      if (next !== cur) {
-        chart.applyOptions({ timeScale: { barSpacing: next } });
-        setBarSpacing((prev) => (prev === next ? prev : next));
-      }
-
+      // When the middle scroll container is locked (chart hovered), prevent the page from scrolling.
+      // Let Lightweight Charts handle the actual wheel zoom natively (smoother than our custom applyOptions loop).
       event.preventDefault();
-      event.stopPropagation();
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel as EventListener);
