@@ -21,13 +21,13 @@ export function normalizeWheelDeltaY(event: WheelEvent): number {
 
 export const CHART_WHEEL_ZOOM_MAGNITUDE_CAP = 1.5;
 export const CHART_WHEEL_ZOOM_MAGNITUDE_DENOM = 240;
-export const CHART_WHEEL_ZOOM_STEP_MAX = 0.04;
+export const CHART_WHEEL_ZOOM_STEP_MAX = 0.08;
+export const CHART_WHEEL_ZOOM_STEP_MIN = 0.03;
 
 export function chartWheelZoomRatio(normalizedDeltaY: number): number | null {
   const dir = Math.sign(normalizedDeltaY);
   if (dir === 0) return null;
   const magnitude = Math.min(CHART_WHEEL_ZOOM_MAGNITUDE_CAP, Math.abs(normalizedDeltaY) / CHART_WHEEL_ZOOM_MAGNITUDE_DENOM);
-  const step = CHART_WHEEL_ZOOM_STEP_MAX * magnitude;
+  const step = Math.max(CHART_WHEEL_ZOOM_STEP_MIN, CHART_WHEEL_ZOOM_STEP_MAX * magnitude);
   return dir > 0 ? 1 - step : 1 + step;
 }
-
