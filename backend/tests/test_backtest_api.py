@@ -30,6 +30,7 @@ class BacktestApiTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_FREQTRADE_CONFIG"] = str(self.config_path)
         os.environ["TRADE_CANVAS_DB_PATH"] = str(root / "market.db")
         os.environ["TRADE_CANVAS_WHITELIST_PATH"] = str(root / "whitelist.json")
+        os.environ["TRADE_CANVAS_BACKTEST_REQUIRE_TRADES"] = "0"
         (root / "whitelist.json").write_text('{"series_ids":[]}', encoding="utf-8")
 
         self.client = TestClient(create_app())
@@ -41,6 +42,7 @@ class BacktestApiTests(unittest.TestCase):
             "TRADE_CANVAS_FREQTRADE_CONFIG",
             "TRADE_CANVAS_DB_PATH",
             "TRADE_CANVAS_WHITELIST_PATH",
+            "TRADE_CANVAS_BACKTEST_REQUIRE_TRADES",
         ):
             os.environ.pop(key, None)
 

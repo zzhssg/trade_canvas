@@ -93,6 +93,10 @@ Response:
   - 子进程可执行文件名/路径。
 - `TRADE_CANVAS_FREQTRADE_STRATEGY_PATH`（可选，默认 `./Strategy`）
   - 传给 freqtrade 的 `--strategy-path`，用于把策略放在项目内统一目录（不强制在 userdir/strategies 下）。
+- `TRADE_CANVAS_FREQTRADE_OFFLINE_MARKETS`（可选，建议 dev 默认开启）
+  - 值为 `1` 时，freqtrade 子进程会通过 `sitecustomize.py` 注入“最小 spot markets”，避免 backtesting 启动阶段访问交易所 `exchangeInfo`（适用于网络不可用/地区限制）。
+- `TRADE_CANVAS_BACKTEST_REQUIRE_TRADES`（可选，建议 dev 默认开启）
+  - 值为 `1` 时，回测成功必须满足 `total_trades > 0`，否则后端返回 `422 (no_trades)` 作为 fail-safe。
 
 前端：
 - `VITE_API_BASE`
@@ -106,6 +110,7 @@ Response:
 
 - 回测调用必须使用 argv 数组（禁止 shell 字符串拼接），避免注入与转义坑。
 - 默认将 pairlist 收敛为单 pair（避免“配置里巨大 whitelist 导致一键回测跑到天荒地老”）。
+- 子进程会显式传 `--datadir <path>`（从 `TRADE_CANVAS_FREQTRADE_CONFIG` 解析并归一化为绝对路径），避免 freqtrade 默认把 datadir 解析到 userdir 下导致“预检与实际执行口径不一致”。
 
 ### 4.2 trade_system 的 `user_data.*` import 兼容
 

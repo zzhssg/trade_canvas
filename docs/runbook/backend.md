@@ -36,6 +36,8 @@ bash scripts/dev_backend.sh
 - `TRADE_CANVAS_FREQTRADE_USERDIR`：可选，透传给 `freqtrade --userdir`
 - `TRADE_CANVAS_FREQTRADE_BIN`：可选，默认 `freqtrade`
 - `TRADE_CANVAS_FREQTRADE_STRATEGY_PATH`：可选，默认 `./Strategy`（透传给 `freqtrade --strategy-path`）
+- `TRADE_CANVAS_FREQTRADE_OFFLINE_MARKETS`：可选，值为 `1` 时启用离线 markets 注入（避免 backtesting 启动阶段访问交易所 exchangeInfo）
+- `TRADE_CANVAS_BACKTEST_REQUIRE_TRADES`：可选，值为 `1` 时要求回测必须产出 trades（否则 422）
 - `TRADE_CANVAS_CORS_ORIGINS`：允许前端跨端口访问（默认已包含 `localhost:5173`）
 
 列出策略：
@@ -49,7 +51,7 @@ curl --noproxy '*' -sS "http://127.0.0.1:8000/api/backtest/strategies"
 ```bash
 curl --noproxy '*' -sS -X POST "http://127.0.0.1:8000/api/backtest/run" \
   -H 'content-type: application/json' \
-  -d '{"strategy_name":"FactorEngineTestStrategy","pair":"BTC/USDT","timeframe":"1h","timerange":"20260130-20260201"}'
+  -d '{"strategy_name":"TradeCanvasAlwaysTradeSpotStrategy","pair":"BTC/USDT","timeframe":"1m","timerange":"20260130-20260201"}'
 ```
 
 ## 写入（显式 ingest，用于本地验证）
