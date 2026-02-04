@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 
+from .debug_hub import DebugHub
 from .pivot import compute_major_pivots, compute_minor_pivots
 from .plot_store import OverlayEventWrite, PlotStore
 from .store import CandleStore
@@ -34,6 +36,10 @@ class PlotOrchestrator:
         self._candle_store = candle_store
         self._plot_store = plot_store
         self._settings = settings or PivotSettings()
+        self._debug_hub: DebugHub | None = None
+
+    def set_debug_hub(self, hub: DebugHub | None) -> None:
+        self._debug_hub = hub
 
     def enabled(self) -> bool:
         # Default ON for v0 (can be disabled for perf/debug).
@@ -65,6 +71,7 @@ class PlotOrchestrator:
         return PivotSettings(window_major=int(major), window_minor=int(minor), lookback_candles=int(lookback))
 
     def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None:
+        t0 = time.perf_counter()
         if not self.enabled():
             return
 
@@ -137,7 +144,23 @@ class PlotOrchestrator:
             )
 
         with self._plot_store.connect() as conn:
+            before_changes = int(conn.total_changes)
             self._plot_store.upsert_head_time_in_conn(conn, series_id=series_id, head_time=up_to)
             self._plot_store.insert_overlay_events_in_conn(conn, events=writes)
             conn.commit()
+            wrote = int(conn.total_changes) - before_changes
 
+        if self._debug_hub is not None:
+            self._debug_hub.emit(
+                pipe="write",
+                event="write.plot.ingest_done",
+                series_id=series_id,
+                message="plot ingest done",
+                data={
+                    "up_to_candle_time": int(up_to),
+                    "candles_read": int(len(candles)),
+                    "events_planned": int(len(writes)),
+                    "db_changes": int(wrote),
+                    "duration_ms": int((time.perf_counter() - t0) * 1000),
+                },
+            )

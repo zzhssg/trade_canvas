@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 
+from .debug_hub import DebugHub
 from .factor_graph import FactorGraph, FactorSpec
 from .factor_store import FactorEventWrite, FactorStore
 from .pen import PivotMajorPoint, build_confirmed_pens_from_major_pivots
@@ -40,6 +42,7 @@ class FactorOrchestrator:
         self._candle_store = candle_store
         self._factor_store = factor_store
         self._settings = settings or FactorSettings()
+        self._debug_hub: DebugHub | None = None
         self._graph = FactorGraph(
             [
                 FactorSpec("pivot", ()),
@@ -47,6 +50,9 @@ class FactorOrchestrator:
                 FactorSpec("zhongshu", ("pen",)),
             ]
         )
+
+    def set_debug_hub(self, hub: DebugHub | None) -> None:
+        self._debug_hub = hub
 
     def enabled(self) -> bool:
         raw = os.environ.get("TRADE_CANVAS_ENABLE_FACTOR_INGEST", "1")
@@ -77,6 +83,7 @@ class FactorOrchestrator:
         return FactorSettings(pivot_window_major=int(major), pivot_window_minor=int(minor), lookback_candles=int(lookback))
 
     def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None:
+        t0 = time.perf_counter()
         if not self.enabled():
             return
 
@@ -265,6 +272,23 @@ class FactorOrchestrator:
             )
 
         with self._factor_store.connect() as conn:
+            before_changes = int(conn.total_changes)
             self._factor_store.upsert_head_time_in_conn(conn, series_id=series_id, head_time=up_to)
             self._factor_store.insert_events_in_conn(conn, events=events)
             conn.commit()
+            wrote = int(conn.total_changes) - before_changes
+
+        if self._debug_hub is not None:
+            self._debug_hub.emit(
+                pipe="write",
+                event="write.factor.ingest_done",
+                series_id=series_id,
+                message="factor ingest done",
+                data={
+                    "up_to_candle_time": int(up_to),
+                    "candles_read": int(len(candles)),
+                    "events_planned": int(len(events)),
+                    "db_changes": int(wrote),
+                    "duration_ms": int((time.perf_counter() - t0) * 1000),
+                },
+            )

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 type BottomTab = "Ledger" | "Signals" | "Logs" | "Orders" | "Backtest";
-type SidebarTab = "Market" | "Strategy" | "Indicators" | "Replay";
+type SidebarTab = "Market" | "Strategy" | "Indicators" | "Replay" | "Debug";
 export type MarketMode = "spot" | "futures";
 
 function clamp(value: number, min: number, max: number) {
@@ -62,7 +62,7 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: "trade-canvas-ui",
-      version: 4,
+      version: 5,
       migrate: (persisted) => {
         const state = persisted as Partial<UiState> | undefined;
         return {
@@ -70,7 +70,8 @@ export const useUiStore = create<UiState>()(
           exchange: "binance",
           market: (state?.market as MarketMode | undefined) ?? "futures",
           toolRailWidth: clamp(Number(state?.toolRailWidth ?? 52), 44, 96),
-          sidebarWidth: clamp(Number(state?.sidebarWidth ?? 280), 220, 520)
+          sidebarWidth: clamp(Number(state?.sidebarWidth ?? 280), 220, 520),
+          activeSidebarTab: ((state?.activeSidebarTab as SidebarTab | undefined) ?? "Market")
         } as UiState;
       }
     }

@@ -47,4 +47,5 @@ updated: 2026-02-03
 - World（HTTP）：`docs/core/api/v1/http_world.md`
 - Backtest（HTTP）：`docs/core/api/v1/http_backtest.md`
 - Market WS：`docs/core/api/v1/ws_market.md`
+- Debug WS：`docs/core/api/v1/ws_debug.md`
 

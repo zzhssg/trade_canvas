@@ -1,53 +1,259 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ENABLE_DEBUG_TOOL, getDebugSnapshot, TC_DEBUG_EVENT_NAME, type DebugEvent } from "../debug/debug";
+import { apiWsBase } from "../lib/api";
+import { ENABLE_DEBUG_TOOL, logDebugEvent, type DebugEvent } from "../debug/debug";
+import { useDebugLogStore } from "../state/debugLogStore";
 import { useUiStore } from "../state/uiStore";
 
-export function DebugPanel() {
-  const { exchange, market, symbol, timeframe } = useUiStore();
-  const [items, setItems] = useState<DebugEvent[]>(() => getDebugSnapshot().slice(-200));
+type DebugWsSnapshot = { type: "debug_snapshot"; events: DebugEvent[] };
+type DebugWsEvent = { type: "debug_event"; event: DebugEvent };
 
-  const seriesId = useMemo(() => `${exchange}:${market}:${symbol}:${timeframe}`, [exchange, market, symbol, timeframe]);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function isDebugEvent(value: unknown): value is DebugEvent {
+  if (!isRecord(value)) return false;
+  if (typeof value.ts_ms !== "number" || !Number.isFinite(value.ts_ms)) return false;
+  if (value.source !== "backend" && value.source !== "frontend") return false;
+  if (value.pipe !== "read" && value.pipe !== "write") return false;
+  if (typeof value.event !== "string" || !value.event) return false;
+  if (value.level !== "info" && value.level !== "warn" && value.level !== "error") return false;
+  if (typeof value.message !== "string") return false;
+  return true;
+}
+
+function parseWsPayload(payload: unknown): DebugWsSnapshot | DebugWsEvent | null {
+  if (!isRecord(payload)) return null;
+  const type = payload.type;
+  if (type === "debug_snapshot") {
+    const eventsRaw = payload.events;
+    if (!Array.isArray(eventsRaw)) return null;
+    const events: DebugEvent[] = [];
+    for (const e of eventsRaw) {
+      if (!isDebugEvent(e)) return null;
+      events.push(e);
+    }
+    return { type, events };
+  }
+  if (type === "debug_event") {
+    if (!isDebugEvent(payload.event)) return null;
+    return { type, event: payload.event };
+  }
+  return null;
+}
+
+function formatTs(tsMs: number): string {
+  const d = new Date(tsMs);
+  if (Number.isNaN(d.getTime())) return String(tsMs);
+  return d.toLocaleTimeString(undefined, { hour12: false }) + "." + String(d.getMilliseconds()).padStart(3, "0");
+}
+
+export function DebugPanel() {
+  const { events, filter, query, autoScroll, clear, setFilter, setQuery, toggleAutoScroll } = useDebugLogStore();
+  const { exchange, market, symbol, timeframe } = useUiStore();
+  const seriesId = `${exchange}:${market}:${symbol}:${timeframe}`;
+  const [wsState, setWsState] = useState<"disconnected" | "connecting" | "connected">("disconnected");
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!ENABLE_DEBUG_TOOL) return;
-    const onEvt = (evt: Event) => {
-      const ce = evt as CustomEvent<DebugEvent>;
-      const detail = ce.detail;
-      if (!detail) return;
-      setItems((prev) => [...prev, detail].slice(-200));
+    let ws: WebSocket | null = null;
+    let alive = true;
+    setWsState("connecting");
+
+    try {
+      ws = new WebSocket(`${apiWsBase()}/ws/debug`);
+    } catch {
+      setWsState("disconnected");
+      return;
+    }
+
+    ws.onopen = () => {
+      if (!alive) return;
+      setWsState("connected");
+      try {
+        ws?.send(JSON.stringify({ type: "subscribe" }));
+      } catch {
+        // ignore
+      }
     };
-    window.addEventListener(TC_DEBUG_EVENT_NAME, onEvt);
-    return () => window.removeEventListener(TC_DEBUG_EVENT_NAME, onEvt);
+    ws.onclose = () => {
+      if (!alive) return;
+      setWsState("disconnected");
+    };
+    ws.onerror = () => {
+      if (!alive) return;
+      setWsState("disconnected");
+    };
+    ws.onmessage = (evt) => {
+      if (!alive) return;
+      if (typeof evt.data !== "string") return;
+      let raw: unknown;
+      try {
+        raw = JSON.parse(evt.data) as unknown;
+      } catch {
+        return;
+      }
+      const parsed = parseWsPayload(raw);
+      if (!parsed) return;
+      if (parsed.type === "debug_snapshot") {
+        for (const e of parsed.events) {
+          logDebugEvent({ ...e, source: "backend" });
+        }
+      } else {
+        logDebugEvent({ ...parsed.event, source: "backend" });
+      }
+    };
+
+    return () => {
+      alive = false;
+      try {
+        ws?.close();
+      } catch {
+        // ignore
+      }
+    };
   }, []);
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return events.filter((e) => {
+      if (filter !== "all" && e.pipe !== filter) return false;
+      if (!q) return true;
+      const hay = `${e.event} ${e.message} ${e.series_id ?? ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [events, filter, query]);
+
+  useEffect(() => {
+    if (!autoScroll) return;
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [autoScroll, filtered.length]);
+
+  const copyText = useMemo(() => {
+    return filtered
+      .map((e) => {
+        const sid = e.series_id ? ` ${e.series_id}` : "";
+        return `${formatTs(e.ts_ms)} [${e.source}] [${e.pipe}] ${e.event}${sid} ${e.message}`;
+      })
+      .join("\n");
+  }, [filtered]);
+
   if (!ENABLE_DEBUG_TOOL) {
-    return <div className="text-xs text-white/60">Debug disabled (set VITE_ENABLE_DEBUG_TOOL=1).</div>;
+    return <div className="text-xs text-white/60">Debug tool disabled (VITE_ENABLE_DEBUG_TOOL != 1)</div>;
   }
 
   return (
-    <div className="flex flex-col gap-2 text-[11px] text-white/70">
-      <div className="rounded-lg border border-white/10 bg-black/25 p-2">
-        <div className="mb-1 font-semibold text-white/80">Context</div>
-        <div className="font-mono text-white/70">series_id: {seriesId}</div>
+    <div className="flex flex-col gap-2" data-testid="debug-panel">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="rounded-md border border-white/10 bg-black/20 px-2 py-1 font-mono text-[11px] text-white/80">
+          ws:{wsState}
+        </div>
+        <div className="rounded-md border border-white/10 bg-black/20 px-2 py-1 font-mono text-[11px] text-white/60">
+          series:{seriesId}
+        </div>
+        <button
+          type="button"
+          className="ml-auto rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
+          onClick={clear}
+        >
+          Clear
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
+          onClick={() => void navigator.clipboard.writeText(copyText)}
+          disabled={filtered.length === 0}
+          title={filtered.length === 0 ? "No logs" : "Copy filtered logs"}
+        >
+          Copy
+        </button>
       </div>
 
-      <div className="max-h-[42vh] overflow-auto rounded-lg border border-white/10 bg-black/25 p-2 font-mono text-[10px] text-white/70">
-        {items.length === 0 ? (
-          <div className="text-white/50">(no events)</div>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1">
+          {(["all", "read", "write"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setFilter(k)}
+              data-testid={`debug-filter-${k}`}
+              className={[
+                "rounded px-2 py-1 text-[11px] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
+                filter === k ? "bg-white/15 text-white" : "text-white/70 hover:bg-white/10 hover:text-white/85"
+              ].join(" ")}
+            >
+              {k}
+            </button>
+          ))}
+        </div>
+
+        <label className="ml-auto flex items-center gap-2 text-[11px] text-white/70">
+          <input type="checkbox" checked={autoScroll} onChange={toggleAutoScroll} />
+          Auto-scroll
+        </label>
+      </div>
+
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search (event / message / series_id)"
+        className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-white/80 placeholder:text-white/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
+      />
+
+      <div
+        ref={listRef}
+        className="tc-scrollbar-none max-h-[54vh] overflow-auto rounded-xl border border-white/10 bg-black/10 shadow-[0_0_0_1px_rgba(255,255,255,0.02)_inset]"
+        data-testid="debug-drawer"
+      >
+        {filtered.length === 0 ? (
+          <div className="p-2 text-[11px] text-white/50">No logs.</div>
         ) : (
-          items
-            .slice()
-            .reverse()
-            .map((e, idx) => (
-              <div key={`${e.ts_ms}-${idx}`} className="border-b border-white/10 py-1 last:border-b-0">
-                <div className="text-white/50">
-                  {new Date(e.ts_ms).toLocaleTimeString()} · {e.level} · {e.pipe} · {e.event}
+          <div className="divide-y divide-white/10">
+            {filtered.map((e, idx) => (
+              <div
+                key={`${e.ts_ms}:${idx}`}
+                className="px-2 py-1.5 text-[11px] text-white/80"
+                data-testid="debug-log-row"
+                data-event={e.event}
+                data-pipe={e.pipe}
+                data-source={e.source}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-[82px] shrink-0 font-mono text-white/55">{formatTs(e.ts_ms)}</div>
+                  <div className="w-[62px] shrink-0 rounded-md border border-white/10 bg-black/20 px-1.5 py-0.5 text-center font-mono text-white/70">
+                    {e.source}
+                  </div>
+                  <div
+                    className={[
+                      "w-[52px] shrink-0 rounded-md border px-1.5 py-0.5 text-center font-mono",
+                      e.pipe === "read"
+                        ? "border-sky-500/25 bg-sky-500/10 text-sky-200"
+                        : "border-amber-500/25 bg-amber-500/10 text-amber-200"
+                    ].join(" ")}
+                  >
+                    {e.pipe}
+                  </div>
+                  <div className="min-w-0 flex-1 truncate font-mono text-white/85">{e.event}</div>
                 </div>
-                <div className="text-white/80">{e.message}</div>
-                {e.data ? <div className="whitespace-pre-wrap text-white/60">{JSON.stringify(e.data)}</div> : null}
+                <div className="mt-1 flex flex-col gap-1">
+                  <div className="text-white/80">{e.message}</div>
+                  {e.series_id ? <div className="font-mono text-white/40">{e.series_id}</div> : null}
+                  {e.data ? (
+                    <details className="rounded-md border border-white/10 bg-black/20 p-2 text-white/70">
+                      <summary className="cursor-pointer select-none font-mono text-[11px] text-white/60">data</summary>
+                      <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[10px] leading-snug">
+                        {JSON.stringify(e.data, null, 2)}
+                      </pre>
+                    </details>
+                  ) : null}
+                </div>
               </div>
-            ))
+            ))}
+          </div>
         )}
       </div>
     </div>

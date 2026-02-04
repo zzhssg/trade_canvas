@@ -16,6 +16,7 @@ from starlette.responses import StreamingResponse
 
 from .blocking import run_blocking
 from .config import load_settings
+from .debug_hub import DebugHub
 from .freqtrade_config import build_backtest_config, load_json, write_temp_config
 from .freqtrade_data import check_history_available, list_available_timeframes
 from .freqtrade_runner import list_strategies, parse_strategy_list, run_backtest, validate_strategy_name
@@ -144,6 +145,10 @@ def create_app() -> FastAPI:
     factor_orchestrator = FactorOrchestrator(candle_store=store, factor_store=factor_store)
     overlay_store = OverlayStore(db_path=settings.db_path)
     overlay_orchestrator = OverlayOrchestrator(candle_store=store, factor_store=factor_store, overlay_store=overlay_store)
+    debug_hub = DebugHub()
+    plot_orchestrator.set_debug_hub(debug_hub)
+    factor_orchestrator.set_debug_hub(debug_hub)
+    overlay_orchestrator.set_debug_hub(debug_hub)
     hub = CandleHub()
     whitelist = load_market_whitelist(settings.whitelist_path)
     market_list = BinanceMarketListService()
@@ -206,6 +211,7 @@ def create_app() -> FastAPI:
     app.state.market_list = market_list
     app.state.force_limiter = force_limiter
     app.state.ingest_supervisor = supervisor
+    app.state.debug_hub = debug_hub
 
     @app.get("/api/market/candles", response_model=GetCandlesResponse)
     def get_market_candles(
@@ -215,38 +221,129 @@ def create_app() -> FastAPI:
     ) -> GetCandlesResponse:
         candles = store.get_closed(series_id, since=since, limit=limit)
         head_time = store.head_time(series_id)
+        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1" and candles:
+            last_time = int(candles[-1].candle_time)
+            app.state.debug_hub.emit(
+                pipe="read",
+                event="read.http.market_candles",
+                series_id=series_id,
+                message="get market candles",
+                data={
+                    "since": None if since is None else int(since),
+                    "limit": int(limit),
+                    "count": int(len(candles)),
+                    "last_time": int(last_time),
+                    "server_head_time": None if head_time is None else int(head_time),
+                },
+            )
         return GetCandlesResponse(series_id=series_id, server_head_time=head_time, candles=candles)
 
     @app.post("/api/market/ingest/candle_closed", response_model=IngestCandleClosedResponse)
     async def ingest_candle_closed(req: IngestCandleClosedRequest) -> IngestCandleClosedResponse:
         # IMPORTANT: keep the asyncio event loop responsive.
         # SQLite writes and factor/overlay computation are sync and may take seconds for large bursts.
+        t0 = time.perf_counter()
+        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
+            app.state.debug_hub.emit(
+                pipe="write",
+                event="write.http.ingest_candle_closed_start",
+                series_id=req.series_id,
+                message="ingest candle_closed start",
+                data={"candle_time": int(req.candle.candle_time)},
+            )
+
+        steps: list[dict] = []
+
         def _persist_and_sidecars() -> None:
+            t_step = time.perf_counter()
             store.upsert_closed(req.series_id, req.candle)
+            steps.append(
+                {
+                    "name": "store.upsert_closed",
+                    "ok": True,
+                    "duration_ms": int((time.perf_counter() - t_step) * 1000),
+                }
+            )
+
             try:
+                t_step = time.perf_counter()
                 app.state.plot_orchestrator.ingest_closed(
                     series_id=req.series_id, up_to_candle_time=req.candle.candle_time
                 )
+                steps.append(
+                    {
+                        "name": "plot.ingest_closed",
+                        "ok": True,
+                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
+                    }
+                )
             except Exception:
-                # Plot ingest must never break market ingest (best-effort).
-                pass
+                steps.append(
+                    {
+                        "name": "plot.ingest_closed",
+                        "ok": False,
+                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
+                    }
+                )
+
             try:
+                t_step = time.perf_counter()
                 app.state.factor_orchestrator.ingest_closed(
                     series_id=req.series_id, up_to_candle_time=req.candle.candle_time
                 )
+                steps.append(
+                    {
+                        "name": "factor.ingest_closed",
+                        "ok": True,
+                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
+                    }
+                )
             except Exception:
-                # Factor ingest must never break market ingest (best-effort).
-                pass
+                steps.append(
+                    {
+                        "name": "factor.ingest_closed",
+                        "ok": False,
+                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
+                    }
+                )
+
             try:
+                t_step = time.perf_counter()
                 app.state.overlay_orchestrator.ingest_closed(
                     series_id=req.series_id, up_to_candle_time=req.candle.candle_time
                 )
+                steps.append(
+                    {
+                        "name": "overlay.ingest_closed",
+                        "ok": True,
+                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
+                    }
+                )
             except Exception:
-                # Overlay ingest must never break market ingest (best-effort).
-                pass
+                steps.append(
+                    {
+                        "name": "overlay.ingest_closed",
+                        "ok": False,
+                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
+                    }
+                )
 
         await run_blocking(_persist_and_sidecars)
         await hub.publish_closed(series_id=req.series_id, candle=req.candle)
+
+        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
+            app.state.debug_hub.emit(
+                pipe="write",
+                event="write.http.ingest_candle_closed_done",
+                series_id=req.series_id,
+                message="ingest candle_closed done",
+                data={
+                    "candle_time": int(req.candle.candle_time),
+                    "steps": list(steps),
+                    "duration_ms": int((time.perf_counter() - t0) * 1000),
+                },
+            )
+
         return IngestCandleClosedResponse(ok=True, series_id=req.series_id, candle_time=req.candle.candle_time)
 
     @app.post("/api/market/ingest/candle_forming", response_model=IngestCandleFormingResponse)
@@ -387,6 +484,20 @@ def create_app() -> FastAPI:
         next_cursor = OverlayCursorV1(version_id=int(app.state.overlay_store.last_version_id(series_id)))
 
         active_ids.sort()
+        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1" and (patch or int(next_cursor.version_id) > int(cursor_version_id)):
+            app.state.debug_hub.emit(
+                pipe="read",
+                event="read.http.overlay_delta",
+                series_id=series_id,
+                message="get overlay delta",
+                data={
+                    "cursor_version_id": int(cursor_version_id),
+                    "next_version_id": int(next_cursor.version_id),
+                    "to_time": None if to_time is None else int(to_time),
+                    "patch_len": int(len(patch)),
+                    "active_len": int(len(active_ids)),
+                },
+            )
         return OverlayDeltaV1(
             series_id=series_id,
             to_candle_id=to_candle_id,
@@ -497,6 +608,21 @@ def create_app() -> FastAPI:
         next_cursor = DrawCursorV1(version_id=int(app.state.overlay_store.last_version_id(series_id)), point_time=None)
 
         active_ids.sort()
+        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1" and (patch or int(next_cursor.version_id) > int(cursor_version_id)):
+            app.state.debug_hub.emit(
+                pipe="read",
+                event="read.http.draw_delta",
+                series_id=series_id,
+                message="get draw delta",
+                data={
+                    "cursor_version_id": int(cursor_version_id),
+                    "next_version_id": int(next_cursor.version_id),
+                    "to_time": None if to_time is None else int(to_time),
+                    "patch_len": int(len(patch)),
+                    "active_len": int(len(active_ids)),
+                    "at_time": None if at_time is None else int(at_time),
+                },
+            )
         return DrawDeltaV1(
             series_id=series_id,
             to_candle_id=to_candle_id,
@@ -761,6 +887,14 @@ def create_app() -> FastAPI:
         candle_id = f"{series_id}:{int(aligned)}"
         if factor_slices.candle_id != candle_id or draw_state.to_candle_id != candle_id:
             raise HTTPException(status_code=409, detail="ledger_out_of_sync")
+        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
+            app.state.debug_hub.emit(
+                pipe="read",
+                event="read.http.world_frame_live",
+                series_id=series_id,
+                message="get world frame live",
+                data={"at_time": int(store_head), "aligned_time": int(aligned), "candle_id": str(candle_id)},
+            )
         return WorldStateV1(
             series_id=series_id,
             time=WorldTimeV1(at_time=int(store_head), aligned_time=int(aligned), candle_id=candle_id),
@@ -786,6 +920,14 @@ def create_app() -> FastAPI:
         candle_id = f"{series_id}:{int(aligned)}"
         if factor_slices.candle_id != candle_id or draw_state.to_candle_id != candle_id:
             raise HTTPException(status_code=409, detail="ledger_out_of_sync")
+        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
+            app.state.debug_hub.emit(
+                pipe="read",
+                event="read.http.world_frame_live",
+                series_id=series_id,
+                message="get world frame live",
+                data={"at_time": int(store_head), "aligned_time": int(aligned), "candle_id": str(candle_id)},
+            )
         return WorldStateV1(
             series_id=series_id,
             time=WorldTimeV1(at_time=int(at_time), aligned_time=int(aligned), candle_id=candle_id),
@@ -826,6 +968,19 @@ def create_app() -> FastAPI:
                 window_candles=window_candles,
             ),
         )
+        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
+            app.state.debug_hub.emit(
+                pipe="read",
+                event="read.http.world_delta_poll",
+                series_id=series_id,
+                message="poll world delta",
+                data={
+                    "after_id": int(after_id),
+                    "next_id": int(next_id),
+                    "to_candle_time": int(draw.to_candle_time),
+                    "to_candle_id": str(draw.to_candle_id),
+                },
+            )
         return WorldDeltaPollResponseV1(series_id=series_id, records=[rec], next_cursor=WorldCursorV1(id=int(next_id)))
 
     @app.get("/api/market/whitelist")
@@ -1341,6 +1496,33 @@ def create_app() -> FastAPI:
                         await ws.app.state.ingest_supervisor.unsubscribe(series_id)
                     except Exception:
                         pass
+            try:
+                await ws.close(code=1001)
+            except Exception:
+                pass
+
+
+    @app.websocket("/ws/debug")
+    async def ws_debug(ws: WebSocket) -> None:
+        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") != "1":
+            try:
+                await ws.close(code=1008, reason="debug_api_disabled")
+            except Exception:
+                pass
+            return
+
+        await ws.accept()
+        app.state.debug_hub.register(ws, loop=asyncio.get_running_loop())
+        try:
+            await ws.send_json({"type": "debug_snapshot", "events": app.state.debug_hub.snapshot()})
+            while True:
+                msg = await ws.receive_json()
+                if isinstance(msg, dict) and msg.get("type") == "subscribe":
+                    await ws.send_json({"type": "debug_snapshot", "events": app.state.debug_hub.snapshot()})
+        except WebSocketDisconnect:
+            pass
+        finally:
+            app.state.debug_hub.unregister(ws)
             try:
                 await ws.close(code=1001)
             except Exception:

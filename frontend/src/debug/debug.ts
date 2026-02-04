@@ -1,42 +1,37 @@
-export const ENABLE_DEBUG_TOOL = import.meta.env.VITE_ENABLE_DEBUG_TOOL === "1";
+import { useDebugLogStore } from "../state/debugLogStore";
+
+export type DebugPipe = "read" | "write";
+export type DebugLevel = "info" | "warn" | "error";
 
 export type DebugEvent = {
   ts_ms: number;
   source: "frontend" | "backend";
-  pipe: "read" | "write";
+  pipe: DebugPipe;
   event: string;
-  series_id: string | null;
-  level: "info" | "warn" | "error";
+  series_id?: string | null;
+  level: DebugLevel;
   message: string;
-  data?: Record<string, unknown> | null;
+  data?: Record<string, unknown>;
 };
 
-const MAX_EVENTS = 2000;
-const events: DebugEvent[] = [];
+// Dev default ON (prod default OFF).
+export const ENABLE_DEBUG_TOOL =
+  String(import.meta.env.VITE_ENABLE_DEBUG_TOOL ?? (import.meta.env.DEV ? "1" : "0")) === "1";
 
-export const TC_DEBUG_EVENT_NAME = "tc:debug_event";
-
-export function logDebugEvent(input: Omit<DebugEvent, "ts_ms" | "source"> & { ts_ms?: number; source?: DebugEvent["source"] }) {
+export function logDebugEvent(
+  e: Omit<DebugEvent, "ts_ms" | "source"> & { ts_ms?: number; source?: "frontend" | "backend" }
+) {
   if (!ENABLE_DEBUG_TOOL) return;
-  const e: DebugEvent = {
-    ts_ms: input.ts_ms ?? Date.now(),
-    source: input.source ?? "frontend",
-    pipe: input.pipe,
-    event: input.event,
-    series_id: input.series_id ?? null,
-    level: input.level,
-    message: input.message,
-    data: input.data ?? null
-  };
-
-  events.push(e);
-  if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
-
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(TC_DEBUG_EVENT_NAME, { detail: e }));
-  }
-}
-
-export function getDebugSnapshot(): DebugEvent[] {
-  return [...events];
+  const ts_ms = typeof e.ts_ms === "number" && Number.isFinite(e.ts_ms) ? e.ts_ms : Date.now();
+  const source = e.source ?? "frontend";
+  useDebugLogStore.getState().append({
+    ts_ms,
+    source,
+    pipe: e.pipe,
+    event: e.event,
+    series_id: e.series_id,
+    level: e.level,
+    message: e.message,
+    data: e.data
+  });
 }

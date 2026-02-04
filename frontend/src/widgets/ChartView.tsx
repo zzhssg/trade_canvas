@@ -21,7 +21,6 @@ import {
   fetchCandles,
   fetchDrawDelta,
   fetchFactorSlices,
-  fetchOverlayDelta,
   fetchWorldFrameAtTime,
   fetchWorldFrameLive,
   pollWorldDelta
@@ -36,7 +35,6 @@ import { useLightweightChart } from "./chart/useLightweightChart";
 import { parseMarketWsMessage } from "./chart/ws";
 
 const INITIAL_TAIL_LIMIT = 2000;
-const ENABLE_DRAW_DELTA = import.meta.env.VITE_ENABLE_DRAW_DELTA === "1";
 const ENABLE_REPLAY_V1 = import.meta.env.VITE_ENABLE_REPLAY_V1 === "1";
 const ENABLE_PEN_SEGMENT_COLOR = import.meta.env.VITE_ENABLE_PEN_SEGMENT_COLOR === "1";
 // Default to enabled (unless explicitly disabled) to avoid "delta + slices" double-fetch loops in live mode.
@@ -230,15 +228,7 @@ export function ChartView() {
 
   const fetchOverlayLikeDelta = useCallback(
     async (params: { seriesId: string; cursorVersionId: number; windowCandles: number }): Promise<OverlayLikeDeltaV1> => {
-      if (ENABLE_DRAW_DELTA) {
-        const delta = await fetchDrawDelta(params);
-        return {
-          active_ids: delta.active_ids,
-          instruction_catalog_patch: delta.instruction_catalog_patch,
-          next_cursor: { version_id: delta.next_cursor?.version_id ?? 0 }
-        };
-      }
-      const delta = await fetchOverlayDelta(params);
+      const delta = await fetchDrawDelta(params);
       return {
         active_ids: delta.active_ids,
         instruction_catalog_patch: delta.instruction_catalog_patch,
@@ -1025,17 +1015,7 @@ export function ChartView() {
               });
             }
 
-            if (t != null) {
-              logDebugEvent({
-                pipe: "read",
-                event: "read.ws.market_candle_closed",
-                series_id: seriesId,
-                level: "info",
-                message: "ws candle_closed",
-                data: { candle_time: t }
-              });
-              scheduleOverlayFollow(t);
-            }
+            if (t != null) scheduleOverlayFollow(t);
             return;
           }
 
