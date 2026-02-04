@@ -283,9 +283,12 @@ export function ChartView() {
             : null;
         const color = typeof def["color"] === "string" ? def["color"] : null;
         const text = typeof def["text"] === "string" ? def["text"] : "";
+        const sizeDefault = feature === "pivot.minor" ? 0.6 : 1.0;
+        const sizeRaw = Number(def["size"]);
+        const size = Number.isFinite(sizeRaw) && sizeRaw > 0 ? sizeRaw : sizeDefault;
         if (!position || !shape || !color) continue;
 
-        next.push({ time: t as UTCTimestamp, position, color, shape, text });
+        next.push({ time: t as UTCTimestamp, position, color, shape, text, size });
       }
     }
 

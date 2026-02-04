@@ -122,9 +122,10 @@ class OverlayOrchestrator:
                             "time": int(pivot_time),
                             "position": "aboveBar" if direction == "resistance" else "belowBar",
                             "color": color,
-                            "shape": "circle" if level == "pivot.major" else "square",
+                            "shape": "circle",
                             # Keep the field for schema stability, but do not render a letter label.
                             "text": "",
+                            "size": 1.0 if level == "pivot.major" else 0.6,
                         },
                     )
                 )
@@ -162,7 +163,7 @@ class OverlayOrchestrator:
                     series_id=series_id,
                     instruction_id=instruction_id,
                 )
-                if prev is not None:
+                if prev == payload:
                     continue
                 self._overlay_store.insert_instruction_version_in_conn(
                     conn,

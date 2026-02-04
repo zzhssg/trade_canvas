@@ -71,6 +71,27 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(draw["instruction_catalog_patch"], overlay["instruction_catalog_patch"])
         self.assertEqual(int(draw["next_cursor"]["version_id"]), int(overlay["next_cursor"]["version_id"]))
 
+        def pick_marker_defs(feature: str) -> list[dict]:
+            out: list[dict] = []
+            for item in overlay.get("instruction_catalog_patch") or []:
+                if not isinstance(item, dict) or item.get("kind") != "marker":
+                    continue
+                d = item.get("definition")
+                if not isinstance(d, dict):
+                    continue
+                if d.get("feature") == feature:
+                    out.append(d)
+            return out
+
+        majors = pick_marker_defs("pivot.major")
+        minors = pick_marker_defs("pivot.minor")
+        self.assertTrue(majors, "expected at least one pivot.major marker in patch")
+        self.assertTrue(minors, "expected at least one pivot.minor marker in patch")
+        self.assertEqual(str(majors[0].get("shape")), "circle")
+        self.assertEqual(str(minors[0].get("shape")), "circle")
+        self.assertAlmostEqual(float(majors[0].get("size")), 1.0, places=6)
+        self.assertAlmostEqual(float(minors[0].get("size")), 0.6, places=6)
+
         next_version = int(draw["next_cursor"]["version_id"])
         self.assertGreater(next_version, 0)
 

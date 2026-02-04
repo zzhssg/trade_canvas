@@ -53,6 +53,9 @@ type DrawInstructionPatchItemV1 = {
 }
 ```
 
+补充（v0 约定，便于对齐前端实现）：
+- `kind=="marker"`：`definition` 通常包含 `feature/time/position/color/shape/text?/size?`（其中 `size` 为可选缩放系数，默认 `1`）。
+
 读取端语义：
 - `instruction_catalog_patch` 只包含 `cursor_version_id` 之后的新增版本。
 - 同一 `instruction_id` 的新版本覆盖旧版本（读取端以“最新版本”视角渲染）。
