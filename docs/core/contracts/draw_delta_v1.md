@@ -30,10 +30,10 @@ updated: 2026-02-02
 本契约是“统一底座”的 v1 目标形态；当前仓库内存在一条过渡实现用于“先统一读口与前端 apply 引擎”：
 
 - 后端读口：`GET /api/draw/delta`（v0 兼容投影）
-  - `instruction_catalog_patch/active_ids`：等价复用 `GET /api/overlay/delta`
+  - `instruction_catalog_patch/active_ids`：等价复用 OverlayStore 的增量语义（旧的 `GET /api/overlay/delta` 已废弃但仍保留兼容）
   - `series_points`：当前返回空 `{}`（待接入指标点真源后补齐增量）
   - **fail-safe**：v0 兼容投影当前不强制执行（待接入 factor/delta ledger 的 candle_id 对齐门禁后补齐）
-- 前端切流：通过 `VITE_ENABLE_DRAW_DELTA=1` 切换到 `/api/draw/delta`（默认关闭，便于回滚）
+- 前端：已默认走 `/api/draw/delta`；`VITE_ENABLE_DRAW_DELTA` 已于 2026-02-04 从代码中移除
 
 结论：在 v1 门禁落地前，`/api/draw/delta` 主要用于“统一协议形状 + 小步切流”，不要把它当作已完全满足本契约所有硬门禁的终局真源。
 

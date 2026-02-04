@@ -1,13 +1,17 @@
 ---
 title: API v1 · Plot（HTTP）
-status: draft
+status: deprecated
 created: 2026-02-03
-updated: 2026-02-03
+updated: 2026-02-04
 ---
 
 # API v1 · Plot（HTTP）
 
+说明：`/api/plot/delta` 为历史遗留接口，**已废弃但仍保留兼容**；新代码应统一使用 `GET /api/draw/delta`。
+
 ## GET /api/plot/delta
+
+> Deprecated：仅用于兼容旧链路；新实现请改用 `GET /api/draw/delta`。
 
 ### 示例（curl）
 
@@ -45,4 +49,3 @@ curl --noproxy '*' -sS \
   - `cursor_overlay_event_id`：按事件 id 增量（更稳定）
   - `cursor_candle_time`：按 candle_time 窗口拉取（用于首次/无 event_id 时）
 - `next_cursor` 用于下一次增量请求；前端应持久化并用于“追到头”的判断。
-

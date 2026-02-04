@@ -1,13 +1,17 @@
 ---
 title: API v1 · Overlay（HTTP）
-status: draft
+status: deprecated
 created: 2026-02-03
 updated: 2026-02-04
 ---
 
 # API v1 · Overlay（HTTP）
 
+说明：`/api/overlay/delta` 为历史遗留接口，**已废弃但仍保留兼容**；新代码应统一使用 `GET /api/draw/delta`。
+
 ## GET /api/overlay/delta
+
+> Deprecated：仅用于兼容旧链路；新实现请改用 `GET /api/draw/delta`。
 
 ### 示例（curl）
 
