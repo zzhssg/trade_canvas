@@ -15,6 +15,7 @@ Environment (optional):
   TRADE_CANVAS_SQLITE_TIMEOUT_S=5
   TRADE_CANVAS_ENABLE_FAULTHANDLER=1
   TRADE_CANVAS_FAULTHANDLER_PATH=backend/output/faulthandler.log
+  TRADE_CANVAS_ENABLE_DEBUG_API=1
   TRADE_CANVAS_DB_PATH=backend/data/market.db
   TRADE_CANVAS_WHITELIST_PATH=backend/config/market_whitelist.json
 EOF
@@ -60,6 +61,7 @@ fi
 : "${TRADE_CANVAS_SQLITE_TIMEOUT_S:=5}"
 : "${TRADE_CANVAS_ENABLE_FAULTHANDLER:=1}"
 : "${TRADE_CANVAS_FAULTHANDLER_PATH:=backend/output/faulthandler.log}"
+: "${TRADE_CANVAS_ENABLE_DEBUG_API:=1}"
 
 export TRADE_CANVAS_DB_PATH
 export TRADE_CANVAS_WHITELIST_PATH
@@ -71,6 +73,7 @@ export TRADE_CANVAS_UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN_S
 export TRADE_CANVAS_SQLITE_TIMEOUT_S
 export TRADE_CANVAS_ENABLE_FAULTHANDLER
 export TRADE_CANVAS_FAULTHANDLER_PATH
+export TRADE_CANVAS_ENABLE_DEBUG_API
 
 # Optionally reset sqlite db to avoid confusing "1970 candles" due to stale/mocked data.
 if [[ "${fresh_db}" == "1" ]]; then

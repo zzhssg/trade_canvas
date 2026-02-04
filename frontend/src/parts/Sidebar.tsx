@@ -1,8 +1,11 @@
 import { useUiStore } from "../state/uiStore";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTopMarkets } from "../services/useTopMarkets";
+import { ENABLE_DEBUG_TOOL } from "../debug/debug";
+import { DebugPanel } from "./DebugPanel";
 
-const TABS = ["Market", "Strategy", "Indicators", "Replay"] as const;
+const ALL_TABS = ["Market", "Strategy", "Indicators", "Replay", "Debug"] as const;
+type SidebarTabKey = (typeof ALL_TABS)[number];
 
 export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
   const { activeSidebarTab, setActiveSidebarTab, sidebarCollapsed, toggleSidebarCollapsed } = useUiStore();
@@ -10,6 +13,16 @@ export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
   const expandGlyph = side === "left" ? ">" : "<";
   const collapseGlyph = side === "left" ? "<" : ">";
   const togglePos = side === "left" ? "right-2" : "left-2";
+
+  const tabs = useMemo(() => {
+    const out = [...ALL_TABS] as SidebarTabKey[];
+    return ENABLE_DEBUG_TOOL ? out : (out.filter((t) => t !== "Debug") as SidebarTabKey[]);
+  }, []);
+
+  useEffect(() => {
+    if (tabs.includes(activeSidebarTab as SidebarTabKey)) return;
+    setActiveSidebarTab(tabs[0]);
+  }, [activeSidebarTab, setActiveSidebarTab, tabs]);
 
   return (
     <div className={["h-full overflow-hidden border-white/10 bg-white/[0.045] backdrop-blur", borderSide].join(" ")}>
@@ -31,12 +44,13 @@ export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
       </div>
       {sidebarCollapsed ? (
         <div className="flex h-[calc(100%-56px)] flex-col items-center gap-2 overflow-auto p-2">
-          {TABS.map((tab) => (
+          {tabs.map((tab) => (
             <button
               key={tab}
               type="button"
               title={tab}
               onClick={() => setActiveSidebarTab(tab)}
+              data-testid={`sidebar-tab-${tab}`}
               className={[
                 "w-full rounded-md border border-white/10 bg-black/20 py-2 text-[11px] font-semibold text-white/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
                 activeSidebarTab === tab ? "bg-white/15" : "hover:bg-white/10"
@@ -49,11 +63,12 @@ export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
       ) : (
         <div className="flex h-[calc(100%-56px)] flex-col gap-3 overflow-auto p-3">
           <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
-            {TABS.map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab}
                 type="button"
                 onClick={() => setActiveSidebarTab(tab)}
+              data-testid={`sidebar-tab-${tab}`}
                 className={[
                   "flex-1 rounded-lg px-2 py-1 text-[11px] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
                   activeSidebarTab === tab
@@ -84,6 +99,11 @@ export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
           {activeSidebarTab === "Replay" ? (
             <Section title="Replay">
               <div className="text-xs text-white/60">load replay package (todo)</div>
+            </Section>
+          ) : null}
+          {activeSidebarTab === "Debug" ? (
+            <Section title="Debug / Logs">
+              <DebugPanel />
             </Section>
           ) : null}
         </div>

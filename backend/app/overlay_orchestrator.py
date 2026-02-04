@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
 
+from .debug_hub import DebugHub
 from .factor_store import FactorStore
 from .overlay_store import OverlayStore
 from .store import CandleStore
@@ -41,6 +43,10 @@ class OverlayOrchestrator:
         self._factor_store = factor_store
         self._overlay_store = overlay_store
         self._settings = settings or OverlaySettings()
+        self._debug_hub: DebugHub | None = None
+
+    def set_debug_hub(self, hub: DebugHub | None) -> None:
+        self._debug_hub = hub
 
     def enabled(self) -> bool:
         raw = os.environ.get("TRADE_CANVAS_ENABLE_OVERLAY_INGEST", "1")
@@ -59,6 +65,7 @@ class OverlayOrchestrator:
         """
         Build overlay instructions up to `up_to_candle_time` (closed only).
         """
+        t0 = time.perf_counter()
         if not self.enabled():
             return
 
@@ -122,8 +129,9 @@ class OverlayOrchestrator:
                             "time": int(pivot_time),
                             "position": "aboveBar" if direction == "resistance" else "belowBar",
                             "color": color,
-                            "shape": "circle" if level == "pivot.major" else "square",
+                            "shape": "circle",
                             "text": "P" if level == "pivot.major" else "",
+                            "size": 1.0 if level == "pivot.major" else 0.6,
                         },
                     )
                 )
@@ -155,13 +163,14 @@ class OverlayOrchestrator:
             }
 
         with self._overlay_store.connect() as conn:
+            before_changes = int(conn.total_changes)
             for instruction_id, kind, visible_time, payload in marker_defs:
                 prev = self._overlay_store.get_latest_def_for_instruction_in_conn(
                     conn,
                     series_id=series_id,
                     instruction_id=instruction_id,
                 )
-                if prev is not None:
+                if prev == payload:
                     continue
                 self._overlay_store.insert_instruction_version_in_conn(
                     conn,
@@ -190,3 +199,21 @@ class OverlayOrchestrator:
 
             self._overlay_store.upsert_head_time_in_conn(conn, series_id=series_id, head_time=int(to_time))
             conn.commit()
+            wrote = int(conn.total_changes) - before_changes
+
+        if self._debug_hub is not None:
+            self._debug_hub.emit(
+                pipe="write",
+                event="write.overlay.ingest_done",
+                series_id=series_id,
+                message="overlay ingest done",
+                data={
+                    "up_to_candle_time": int(to_time),
+                    "cutoff_time": int(cutoff_time),
+                    "factor_rows": int(len(factor_rows)),
+                    "marker_defs": int(len(marker_defs)),
+                    "pen_points": int(len(points)),
+                    "db_changes": int(wrote),
+                    "duration_ms": int((time.perf_counter() - t0) * 1000),
+                },
+            )
