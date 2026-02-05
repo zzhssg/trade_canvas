@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
+
+import { useUiStore, type ChartToolKey } from "../state/uiStore";
 
 type ToolKey =
   | "cursor"
@@ -7,31 +9,70 @@ type ToolKey =
   | "brush"
   | "text"
   | "measure"
+  | "fib"
+  | "position_long"
+  | "position_short"
   | "magnet"
   | "lock"
   | "settings";
 
+const ENABLE_DRAW_TOOLS = String(import.meta.env.VITE_ENABLE_DRAW_TOOLS ?? "1") === "1";
+
 export function ToolRail() {
-  const [active, setActive] = useState<ToolKey>("cursor");
+  const { activeChartTool, setActiveChartTool } = useUiStore();
+
+  const activeKey: ToolKey = useMemo(() => {
+    switch (activeChartTool) {
+      case "cursor":
+        return "cursor";
+      case "measure":
+        return "measure";
+      case "fib":
+        return "fib";
+      case "position_long":
+        return "position_long";
+      case "position_short":
+        return "position_short";
+      default:
+        return "cursor";
+    }
+  }, [activeChartTool]);
+
+  const setTool = useCallback(
+    (tool: ChartToolKey) => {
+      setActiveChartTool(tool);
+    },
+    [setActiveChartTool]
+  );
+
   const groups = useMemo(
     () =>
       [
         [
-          { key: "cursor", label: "Cursor" },
-          { key: "crosshair", label: "Crosshair" },
-          { key: "trendline", label: "Trend Line" }
+          { key: "cursor", label: "Cursor", onClick: () => setTool("cursor") },
+          { key: "crosshair", label: "Crosshair", disabled: true },
+          { key: "trendline", label: "Trend Line", disabled: true }
         ],
         [
-          { key: "brush", label: "Brush" },
-          { key: "text", label: "Text" },
-          { key: "measure", label: "Measure" }
+          { key: "brush", label: "Brush", disabled: true },
+          { key: "text", label: "Text", disabled: true },
+          { key: "measure", label: "Measure", disabled: !ENABLE_DRAW_TOOLS, onClick: () => setTool("measure") }
         ],
         [
-          { key: "magnet", label: "Magnet" },
-          { key: "lock", label: "Lock" }
+          ...(ENABLE_DRAW_TOOLS
+            ? ([
+                { key: "position_long", label: "Long", onClick: () => setTool("position_long") },
+                { key: "position_short", label: "Short", onClick: () => setTool("position_short") },
+                { key: "fib", label: "Fib", onClick: () => setTool("fib") }
+              ] as const)
+            : ([] as const))
+        ],
+        [
+          { key: "magnet", label: "Magnet", disabled: true },
+          { key: "lock", label: "Lock", disabled: true }
         ]
       ] as const,
-    []
+    [setTool]
   );
 
   return (
@@ -48,9 +89,13 @@ export function ToolRail() {
             {group.map((t) => (
               <ToolButton
                 key={t.key}
-                active={active === t.key}
+                active={activeKey === t.key}
                 label={t.label}
-                onClick={() => setActive(t.key)}
+                disabled={"disabled" in t ? Boolean(t.disabled) : false}
+                onClick={() => {
+                  if ("disabled" in t && t.disabled) return;
+                  if ("onClick" in t && typeof t.onClick === "function") t.onClick();
+                }}
                 icon={<Icon kind={t.key} />}
               />
             ))}
@@ -61,9 +106,11 @@ export function ToolRail() {
 
       <div className="border-t border-white/10 p-2">
         <ToolButton
-          active={active === "settings"}
+          active={false}
           label="Settings"
-          onClick={() => setActive("settings")}
+          onClick={() => {
+            // Settings is a placeholder tool (no chart-mode effect yet).
+          }}
           icon={<Icon kind="settings" />}
         />
       </div>
@@ -79,12 +126,14 @@ function ToolButton({
   icon,
   label,
   active,
-  onClick
+  onClick,
+  disabled
 }: {
   icon: React.ReactNode;
   label: string;
   active: boolean;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -93,9 +142,11 @@ function ToolButton({
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
+      disabled={disabled}
       className={[
         "group relative grid h-9 w-full place-items-center rounded-xl border text-white/80 outline-none transition",
         "focus-visible:ring-2 focus-visible:ring-sky-500/60",
+        disabled ? "cursor-not-allowed opacity-40" : "",
         active
           ? "border-sky-500/25 bg-sky-500/10 text-white shadow-[0_0_0_1px_rgba(56,189,248,0.10)_inset]"
           : "border-transparent hover:border-white/10 hover:bg-white/5"
@@ -159,6 +210,36 @@ function Icon({ kind }: { kind: ToolKey }) {
           <path d="M7 7l10 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           <path d="M6 10V6h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           <path d="M18 14v4h-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    case "position_long":
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 18V6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M6 6l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M6 6l-4 4" stroke="currentColor" strokeWidth="0" />
+          <path d="M10 10h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M10 14h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M10 18h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    case "position_short":
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 6v12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M6 18l4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M10 6h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M10 10h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M10 14h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
+    case "fib":
+      return (
+        <svg className={cls} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M5 7h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M7 11h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M9 15h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M5 19h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
       );
     case "magnet":
