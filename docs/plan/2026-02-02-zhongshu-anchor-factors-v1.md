@@ -34,7 +34,7 @@ updated: 2026-02-02
 1) `zhongshu`：补齐 `head.alive`（0/1 个），并保证 history/head 的冷热语义正确（无未来函数）。
 2) `anchor`：落盘 append-only 的换锚事件流（history.switches），并提供 `head.current_anchor`（+ 可选 reverse_anchor）。
 3) 与主链路对齐：所有输出必须以 `closed candle` 对齐点为主键，满足 `seed ≡ incremental`。
-4) 可回滚：不破坏现有 `/api/overlay/delta` 与 v0 factor slices，默认行为不变（用 feature flag / 新字段兼容演进）。
+4) 可回滚：不破坏现有 `/api/draw/delta` 与 v0 factor slices，默认行为不变（用 feature flag / 新字段兼容演进）。备注：`/api/overlay/delta` 已于 2026-02-05 删除。
 
 ### 非目标（Don’t / v1 不做）
 

@@ -62,10 +62,10 @@ v0 改为实现 **旧系统的 Pivot（极值点）算法**，并用其产出最
   - 建议加 unique：`(series_id, candle_time, kind)`，用 upsert 保证幂等；`id` 作为 cursor。
 
 对外接口（对齐 `docs/core/contracts/overlay_v1.md`）：
-- 历史：`GET /api/plot/delta?series_id=...&cursor_candle_time=...&cursor_overlay_event_id=...`（已于 2026-02-04 移除）
+- 历史：`GET /api/plot/delta?series_id=...&cursor_candle_time=...&cursor_overlay_event_id=...`（已于 2026-02-05 移除）
 - 现状：`GET /api/draw/delta?series_id=...&cursor_version_id=...&window_candles=...`
   - 返回 `PlotDeltaV1`：`lines`（增量 points）+ `overlay_events`（增量 events）+ `next_cursor`
-- （可选）`WS /ws/plot`：订阅后推送 `plot_delta`（减少轮询延迟；但 v0 可先只做 HTTP 增量拉取）
+- （历史/已移除）`WS /ws/plot`：曾设想订阅后推送 `plot_delta`（减少轮询延迟）；现状统一走 `GET /api/draw/delta`（以及 world delta / market ws），不再提供 plot ws。
 
 冷热语义（v0 先用“表结构约束 + 写入策略”表达）：
 - 冷（history）：`plot_line_points` / `plot_overlay_events` 视为 append-only（允许同 key 尾部 upsert）。

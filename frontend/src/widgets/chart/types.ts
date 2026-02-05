@@ -2,13 +2,19 @@ import type { UTCTimestamp } from "lightweight-charts";
 
 import type {
   CandleClosed as ApiCandleClosed,
+  DrawCursorV1 as ApiDrawCursorV1,
+  DrawDeltaV1 as ApiDrawDeltaV1,
   FactorMetaV1 as ApiFactorMetaV1,
   FactorSliceV1 as ApiFactorSliceV1,
   GetCandlesResponse as ApiGetCandlesResponse,
   GetFactorSlicesResponseV1 as ApiGetFactorSlicesResponseV1,
-  OverlayEventV1 as ApiOverlayEventV1,
-  PlotCursorV1 as ApiPlotCursorV1,
-  PlotDeltaV1 as ApiPlotDeltaV1
+  OverlayInstructionPatchItemV1 as ApiOverlayInstructionPatchItemV1,
+  PlotLinePointV1 as ApiPlotLinePointV1,
+  WorldCursorV1 as ApiWorldCursorV1,
+  WorldDeltaPollResponseV1 as ApiWorldDeltaPollResponseV1,
+  WorldDeltaRecordV1 as ApiWorldDeltaRecordV1,
+  WorldStateV1 as ApiWorldStateV1,
+  WorldTimeV1 as ApiWorldTimeV1
 } from "../../contracts/api";
 
 export type Candle = {
@@ -21,60 +27,16 @@ export type Candle = {
 
 export type CandleClosed = ApiCandleClosed;
 export type GetCandlesResponse = ApiGetCandlesResponse;
-export type OverlayEventV1 = ApiOverlayEventV1;
-export type PlotCursorV1 = ApiPlotCursorV1;
-export type PlotDeltaV1 = ApiPlotDeltaV1;
 
 export type FactorMetaV1 = ApiFactorMetaV1;
 export type FactorSliceV1 = ApiFactorSliceV1;
 export type GetFactorSlicesResponseV1 = ApiGetFactorSlicesResponseV1;
 
-// NOTE: Overlay delta types are defined locally for now because the repo's OpenAPI TS
-// types may lag behind backend additions. Keep these in sync with backend/app/schemas.py.
-export type OverlayCursorV1 = {
-  version_id: number;
-};
+export type PlotLinePointV1 = ApiPlotLinePointV1;
+export type OverlayInstructionPatchItemV1 = ApiOverlayInstructionPatchItemV1;
 
-export type OverlayInstructionPatchItemV1 = {
-  version_id: number;
-  instruction_id: string;
-  kind: string;
-  visible_time: number;
-  definition: Record<string, unknown>;
-};
-
-export type OverlayDeltaV1 = {
-  schema_version: number;
-  series_id: string;
-  to_candle_id: string | null;
-  to_candle_time: number | null;
-  active_ids: string[];
-  instruction_catalog_patch: OverlayInstructionPatchItemV1[];
-  next_cursor: OverlayCursorV1;
-};
-
-// NOTE: Draw delta types are defined locally for now because the repo's OpenAPI TS
-// types may lag behind backend additions. Keep these in sync with backend/app/schemas.py.
-export type DrawCursorV1 = {
-  version_id: number;
-  point_time?: number | null;
-};
-
-export type DrawSeriesPointV1 = {
-  time: number;
-  value: number;
-};
-
-export type DrawDeltaV1 = {
-  schema_version: number;
-  series_id: string;
-  to_candle_id: string | null;
-  to_candle_time: number | null;
-  active_ids: string[];
-  instruction_catalog_patch: OverlayInstructionPatchItemV1[];
-  series_points: Record<string, DrawSeriesPointV1[]>;
-  next_cursor: DrawCursorV1;
-};
+export type DrawCursorV1 = ApiDrawCursorV1;
+export type DrawDeltaV1 = ApiDrawDeltaV1;
 
 // Shared shape ChartView can apply regardless of endpoint (overlay/draw).
 export type OverlayLikeDeltaV1 = {
@@ -83,36 +45,8 @@ export type OverlayLikeDeltaV1 = {
   next_cursor: { version_id: number };
 };
 
-export type WorldTimeV1 = {
-  at_time: number;
-  aligned_time: number;
-  candle_id: string;
-};
-
-export type WorldStateV1 = {
-  schema_version: number;
-  series_id: string;
-  time: WorldTimeV1;
-  factor_slices: GetFactorSlicesResponseV1;
-  draw_state: DrawDeltaV1;
-};
-
-export type WorldCursorV1 = {
-  id: number;
-};
-
-export type WorldDeltaRecordV1 = {
-  id: number;
-  series_id: string;
-  to_candle_id: string;
-  to_candle_time: number;
-  draw_delta: DrawDeltaV1;
-  factor_slices?: GetFactorSlicesResponseV1 | null;
-};
-
-export type WorldDeltaPollResponseV1 = {
-  schema_version: number;
-  series_id: string;
-  records: WorldDeltaRecordV1[];
-  next_cursor: WorldCursorV1;
-};
+export type WorldTimeV1 = ApiWorldTimeV1;
+export type WorldStateV1 = ApiWorldStateV1;
+export type WorldCursorV1 = ApiWorldCursorV1;
+export type WorldDeltaRecordV1 = ApiWorldDeltaRecordV1;
+export type WorldDeltaPollResponseV1 = ApiWorldDeltaPollResponseV1;

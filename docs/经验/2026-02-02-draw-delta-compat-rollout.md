@@ -27,7 +27,7 @@ updated: 2026-02-02
 - 回滚成本极低（改 env 即可），适合联调期快速定位问题。
 
 3) **写“等价性回归”而不是只写冒烟**
-- 后端测试直接断言 `/api/draw/delta` 与 `/api/overlay/delta` 的关键字段一致（patch、active_ids、cursor），避免“新接口悄悄变味”。
+- 后端测试直接断言 `/api/draw/delta` 的关键字段幂等且可回归（patch、active_ids、cursor、at_time fail-safe），避免“接口悄悄变味”。
 
 ## 为什么有效（机制/约束）
 
@@ -53,4 +53,3 @@ updated: 2026-02-02
 - 验证命令：
   - `pytest -q`
   - `cd frontend && npm run build`
-

@@ -113,7 +113,7 @@ CandleClosed (ingest)
 - [ ] M2：DeltaLedger（统一增量源）
   - 改什么：新增 `/api/delta/poll`（以及可选 WS）；前端从 delta 获取 overlay；策略从 delta/ledger 获取指标
   - 怎么验收：cursor 增量幂等（重复 poll 不改变重建结果）
-  - 怎么回滚：保留 `GET /api/plot/delta`（overlay_v1）作为兼容读路径
+  - 怎么回滚：通过 `git revert` 回退本轮改动；读口始终以 `GET /api/draw/delta` 为唯一绘图增量入口
 
 - [ ] M3：freqtrade dry-run 消费（策略侧门禁）
   - 改什么：`trade_canvas/freqtrade_adapter.py` 改为消费本仓 ledger/delta（而非旁路重算）
@@ -130,8 +130,9 @@ CandleClosed (ingest)
 ### 回滚策略
 - 全链路必须支持通过开关降级：
   - `TRADE_CANVAS_ENABLE_FACTOR_INGEST=0`
-  - `TRADE_CANVAS_ENABLE_PLOT_INGEST=0`
-- API 兼容保留：`/api/plot/delta` 作为 overlay 兼容读路径，直到 delta ledger 成熟。
+  - `TRADE_CANVAS_ENABLE_OVERLAY_INGEST=0`
+- API 兼容保留（历史计划，已作废）：曾计划保留 `/api/plot/delta` 作为 overlay 兼容读路径，直到 delta ledger 成熟。
+  - 更新（2026-02-05）：`/api/plot/delta` 与 `/api/overlay/delta` 已删除；兼容回滚依赖 `git revert`，不再提供旧读口。
 
 ## 验收标准
 
@@ -226,8 +227,7 @@ CandleClosed (ingest)
   - 预期：Playwright E2E 通过（退出码 0），并产出 `output/playwright/` 证据
 
 ### Rollback（回滚）
-- 最短回滚：保持 `TRADE_CANVAS_ENABLE_FACTOR_INGEST=0` 与 `TRADE_CANVAS_ENABLE_PLOT_INGEST=0`，恢复到纯 market 链路；代码回滚可用 `git revert`。
+- 最短回滚：保持 `TRADE_CANVAS_ENABLE_FACTOR_INGEST=0` 与 `TRADE_CANVAS_ENABLE_OVERLAY_INGEST=0`，恢复到纯 market 链路；代码回滚可用 `git revert`。
 
 ## 变更记录
 - 2026-02-02: 创建（草稿）
-

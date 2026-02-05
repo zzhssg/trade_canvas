@@ -60,15 +60,20 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/plot/delta": {
+    "/api/draw/delta": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Plot Delta */
-        get: operations["get_plot_delta_api_plot_delta_get"];
+        /**
+         * Get Draw Delta
+         * @description Unified draw delta (v1 base):
+         *     - instruction_catalog_patch + active_ids (overlay instructions)
+         *     - series_points (indicator line points; v0 returns empty for now)
+         */
+        get: operations["get_draw_delta_api_draw_delta_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -93,6 +98,69 @@ export interface paths {
          *     - pen: history.confirmed from factor events
          */
         get: operations["get_factor_slices_api_factor_slices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/frame/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get World Frame Live
+         * @description Unified world frame (live): latest aligned world state.
+         *     v1 implementation is a projection of existing factor_slices + draw/delta.
+         */
+        get: operations["get_world_frame_live_api_frame_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/frame/at_time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get World Frame At Time
+         * @description Unified world frame (replay point query): aligned world state at time t.
+         */
+        get: operations["get_world_frame_at_time_api_frame_at_time_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delta/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Poll World Delta
+         * @description v1 world delta (live):
+         *     - Uses draw/delta cursor as the minimal incremental source (compat projection).
+         *     - Emits at most 1 record per poll (if cursor advances); otherwise returns empty records.
+         */
+        get: operations["poll_world_delta_api_delta_poll_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -186,6 +254,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/backtest/pair_timeframes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Backtest Pair Timeframes */
+        get: operations["get_backtest_pair_timeframes_api_backtest_pair_timeframes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backtest/run": {
         parameters: {
             query?: never;
@@ -207,6 +292,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** BacktestPairTimeframesResponse */
+        BacktestPairTimeframesResponse: {
+            /** Pair */
+            pair: string;
+            /** Trading Mode */
+            trading_mode: string;
+            /** Datadir */
+            datadir: string;
+            /** Available Timeframes */
+            available_timeframes: string[];
+        };
         /** BacktestRunRequest */
         BacktestRunRequest: {
             /** Strategy Name */
@@ -251,6 +347,42 @@ export interface components {
             /** Volume */
             volume: number;
         };
+        /** DrawCursorV1 */
+        DrawCursorV1: {
+            /**
+             * Version Id
+             * @default 0
+             */
+            version_id: number;
+            /**
+             * Point Time
+             * @description Optional cursor for series_points (time-based)
+             */
+            point_time?: number | null;
+        };
+        /** DrawDeltaV1 */
+        DrawDeltaV1: {
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Series Id */
+            series_id: string;
+            /** To Candle Id */
+            to_candle_id: string | null;
+            /** To Candle Time */
+            to_candle_time: number | null;
+            /** Active Ids */
+            active_ids?: string[];
+            /** Instruction Catalog Patch */
+            instruction_catalog_patch?: components["schemas"]["OverlayInstructionPatchItemV1"][];
+            /** Series Points */
+            series_points?: {
+                [key: string]: components["schemas"]["PlotLinePointV1"][];
+            };
+            next_cursor: components["schemas"]["DrawCursorV1"];
+        };
         /** FactorMetaV1 */
         FactorMetaV1: {
             /** Series Id */
@@ -294,7 +426,27 @@ export interface components {
             candles: components["schemas"]["CandleClosed"][];
         };
         /** GetFactorSlicesResponseV1 */
-        GetFactorSlicesResponseV1: {
+        "GetFactorSlicesResponseV1-Input": {
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Series Id */
+            series_id: string;
+            /** At Time */
+            at_time: number;
+            /** Candle Id */
+            candle_id: string | null;
+            /** Factors */
+            factors?: string[];
+            /** Snapshots */
+            snapshots?: {
+                [key: string]: components["schemas"]["FactorSliceV1"];
+            };
+        };
+        /** GetFactorSlicesResponseV1 */
+        "GetFactorSlicesResponseV1-Output": {
             /**
              * Schema Version
              * @default 1
@@ -348,54 +500,20 @@ export interface components {
             /** Candle Time */
             candle_time: number;
         };
-        /** OverlayEventV1 */
-        OverlayEventV1: {
-            /** Id */
-            id: number;
+        /** OverlayInstructionPatchItemV1 */
+        OverlayInstructionPatchItemV1: {
+            /** Version Id */
+            version_id: number;
+            /** Instruction Id */
+            instruction_id: string;
             /** Kind */
             kind: string;
-            /** Candle Id */
-            candle_id: string;
-            /** Candle Time */
-            candle_time: number;
-            /** Payload */
-            payload?: {
+            /** Visible Time */
+            visible_time: number;
+            /** Definition */
+            definition?: {
                 [key: string]: unknown;
             };
-        };
-        /** PlotCursorV1 */
-        PlotCursorV1: {
-            /**
-             * Candle Time
-             * @description Last known plot head candle_time
-             */
-            candle_time?: number | null;
-            /**
-             * Overlay Event Id
-             * @description Last seen overlay event id
-             */
-            overlay_event_id?: number | null;
-        };
-        /** PlotDeltaV1 */
-        PlotDeltaV1: {
-            /**
-             * Schema Version
-             * @default 1
-             */
-            schema_version: number;
-            /** Series Id */
-            series_id: string;
-            /** To Candle Id */
-            to_candle_id: string | null;
-            /** To Candle Time */
-            to_candle_time: number | null;
-            /** Lines */
-            lines?: {
-                [key: string]: components["schemas"]["PlotLinePointV1"][];
-            };
-            /** Overlay Events */
-            overlay_events?: components["schemas"]["OverlayEventV1"][];
-            next_cursor: components["schemas"]["PlotCursorV1"];
         };
         /** PlotLinePointV1 */
         PlotLinePointV1: {
@@ -458,6 +576,81 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** WorldCursorV1 */
+        WorldCursorV1: {
+            /**
+             * Id
+             * @default 0
+             */
+            id: number;
+        };
+        /** WorldDeltaPollResponseV1 */
+        WorldDeltaPollResponseV1: {
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Series Id */
+            series_id: string;
+            /** Records */
+            records?: components["schemas"]["WorldDeltaRecordV1-Output"][];
+            next_cursor: components["schemas"]["WorldCursorV1"];
+        };
+        /** WorldDeltaRecordV1 */
+        "WorldDeltaRecordV1-Input": {
+            /** Id */
+            id: number;
+            /** Series Id */
+            series_id: string;
+            /** To Candle Id */
+            to_candle_id: string;
+            /** To Candle Time */
+            to_candle_time: number;
+            draw_delta: components["schemas"]["DrawDeltaV1"];
+            factor_slices?: components["schemas"]["GetFactorSlicesResponseV1-Input"] | null;
+        };
+        /** WorldDeltaRecordV1 */
+        "WorldDeltaRecordV1-Output": {
+            /** Id */
+            id: number;
+            /** Series Id */
+            series_id: string;
+            /** To Candle Id */
+            to_candle_id: string;
+            /** To Candle Time */
+            to_candle_time: number;
+            draw_delta: components["schemas"]["DrawDeltaV1"];
+            factor_slices?: components["schemas"]["GetFactorSlicesResponseV1-Output"] | null;
+        };
+        /** WorldStateV1 */
+        WorldStateV1: {
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Series Id */
+            series_id: string;
+            time: components["schemas"]["WorldTimeV1"];
+            factor_slices: components["schemas"]["GetFactorSlicesResponseV1-Output"];
+            draw_state: components["schemas"]["DrawDeltaV1"];
+        };
+        /** WorldTimeV1 */
+        WorldTimeV1: {
+            /**
+             * At Time
+             * @description Requested time (unix seconds)
+             */
+            at_time: number;
+            /**
+             * Aligned Time
+             * @description Aligned closed candle_time (floor)
+             */
+            aligned_time: number;
+            /** Candle Id */
+            candle_id: string;
         };
     };
     responses: never;
@@ -567,13 +760,14 @@ export interface operations {
             };
         };
     };
-    get_plot_delta_api_plot_delta_get: {
+    get_draw_delta_api_draw_delta_get: {
         parameters: {
             query: {
                 series_id: string;
-                cursor_candle_time?: number | null;
-                cursor_overlay_event_id?: number | null;
+                cursor_version_id?: number;
                 window_candles?: number;
+                /** @description Optional replay upper-bound (Unix seconds) */
+                at_time?: number | null;
             };
             header?: never;
             path?: never;
@@ -587,7 +781,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PlotDeltaV1"];
+                    "application/json": components["schemas"]["DrawDeltaV1"];
                 };
             };
             /** @description Validation Error */
@@ -620,7 +814,106 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GetFactorSlicesResponseV1"];
+                    "application/json": components["schemas"]["GetFactorSlicesResponseV1-Output"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_world_frame_live_api_frame_live_get: {
+        parameters: {
+            query: {
+                series_id: string;
+                window_candles?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldStateV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_world_frame_at_time_api_frame_at_time_get: {
+        parameters: {
+            query: {
+                series_id: string;
+                at_time: number;
+                window_candles?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldStateV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    poll_world_delta_api_delta_poll_get: {
+        parameters: {
+            query: {
+                series_id: string;
+                after_id?: number;
+                limit?: number;
+                window_candles?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldDeltaPollResponseV1"];
                 };
             };
             /** @description Validation Error */
@@ -767,6 +1060,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StrategyListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_backtest_pair_timeframes_api_backtest_pair_timeframes_get: {
+        parameters: {
+            query: {
+                pair: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestPairTimeframesResponse"];
                 };
             };
             /** @description Validation Error */

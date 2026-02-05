@@ -9,7 +9,6 @@ from .ingest_ccxt import WhitelistIngestSettings, run_whitelist_ingest_loop
 from .series_id import parse_series_id
 from .store import CandleStore
 from .ws_hub import CandleHub
-from .plot_orchestrator import PlotOrchestrator
 from .factor_orchestrator import FactorOrchestrator
 from .overlay_orchestrator import OverlayOrchestrator
 
@@ -33,7 +32,6 @@ class IngestSupervisor:
         *,
         store: CandleStore,
         hub: CandleHub,
-        plot_orchestrator: PlotOrchestrator | None = None,
         factor_orchestrator: FactorOrchestrator | None = None,
         overlay_orchestrator: OverlayOrchestrator | None = None,
         whitelist_series_ids: tuple[str, ...],
@@ -42,7 +40,6 @@ class IngestSupervisor:
     ) -> None:
         self._store = store
         self._hub = hub
-        self._plot_orchestrator = plot_orchestrator
         self._factor_orchestrator = factor_orchestrator
         self._overlay_orchestrator = overlay_orchestrator
         self._whitelist = set(whitelist_series_ids)
@@ -189,7 +186,6 @@ class IngestSupervisor:
                     series_id=series_id,
                     store=self._store,
                     hub=self._hub,
-                    plot_orchestrator=self._plot_orchestrator,
                     factor_orchestrator=self._factor_orchestrator,
                     overlay_orchestrator=self._overlay_orchestrator,
                     settings=self._settings,

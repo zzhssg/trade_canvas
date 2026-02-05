@@ -15,7 +15,6 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmpdir.name) / "market.db"
         os.environ["TRADE_CANVAS_DB_PATH"] = str(self.db_path)
-        os.environ["TRADE_CANVAS_ENABLE_PLOT_INGEST"] = "0"
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "1"
         os.environ["TRADE_CANVAS_ENABLE_OVERLAY_INGEST"] = "1"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MAJOR"] = "2"
@@ -28,7 +27,6 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.tmpdir.cleanup()
         for k in (
             "TRADE_CANVAS_DB_PATH",
-            "TRADE_CANVAS_ENABLE_PLOT_INGEST",
             "TRADE_CANVAS_ENABLE_FACTOR_INGEST",
             "TRADE_CANVAS_ENABLE_OVERLAY_INGEST",
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
@@ -54,10 +52,6 @@ class DrawDeltaApiTests(unittest.TestCase):
         for t, p in zip(times, prices, strict=True):
             self._ingest(t, float(p))
 
-        res_overlay = self.client.get("/api/overlay/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
-        self.assertEqual(res_overlay.status_code, 200, res_overlay.text)
-        overlay = res_overlay.json()
-
         res_draw = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
         self.assertEqual(res_draw.status_code, 200, res_draw.text)
         draw = res_draw.json()
@@ -67,13 +61,9 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertIn("series_points", draw)
         self.assertEqual(draw["series_points"], {})
 
-        self.assertEqual(draw["active_ids"], overlay["active_ids"])
-        self.assertEqual(draw["instruction_catalog_patch"], overlay["instruction_catalog_patch"])
-        self.assertEqual(int(draw["next_cursor"]["version_id"]), int(overlay["next_cursor"]["version_id"]))
-
         def pick_marker_defs(feature: str) -> list[dict]:
             out: list[dict] = []
-            for item in overlay.get("instruction_catalog_patch") or []:
+            for item in draw.get("instruction_catalog_patch") or []:
                 if not isinstance(item, dict) or item.get("kind") != "marker":
                     continue
                 d = item.get("definition")
@@ -91,6 +81,9 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(str(minors[0].get("shape")), "circle")
         self.assertAlmostEqual(float(majors[0].get("size")), 1.0, places=6)
         self.assertAlmostEqual(float(minors[0].get("size")), 0.6, places=6)
+        # Regression: keep `text` field but should be blank.
+        self.assertIn("text", majors[0])
+        self.assertEqual(str(majors[0].get("text")), "")
 
         next_version = int(draw["next_cursor"]["version_id"])
         self.assertGreater(next_version, 0)
@@ -135,6 +128,13 @@ class DrawDeltaApiTests(unittest.TestCase):
         )
         self.assertEqual(res_late.status_code, 409, res_late.text)
         self.assertIn("ledger_out_of_sync", res_late.text)
+
+    def test_old_plot_and_overlay_delta_endpoints_are_removed(self) -> None:
+        res_plot = self.client.get("/api/plot/delta", params={"series_id": self.series_id})
+        self.assertEqual(res_plot.status_code, 404, res_plot.text)
+
+        res_overlay = self.client.get("/api/overlay/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(res_overlay.status_code, 404, res_overlay.text)
 
 
 if __name__ == "__main__":

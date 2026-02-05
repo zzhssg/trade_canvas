@@ -10,7 +10,7 @@ updated: 2026-02-04
 
 当前问题（需要收敛架构）：
 - 前端同时消费 `plot_delta`（pivot markers）与 `factor_slices`（pen polyline），在前端做“状态机/拼装”。
-- 统一的绘图契约（现以 `docs/core/contracts/draw_delta_v1.md` 为准）与当时实现存在偏差：代码里已出现 `/api/overlay/delta`（instruction catalog patch），但前端与 E2E 仍主要跑 `/api/plot/delta`（overlay events）+ `/api/factor/slices`（pen）。现状（2026-02-04）：`/api/plot/delta` 与 `/api/overlay/delta` 已移除，读口统一收敛到 `/api/draw/delta`。
+- 统一的绘图契约（现以 `docs/core/contracts/draw_delta_v1.md` 为准）与当时实现存在偏差：代码里曾出现 `/api/overlay/delta`（instruction catalog patch），但前端与 E2E 仍主要跑 `/api/plot/delta`（overlay events）+ `/api/factor/slices`（pen）。现状（2026-02-05）：`/api/plot/delta` 与 `/api/overlay/delta` 已彻底移除，读口统一收敛到 `/api/draw/delta`。
 
 目标是把“做图”收敛成：**后端产出统一指令 + 落库 + 增量协议**，前端只负责渲染，避免屎山。
 
@@ -150,7 +150,7 @@ updated: 2026-02-04
 ### M1：锁死契约 + 对齐文档（只动文档/类型，不改行为）
 
 - 改什么：
-  - 更新 `docs/core/contracts/draw_delta_v1.md`：以 `DrawDeltaV1`（catalog patch）为主契约；`overlay_v1` 标记 deprecated；旧的 `/api/plot/delta`/`/api/overlay/delta` 已移除
+  - 更新 `docs/core/contracts/draw_delta_v1.md`：以 `DrawDeltaV1`（catalog patch）为主契约；`overlay_v1` 标记 deprecated；旧的 `/api/plot/delta`/`/api/overlay/delta` 已于 2026-02-05 移除
   -（可选）在 `docs/core/contracts/delta_ledger_v1.md` 补一句：overlay 指令流将作为 delta 的一个子流接入
 - 怎么验收：
   - `bash docs/scripts/doc_audit.sh`

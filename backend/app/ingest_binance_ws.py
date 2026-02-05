@@ -12,7 +12,6 @@ from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .store import CandleStore
 from .ws_hub import CandleHub
-from .plot_orchestrator import PlotOrchestrator
 from .factor_orchestrator import FactorOrchestrator
 from .overlay_orchestrator import OverlayOrchestrator
 
@@ -102,7 +101,6 @@ async def run_binance_ws_ingest_loop(
     series_id: str,
     store: CandleStore,
     hub: CandleHub,
-    plot_orchestrator: PlotOrchestrator | None,
     factor_orchestrator: FactorOrchestrator | None,
     overlay_orchestrator: OverlayOrchestrator | None = None,
     settings: object,  # keep signature compatible with supervisor (WhitelistIngestSettings)
@@ -181,11 +179,6 @@ async def run_binance_ws_ingest_loop(
                 store.upsert_many_closed_in_conn(conn, series_id, deduped)
                 conn.commit()
 
-            if plot_orchestrator is not None:
-                try:
-                    plot_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
-                except Exception:
-                    pass
             if factor_orchestrator is not None:
                 try:
                     factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)

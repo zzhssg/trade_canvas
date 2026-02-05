@@ -12,7 +12,7 @@ updated: 2026-02-02
 - `pivot.major`（延迟确认，history）
 - `pen.confirmed`（确认笔，history，延迟到“下一根反向 pivot”可见）
 
-但前端目前只画 pivot markers（来自 `GET /api/plot/delta`），没有把确认笔画出来。
+但前端目前只画 pivot markers（来自 `GET /api/draw/delta`），没有把确认笔画出来。
 
 ## 目标 / 非目标
 

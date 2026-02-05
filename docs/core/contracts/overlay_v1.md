@@ -1,15 +1,15 @@
 ---
 title: Overlay / Plot Contract v1（绘图数据结构）
-status: draft
+status: deprecated
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-05
 ---
 
 # Overlay / Plot Contract v1（绘图数据结构）
 
 目标：让 **后端增量产出** 的绘图数据（指标线/标记）能在 K 线收线后低延时展示，并且支持“按 cursor 增量拉取”，避免全量重算/全量回传。
 
-> 说明：本契约为 v0 过渡形态。统一的“绘图指令底座”请以 `docs/core/contracts/draw_delta_v1.md` 为准；后续 overlay/plot 会逐步收敛到 draw delta。
+> 说明：本契约为 v0 过渡形态，已于 2026-02-05 标记 deprecated。统一的“绘图指令底座”以 `docs/core/contracts/draw_delta_v1.md` 为准；`/api/plot/delta` 与 `/api/overlay/delta` 已删除，读口收敛到 `GET /api/draw/delta`。
 
 本契约“批判性继承”自 `trade_system` 的关键口径：
 - `closed candle` 为权威输入；绘图数据只随 `CandleClosed` 增量推进（append-only）。

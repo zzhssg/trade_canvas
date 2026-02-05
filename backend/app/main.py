@@ -33,8 +33,6 @@ from .schemas import (
     IngestCandleFormingRequest,
     IngestCandleFormingResponse,
     LimitQuery,
-    OverlayDeltaV1,
-    PlotDeltaV1,
     SinceQuery,
     StrategyListResponse,
     TopMarketsLimitQuery,
@@ -50,8 +48,6 @@ from .factor_orchestrator import FactorOrchestrator
 from .factor_store import FactorStore
 from .overlay_orchestrator import OverlayOrchestrator
 from .overlay_store import OverlayStore
-from .plot_orchestrator import PlotOrchestrator
-from .plot_store import PlotStore
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 from .whitelist import load_market_whitelist
@@ -139,14 +135,11 @@ def create_app() -> FastAPI:
     settings = load_settings()
     project_root = Path(__file__).resolve().parents[2]
     store = CandleStore(db_path=settings.db_path)
-    plot_store = PlotStore(db_path=settings.db_path)
-    plot_orchestrator = PlotOrchestrator(candle_store=store, plot_store=plot_store)
     factor_store = FactorStore(db_path=settings.db_path)
     factor_orchestrator = FactorOrchestrator(candle_store=store, factor_store=factor_store)
     overlay_store = OverlayStore(db_path=settings.db_path)
     overlay_orchestrator = OverlayOrchestrator(candle_store=store, factor_store=factor_store, overlay_store=overlay_store)
     debug_hub = DebugHub()
-    plot_orchestrator.set_debug_hub(debug_hub)
     factor_orchestrator.set_debug_hub(debug_hub)
     overlay_orchestrator.set_debug_hub(debug_hub)
     hub = CandleHub()
@@ -165,7 +158,6 @@ def create_app() -> FastAPI:
     supervisor = IngestSupervisor(
         store=store,
         hub=hub,
-        plot_orchestrator=plot_orchestrator,
         factor_orchestrator=factor_orchestrator,
         overlay_orchestrator=overlay_orchestrator,
         whitelist_series_ids=whitelist.series_ids,
@@ -201,8 +193,6 @@ def create_app() -> FastAPI:
 
     app.state.store = store
     app.state.hub = hub
-    app.state.plot_store = plot_store
-    app.state.plot_orchestrator = plot_orchestrator
     app.state.factor_store = factor_store
     app.state.factor_orchestrator = factor_orchestrator
     app.state.overlay_store = overlay_store
@@ -264,27 +254,6 @@ def create_app() -> FastAPI:
                     "duration_ms": int((time.perf_counter() - t_step) * 1000),
                 }
             )
-
-            try:
-                t_step = time.perf_counter()
-                app.state.plot_orchestrator.ingest_closed(
-                    series_id=req.series_id, up_to_candle_time=req.candle.candle_time
-                )
-                steps.append(
-                    {
-                        "name": "plot.ingest_closed",
-                        "ok": True,
-                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
-                    }
-                )
-            except Exception:
-                steps.append(
-                    {
-                        "name": "plot.ingest_closed",
-                        "ok": False,
-                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
-                    }
-                )
 
             try:
                 t_step = time.perf_counter()
@@ -352,160 +321,6 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="not_found")
         await hub.publish_forming(series_id=req.series_id, candle=req.candle)
         return IngestCandleFormingResponse(ok=True, series_id=req.series_id, candle_time=req.candle.candle_time)
-
-    @app.get("/api/plot/delta", response_model=PlotDeltaV1)
-    def get_plot_delta(
-        series_id: str = Query(..., min_length=1),
-        cursor_candle_time: SinceQuery = None,
-        cursor_overlay_event_id: int | None = Query(None, ge=0),
-        window_candles: LimitQuery = 2000,
-    ) -> PlotDeltaV1:
-        from .schemas import OverlayEventV1, PlotCursorV1
-
-        store_head = store.head_time(series_id)
-        plot_head = app.state.plot_store.head_time(series_id)
-        to_time = plot_head if plot_head is not None else store_head
-        to_candle_id = f"{series_id}:{to_time}" if to_time is not None else None
-
-        events: list[OverlayEventV1] = []
-        if to_time is not None:
-            tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
-            cutoff = max(0, int(to_time) - int(window_candles) * int(tf_s))
-
-            if cursor_overlay_event_id is not None:
-                rows = app.state.plot_store.get_overlay_events_after_id(
-                    series_id=series_id, after_id=int(cursor_overlay_event_id)
-                )
-            else:
-                since_time = cutoff
-                if cursor_candle_time is not None:
-                    since_time = max(int(cursor_candle_time), cutoff)
-                rows = app.state.plot_store.get_overlay_events_since_candle_time(
-                    series_id=series_id,
-                    since_candle_time=int(since_time),
-                )
-
-            events = [
-                OverlayEventV1(
-                    id=r.id,
-                    kind=r.kind,
-                    candle_id=r.candle_id,
-                    candle_time=r.candle_time,
-                    payload=r.payload,
-                )
-                for r in rows
-            ]
-
-        last_event_id = max([e.id for e in events], default=cursor_overlay_event_id)
-        next_cursor = PlotCursorV1(candle_time=to_time, overlay_event_id=last_event_id if last_event_id is not None else None)
-
-        return PlotDeltaV1(
-            series_id=series_id,
-            to_candle_id=to_candle_id,
-            to_candle_time=to_time,
-            lines={},
-            overlay_events=events,
-            next_cursor=next_cursor,
-        )
-
-    @app.get("/api/overlay/delta", response_model=OverlayDeltaV1)
-    def get_overlay_delta(
-        series_id: str = Query(..., min_length=1),
-        cursor_version_id: int = Query(0, ge=0),
-        window_candles: LimitQuery = 2000,
-    ):
-        from .schemas import OverlayCursorV1, OverlayDeltaV1, OverlayInstructionPatchItemV1
-
-        store_head = store.head_time(series_id)
-        overlay_head = app.state.overlay_store.head_time(series_id)
-        to_time = overlay_head if overlay_head is not None else store_head
-        to_candle_id = f"{series_id}:{to_time}" if to_time is not None else None
-
-        if to_time is None:
-            return OverlayDeltaV1(
-                series_id=series_id,
-                to_candle_id=None,
-                to_candle_time=None,
-                active_ids=[],
-                instruction_catalog_patch=[],
-                next_cursor=OverlayCursorV1(version_id=int(cursor_version_id)),
-            )
-
-        tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
-        cutoff_time = max(0, int(to_time) - int(window_candles) * int(tf_s))
-
-        latest_defs = app.state.overlay_store.get_latest_defs_up_to_time(series_id=series_id, up_to_time=int(to_time))
-        active_ids: list[str] = []
-        for d in latest_defs:
-            if d.kind == "marker":
-                t = d.payload.get("time")
-                try:
-                    pivot_time = int(t)
-                except Exception:
-                    continue
-                if pivot_time < cutoff_time or pivot_time > int(to_time):
-                    continue
-                active_ids.append(str(d.instruction_id))
-            elif d.kind == "polyline":
-                pts = d.payload.get("points")
-                if not isinstance(pts, list) or not pts:
-                    continue
-                # Active when any point overlaps tail window.
-                ok = False
-                for p in pts:
-                    if not isinstance(p, dict):
-                        continue
-                    tt = p.get("time")
-                    try:
-                        pt = int(tt)
-                    except Exception:
-                        continue
-                    if cutoff_time <= pt <= int(to_time):
-                        ok = True
-                        break
-                if ok:
-                    active_ids.append(str(d.instruction_id))
-
-        patch_rows = app.state.overlay_store.get_patch_after_version(
-            series_id=series_id,
-            after_version_id=int(cursor_version_id),
-            up_to_time=int(to_time),
-        )
-        patch = [
-            OverlayInstructionPatchItemV1(
-                version_id=r.version_id,
-                instruction_id=r.instruction_id,
-                kind=r.kind,
-                visible_time=r.visible_time,
-                definition=r.payload,
-            )
-            for r in patch_rows
-        ]
-        next_cursor = OverlayCursorV1(version_id=int(app.state.overlay_store.last_version_id(series_id)))
-
-        active_ids.sort()
-        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1" and (patch or int(next_cursor.version_id) > int(cursor_version_id)):
-            app.state.debug_hub.emit(
-                pipe="read",
-                event="read.http.overlay_delta",
-                series_id=series_id,
-                message="get overlay delta",
-                data={
-                    "cursor_version_id": int(cursor_version_id),
-                    "next_version_id": int(next_cursor.version_id),
-                    "to_time": None if to_time is None else int(to_time),
-                    "patch_len": int(len(patch)),
-                    "active_len": int(len(active_ids)),
-                },
-            )
-        return OverlayDeltaV1(
-            series_id=series_id,
-            to_candle_id=to_candle_id,
-            to_candle_time=int(to_time),
-            active_ids=active_ids,
-            instruction_catalog_patch=patch,
-            next_cursor=next_cursor,
-        )
 
     @app.get("/api/draw/delta", response_model=DrawDeltaV1)
     def get_draw_delta(

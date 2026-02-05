@@ -101,29 +101,6 @@ class PlotLinePointV1(BaseModel):
     value: float
 
 
-class OverlayEventV1(BaseModel):
-    id: int
-    kind: str
-    candle_id: str
-    candle_time: int
-    payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class PlotCursorV1(BaseModel):
-    candle_time: int | None = Field(default=None, description="Last known plot head candle_time")
-    overlay_event_id: int | None = Field(default=None, description="Last seen overlay event id")
-
-
-class PlotDeltaV1(BaseModel):
-    schema_version: int = 1
-    series_id: str
-    to_candle_id: str | None
-    to_candle_time: int | None
-    lines: dict[str, list[PlotLinePointV1]] = Field(default_factory=dict)
-    overlay_events: list[OverlayEventV1] = Field(default_factory=list)
-    next_cursor: PlotCursorV1
-
-
 class FactorMetaV1(BaseModel):
     series_id: str
     epoch: int = 0
@@ -147,27 +124,12 @@ class GetFactorSlicesResponseV1(BaseModel):
     factors: list[str] = Field(default_factory=list)
     snapshots: dict[str, FactorSliceV1] = Field(default_factory=dict)
 
-
-class OverlayCursorV1(BaseModel):
-    version_id: int = Field(0, ge=0)
-
-
 class OverlayInstructionPatchItemV1(BaseModel):
     version_id: int
     instruction_id: str
     kind: str
     visible_time: int
     definition: dict[str, Any] = Field(default_factory=dict)
-
-
-class OverlayDeltaV1(BaseModel):
-    schema_version: int = 1
-    series_id: str
-    to_candle_id: str | None
-    to_candle_time: int | None
-    active_ids: list[str] = Field(default_factory=list)
-    instruction_catalog_patch: list[OverlayInstructionPatchItemV1] = Field(default_factory=list)
-    next_cursor: OverlayCursorV1
 
 
 TopMarketsLimitQuery = Annotated[int, Field(ge=1, le=200)]
