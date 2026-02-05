@@ -38,8 +38,6 @@ def _import_backend() -> dict[str, Any]:
     from backend.app.factor_store import FactorStore  # noqa: WPS433
     from backend.app.overlay_orchestrator import OverlayOrchestrator  # noqa: WPS433
     from backend.app.overlay_store import OverlayStore  # noqa: WPS433
-    from backend.app.plot_orchestrator import PlotOrchestrator  # noqa: WPS433
-    from backend.app.plot_store import PlotStore  # noqa: WPS433
     from backend.app.series_id import parse_series_id  # noqa: WPS433
     from backend.app.schemas import CandleClosed  # noqa: WPS433
     from backend.app.sqlite_util import connect as sqlite_connect  # noqa: WPS433
@@ -52,8 +50,6 @@ def _import_backend() -> dict[str, Any]:
         "FactorStore": FactorStore,
         "OverlayOrchestrator": OverlayOrchestrator,
         "OverlayStore": OverlayStore,
-        "PlotOrchestrator": PlotOrchestrator,
-        "PlotStore": PlotStore,
         "CandleStore": CandleStore,
         "CandleClosed": CandleClosed,
         "parse_series_id": parse_series_id,
@@ -97,18 +93,27 @@ def _restore_db(backup_path: Path, db_path: Path) -> None:
 
 def _purge_series_in_conn(conn, *, series_id: str) -> dict[str, int]:
     # 仅做 series 维度清理，避免误伤其它表/数据。
+    existing = {
+        str(r[0])
+        for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        if r and r[0]
+    }
     tables = [
         ("candles", "series_id"),
         ("factor_events", "series_id"),
         ("factor_series_state", "series_id"),
         ("overlay_instruction_versions", "series_id"),
         ("overlay_series_state", "series_id"),
+        # historical v0 plot tables (removed from the codebase; delete only if they exist in the DB)
         ("plot_overlay_events", "series_id"),
         ("plot_line_points", "series_id"),
         ("plot_series_state", "series_id"),
     ]
     out: dict[str, int] = {}
     for table, col in tables:
+        if table not in existing:
+            out[table] = 0
+            continue
         cur = conn.execute(f"DELETE FROM {table} WHERE {col} = ?", (str(series_id),))
         out[table] = int(cur.rowcount or 0)
     return out
@@ -330,10 +335,8 @@ def main(argv: list[str]) -> int:
     CandleStore = backend["CandleStore"]
     FactorStore = backend["FactorStore"]
     OverlayStore = backend["OverlayStore"]
-    PlotStore = backend["PlotStore"]
     FactorOrchestrator = backend["FactorOrchestrator"]
     OverlayOrchestrator = backend["OverlayOrchestrator"]
-    PlotOrchestrator = backend["PlotOrchestrator"]
 
     try:
         with sqlite_connect(db_path) as conn:
@@ -362,9 +365,7 @@ def main(argv: list[str]) -> int:
             candle_store = CandleStore(db_path=db_path)
             factor_store = FactorStore(db_path=db_path)
             overlay_store = OverlayStore(db_path=db_path)
-            plot_store = PlotStore(db_path=db_path)
 
-            plot_orchestrator = PlotOrchestrator(candle_store=candle_store, plot_store=plot_store)
             factor_orchestrator = FactorOrchestrator(candle_store=candle_store, factor_store=factor_store)
             overlay_orchestrator = OverlayOrchestrator(
                 candle_store=candle_store,
@@ -376,7 +377,6 @@ def main(argv: list[str]) -> int:
             print(f"rebuild:series_id={sid} up_to={up_to}")
             factor_orchestrator.ingest_closed(series_id=str(sid), up_to_candle_time=up_to)
             overlay_orchestrator.ingest_closed(series_id=str(sid), up_to_candle_time=up_to)
-            plot_orchestrator.ingest_closed(series_id=str(sid), up_to_candle_time=up_to)
 
         print("\nDONE")
         if backup_path is not None:
@@ -393,4 +393,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

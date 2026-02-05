@@ -15,7 +15,6 @@ class ZhongshuAliveFactorTests(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmpdir.name) / "market.db"
         os.environ["TRADE_CANVAS_DB_PATH"] = str(self.db_path)
-        os.environ["TRADE_CANVAS_ENABLE_PLOT_INGEST"] = "0"
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "1"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MAJOR"] = "2"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MINOR"] = "1"
@@ -27,7 +26,6 @@ class ZhongshuAliveFactorTests(unittest.TestCase):
         self.tmpdir.cleanup()
         for k in (
             "TRADE_CANVAS_DB_PATH",
-            "TRADE_CANVAS_ENABLE_PLOT_INGEST",
             "TRADE_CANVAS_ENABLE_FACTOR_INGEST",
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
@@ -101,4 +99,3 @@ class ZhongshuAliveFactorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

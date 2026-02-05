@@ -5,9 +5,6 @@ import type {
   DrawDeltaV1,
   GetCandlesResponse,
   GetFactorSlicesResponseV1,
-  OverlayDeltaV1,
-  PlotCursorV1,
-  PlotDeltaV1,
   WorldDeltaPollResponseV1
 } from "./types";
 import type { WorldStateV1 } from "./types";
@@ -54,38 +51,6 @@ export async function fetchCandles(params: {
     if (cur?.promise === promise) candlesFetchCache.delete(key);
   });
   return promise;
-}
-
-export async function fetchPlotDelta(params: {
-  seriesId: string;
-  windowCandles: number;
-  cursor?: PlotCursorV1 | null;
-}): Promise<PlotDeltaV1> {
-  const url = new URL(apiUrl("/api/plot/delta"), window.location.origin);
-  url.searchParams.set("series_id", params.seriesId);
-  url.searchParams.set("window_candles", String(params.windowCandles));
-  if (params.cursor?.candle_time != null) url.searchParams.set("cursor_candle_time", String(params.cursor.candle_time));
-  if (params.cursor?.overlay_event_id != null)
-    url.searchParams.set("cursor_overlay_event_id", String(params.cursor.overlay_event_id));
-
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as PlotDeltaV1;
-}
-
-export async function fetchOverlayDelta(params: {
-  seriesId: string;
-  windowCandles: number;
-  cursorVersionId?: number;
-}): Promise<OverlayDeltaV1> {
-  const url = new URL(apiUrl("/api/overlay/delta"), window.location.origin);
-  url.searchParams.set("series_id", params.seriesId);
-  url.searchParams.set("window_candles", String(params.windowCandles));
-  url.searchParams.set("cursor_version_id", String(params.cursorVersionId ?? 0));
-
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as OverlayDeltaV1;
 }
 
 export async function fetchDrawDelta(params: {

@@ -35,7 +35,7 @@ updated: 2026-02-04
 
 ## 方案概述（v1）
 
-后端新增 `OverlayReplayPackage` 子系统（独立于现有 `/api/draw/delta`；旧的 `/api/overlay/delta` 已于 2026-02-04 移除）：
+后端新增 `OverlayReplayPackage` 子系统（独立于现有 `/api/draw/delta`；旧的 `/api/overlay/delta` 已于 2026-02-05 移除）：
 - `read-only`：只读探测缓存，miss 返回 `build_required`（不隐式重算）。
 - `build`：显式创建构建任务，落盘缓存。
 - `status`：轮询任务状态；可选首包（用于减少第一次进入 replay 的请求次数）。

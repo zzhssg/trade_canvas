@@ -2,16 +2,16 @@
 title: API v1 · Plot（HTTP）
 status: deprecated
 created: 2026-02-03
-updated: 2026-02-04
+updated: 2026-02-05
 ---
 
 # API v1 · Plot（HTTP）
 
-说明：`/api/plot/delta` 为历史遗留接口，**已废弃但仍保留兼容**；新代码应统一使用 `GET /api/draw/delta`。
+说明：`/api/plot/delta` 为历史遗留接口，已于 2026-02-05 **彻底移除**；新代码统一使用 `GET /api/draw/delta`。
 
-## GET /api/plot/delta
+## 已移除：GET /api/plot/delta
 
-> Deprecated：仅用于兼容旧链路；新实现请改用 `GET /api/draw/delta`。
+> Removed：旧接口已删除；请改用 `GET /api/draw/delta`。
 
 ### 示例（curl）
 

@@ -15,7 +15,7 @@ updated: 2026-02-02
 ## 做对了什么（可复用动作）
 
 - **先做“语义级小集成”，再上全量 E2E**：
-  - 用 `fastapi TestClient` 或 `pytest` 直接验证 `/api/overlay/delta` 的可观测语义（active_ids/patch/对齐），避免每次都拉起浏览器。
+  - 用 `fastapi TestClient` 或 `pytest` 直接验证 `/api/draw/delta` 的可观测语义（active_ids/patch/对齐），避免每次都拉起浏览器。
 - **把 E2E 的造数从“长序列”改为“最短能触发语义的序列”**：
   - 对于 pivot/pen 等 delayed 可见性产物，优先通过 env 降低窗口（E2E 专用），让样本长度更短。
 

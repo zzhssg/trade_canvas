@@ -530,8 +530,8 @@ export function ChartView() {
     async (params: { seriesId: string; cursorVersionId: number; windowCandles: number }): Promise<OverlayLikeDeltaV1> => {
       const delta = await fetchDrawDelta(params);
       return {
-        active_ids: delta.active_ids,
-        instruction_catalog_patch: delta.instruction_catalog_patch,
+        active_ids: Array.isArray(delta.active_ids) ? delta.active_ids : [],
+        instruction_catalog_patch: Array.isArray(delta.instruction_catalog_patch) ? delta.instruction_catalog_patch : [],
         next_cursor: { version_id: delta.next_cursor?.version_id ?? 0 }
       };
     },

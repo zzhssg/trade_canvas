@@ -168,7 +168,6 @@ else
     export TRADE_CANVAS_ENABLE_DEBUG_API="1"
     export TRADE_CANVAS_FREQTRADE_MOCK="1"
     # Pin ingest flags for deterministic E2E (avoid inheriting dev shell env).
-    export TRADE_CANVAS_ENABLE_PLOT_INGEST="0"
     export TRADE_CANVAS_ENABLE_FACTOR_INGEST="1"
     export TRADE_CANVAS_ENABLE_OVERLAY_INGEST="1"
     export TRADE_CANVAS_PIVOT_WINDOW_MAJOR="${TRADE_CANVAS_PIVOT_WINDOW_MAJOR:-50}"
