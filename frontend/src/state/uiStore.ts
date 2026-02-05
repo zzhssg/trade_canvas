@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 type BottomTab = "Ledger" | "Signals" | "Logs" | "Orders" | "Backtest";
 type SidebarTab = "Market" | "Strategy" | "Indicators" | "Replay" | "Debug";
 export type MarketMode = "spot" | "futures";
+export type ChartToolKey = "cursor" | "measure" | "fib" | "position_long" | "position_short";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -22,6 +23,7 @@ type UiState = {
 
   activeSidebarTab: SidebarTab;
   activeBottomTab: BottomTab;
+  activeChartTool: ChartToolKey;
 
   setMarket: (market: MarketMode) => void;
   setSymbol: (symbol: string) => void;
@@ -32,6 +34,7 @@ type UiState = {
   setSidebarWidth: (width: number) => void;
   setActiveSidebarTab: (tab: SidebarTab) => void;
   setActiveBottomTab: (tab: BottomTab) => void;
+  setActiveChartTool: (tool: ChartToolKey) => void;
 };
 
 export const useUiStore = create<UiState>()(
@@ -49,6 +52,7 @@ export const useUiStore = create<UiState>()(
 
       activeSidebarTab: "Market",
       activeBottomTab: "Ledger",
+      activeChartTool: "cursor",
 
       setMarket: (market) => set({ market }),
       setSymbol: (symbol) => set({ symbol }),
@@ -58,11 +62,25 @@ export const useUiStore = create<UiState>()(
       toggleBottomCollapsed: () => set((s) => ({ bottomCollapsed: !s.bottomCollapsed })),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth: clamp(sidebarWidth, 220, 520) }),
       setActiveSidebarTab: (activeSidebarTab) => set({ activeSidebarTab }),
-      setActiveBottomTab: (activeBottomTab) => set({ activeBottomTab })
+      setActiveBottomTab: (activeBottomTab) => set({ activeBottomTab }),
+      setActiveChartTool: (activeChartTool) => set({ activeChartTool })
     }),
     {
       name: "trade-canvas-ui",
-      version: 5,
+      version: 6,
+      // Persist only stable UI preferences. Chart tools are intentionally in-memory only.
+      partialize: (s) => ({
+        exchange: s.exchange,
+        market: s.market,
+        symbol: s.symbol,
+        timeframe: s.timeframe,
+        toolRailWidth: s.toolRailWidth,
+        sidebarCollapsed: s.sidebarCollapsed,
+        sidebarWidth: s.sidebarWidth,
+        bottomCollapsed: s.bottomCollapsed,
+        activeSidebarTab: s.activeSidebarTab,
+        activeBottomTab: s.activeBottomTab
+      }),
       migrate: (persisted) => {
         const state = persisted as Partial<UiState> | undefined;
         return {
@@ -71,7 +89,11 @@ export const useUiStore = create<UiState>()(
           market: (state?.market as MarketMode | undefined) ?? "futures",
           toolRailWidth: clamp(Number(state?.toolRailWidth ?? 52), 44, 96),
           sidebarWidth: clamp(Number(state?.sidebarWidth ?? 280), 220, 520),
-          activeSidebarTab: ((state?.activeSidebarTab as SidebarTab | undefined) ?? "Market")
+          sidebarCollapsed: Boolean(state?.sidebarCollapsed ?? false),
+          bottomCollapsed: Boolean(state?.bottomCollapsed ?? false),
+          activeSidebarTab: ((state?.activeSidebarTab as SidebarTab | undefined) ?? "Market"),
+          activeBottomTab: ((state?.activeBottomTab as BottomTab | undefined) ?? "Ledger"),
+          activeChartTool: "cursor"
         } as UiState;
       }
     }

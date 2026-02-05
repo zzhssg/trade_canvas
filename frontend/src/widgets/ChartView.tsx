@@ -17,6 +17,13 @@ import { FACTOR_CATALOG, getFactorParentsBySubKey } from "../services/factorCata
 import { useFactorStore } from "../state/factorStore";
 import { useUiStore } from "../state/uiStore";
 
+import { FibTool } from "./chart/draw_tools/FibTool";
+import { MeasureTool } from "./chart/draw_tools/MeasureTool";
+import { PositionTool } from "./chart/draw_tools/PositionTool";
+import { estimateTimeStep, normalizeTimeToSec, resolvePointFromClient, sortAndDeduplicateTimes } from "./chart/draw_tools/chartCoord";
+import type { FibInst, PositionInst, PriceTimePoint } from "./chart/draw_tools/types";
+import { useFibPreview } from "./chart/draw_tools/useFibPreview";
+
 import {
   fetchCandles,
   fetchDrawDelta,
@@ -40,6 +47,7 @@ const ENABLE_PEN_SEGMENT_COLOR = import.meta.env.VITE_ENABLE_PEN_SEGMENT_COLOR =
 // Default to enabled (unless explicitly disabled) to avoid "delta + slices" double-fetch loops in live mode.
 const ENABLE_WORLD_FRAME = String(import.meta.env.VITE_ENABLE_WORLD_FRAME ?? "1") === "1";
 const PEN_SEGMENT_RENDER_LIMIT = 200;
+const ENABLE_DRAW_TOOLS = String(import.meta.env.VITE_ENABLE_DRAW_TOOLS ?? "1") === "1";
 
 export function ChartView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -49,11 +57,12 @@ export function ChartView() {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [barSpacing, setBarSpacing] = useState<number | null>(null);
   const candlesRef = useRef<Candle[]>([]);
+  const candleTimesSecRef = useRef<number[]>([]);
   const lastWsCandleTimeRef = useRef<number | null>(null);
   const [lastWsCandleTime, setLastWsCandleTime] = useState<number | null>(null);
   const appliedRef = useRef<{ len: number; lastTime: number | null }>({ len: 0, lastTime: null });
   const [error, setError] = useState<string | null>(null);
-  const { exchange, market, symbol, timeframe } = useUiStore();
+  const { exchange, market, symbol, timeframe, activeChartTool, setActiveChartTool } = useUiStore();
   const seriesId = useMemo(() => `${exchange}:${market}:${symbol}:${timeframe}`, [exchange, market, symbol, timeframe]);
 
   const { visibleFeatures } = useFactorStore();
@@ -77,6 +86,103 @@ export function ChartView() {
   const replayPatchAppliedIdxRef = useRef<number>(0);
   const followPendingTimeRef = useRef<number | null>(null);
   const followTimerIdRef = useRef<number | null>(null);
+
+  // --- Draw tools (pure in-memory, per ChartView instance) ---
+  const [positionTools, setPositionTools] = useState<PositionInst[]>([]);
+  const [fibTools, setFibTools] = useState<FibInst[]>([]);
+  const [activeToolId, setActiveToolId] = useState<string | null>(null);
+  const [fibAnchorA, setFibAnchorA] = useState<PriceTimePoint | null>(null);
+  const [measureState, setMeasureState] = useState<{
+    start: (PriceTimePoint & { x: number; y: number }) | null;
+    current: (PriceTimePoint & { x: number; y: number }) | null;
+    locked: boolean;
+  }>({ start: null, current: null, locked: false });
+
+  const activeChartToolRef = useRef(activeChartTool);
+  const fibAnchorARef = useRef(fibAnchorA);
+  const measureStateRef = useRef(measureState);
+  const activeToolIdRef = useRef(activeToolId);
+  const interactionLockRef = useRef<{ dragging: boolean }>({ dragging: false });
+  const suppressDeselectUntilRef = useRef<number>(0);
+
+  useEffect(() => {
+    activeChartToolRef.current = activeChartTool;
+  }, [activeChartTool]);
+  useEffect(() => {
+    fibAnchorARef.current = fibAnchorA;
+  }, [fibAnchorA]);
+  useEffect(() => {
+    measureStateRef.current = measureState;
+  }, [measureState]);
+  useEffect(() => {
+    activeToolIdRef.current = activeToolId;
+  }, [activeToolId]);
+
+  const genId = useCallback(() => Math.random().toString(36).substring(2, 9), []);
+
+  const clearDrawTools = useCallback(() => {
+    setPositionTools([]);
+    setFibTools([]);
+    setActiveToolId(null);
+    setFibAnchorA(null);
+    setMeasureState({ start: null, current: null, locked: false });
+    suppressDeselectUntilRef.current = 0;
+  }, []);
+
+  useEffect(() => {
+    // No persistence: switching symbol/timeframe resets drawings to avoid misleading overlays.
+    if (!ENABLE_DRAW_TOOLS) return;
+    clearDrawTools();
+    setActiveChartTool("cursor");
+  }, [clearDrawTools, seriesId, setActiveChartTool]);
+
+  useEffect(() => {
+    if (ENABLE_DRAW_TOOLS) return;
+    if (activeChartTool !== "cursor") setActiveChartTool("cursor");
+  }, [activeChartTool, setActiveChartTool]);
+
+  const updatePositionTool = useCallback((id: string, updates: Partial<PositionInst>) => {
+    setPositionTools((list) =>
+      list.map((t) => {
+        if (t.id !== id) return t;
+        return {
+          ...t,
+          ...updates,
+          coordinates: { ...t.coordinates, ...(updates.coordinates ?? {}) },
+          settings: { ...t.settings, ...(updates.settings ?? {}) }
+        };
+      })
+    );
+  }, []);
+
+  const removePositionTool = useCallback((id: string) => {
+    setPositionTools((list) => list.filter((t) => t.id !== id));
+    setActiveToolId((cur) => (cur === id ? null : cur));
+  }, []);
+
+  const updateFibTool = useCallback((id: string, updates: Partial<FibInst>) => {
+    setFibTools((list) =>
+      list.map((t) => {
+        if (t.id !== id) return t;
+        return {
+          ...t,
+          ...updates,
+          anchors: { ...t.anchors, ...(updates.anchors ?? {}) },
+          settings: { ...t.settings, ...(updates.settings ?? {}) }
+        };
+      })
+    );
+  }, []);
+
+  const removeFibTool = useCallback((id: string) => {
+    setFibTools((list) => list.filter((t) => t.id !== id));
+    setActiveToolId((cur) => (cur === id ? null : cur));
+  }, []);
+
+  const selectTool = useCallback((id: string | null) => {
+    if (id) suppressDeselectUntilRef.current = Date.now() + 120;
+    setActiveToolId(id);
+  }, []);
 
   const penSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const penPointsRef = useRef<Array<{ time: UTCTimestamp; value: number }>>([]);
@@ -136,6 +242,212 @@ export function ChartView() {
       appliedRef.current = { len: 0, lastTime: null };
     }
   });
+
+  const fibPreviewTool = useFibPreview({
+    enabled: ENABLE_DRAW_TOOLS && activeChartTool === "fib" && fibAnchorA != null,
+    anchorA: fibAnchorA,
+    chartRef,
+    seriesRef,
+    candleTimesSecRef,
+    containerRef
+  });
+
+  useEffect(() => {
+    candleTimesSecRef.current = sortAndDeduplicateTimes(candles.map((c) => Number(c.time)).filter((t) => Number.isFinite(t)));
+  }, [candles]);
+
+  // Measure live update: pointer move while enabled + started + not locked.
+  useEffect(() => {
+    if (!ENABLE_DRAW_TOOLS) return;
+    if (activeChartTool !== "measure") return;
+    const container = containerRef.current;
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!container || !chart || !series) return;
+
+    const onMove = (e: PointerEvent) => {
+      if (interactionLockRef.current.dragging) return;
+      const st = measureStateRef.current;
+      if (!st.start || st.locked) return;
+      const point = resolvePointFromClient({
+        chart,
+        series,
+        container,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        candleTimesSec: candleTimesSecRef.current
+      });
+      if (!point) return;
+      setMeasureState((prev) => (prev.start ? { ...prev, current: point } : prev));
+    };
+
+    container.addEventListener("pointermove", onMove, { passive: true });
+    return () => container.removeEventListener("pointermove", onMove as EventListener);
+  }, [activeChartTool, chartEpoch, chartRef, seriesRef]);
+
+  // ESC / R shortcuts
+  useEffect(() => {
+    if (!ENABLE_DRAW_TOOLS) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
+      }
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        const tool = activeChartToolRef.current;
+        const hasSelected = activeToolIdRef.current != null;
+        const hasFibAnchor = fibAnchorARef.current != null;
+        const ms = measureStateRef.current;
+
+        if (tool === "fib" && hasFibAnchor) {
+          setFibAnchorA(null);
+          setActiveChartTool("cursor");
+          return;
+        }
+        if (tool === "position_long" || tool === "position_short") {
+          setActiveChartTool("cursor");
+          return;
+        }
+        if (tool === "measure" || ms.start || ms.current || ms.locked) {
+          setMeasureState({ start: null, current: null, locked: false });
+          setActiveChartTool("cursor");
+          return;
+        }
+        if (hasSelected) {
+          setActiveToolId(null);
+        }
+        return;
+      }
+
+      if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        const cur = activeChartToolRef.current;
+        const next = cur === "measure" ? "cursor" : "measure";
+        setActiveChartTool(next);
+        setMeasureState({ start: null, current: null, locked: false });
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [setActiveChartTool]);
+
+  // Chart click handler for creation + measure click flow + deselect.
+  useEffect(() => {
+    if (!ENABLE_DRAW_TOOLS) return;
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series) return;
+
+    const handler = (param: any) => {
+      if (interactionLockRef.current.dragging) return;
+      if (!param?.point) return;
+
+      const x = Number(param.point.x);
+      const y = Number(param.point.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+      const price = series.coordinateToPrice(y);
+      if (price == null) return;
+
+      const tool = activeChartToolRef.current;
+
+      if (tool === "position_long" || tool === "position_short") {
+        const timeSec =
+          normalizeTimeToSec(param.time) ?? (typeof param.time === "number" ? Number(param.time) : null);
+        if (timeSec == null || !Number.isFinite(timeSec)) return;
+
+        const entryPrice = Number(price);
+        const dist = entryPrice * 0.01;
+        const isLong = tool === "position_long";
+        const slPrice = isLong ? entryPrice - dist : entryPrice + dist;
+        const tpPrice = isLong ? entryPrice + dist * 2 : entryPrice - dist * 2;
+        const riskDiff = Math.abs(entryPrice - slPrice);
+        const qty = 100 / Math.max(1e-12, riskDiff);
+        const stepSec = estimateTimeStep(candleTimesSecRef.current);
+
+        const newTool: PositionInst = {
+          id: `pos_${genId()}`,
+          type: isLong ? "long" : "short",
+          coordinates: {
+            entry: { price: entryPrice, time: Number(timeSec) },
+            stopLoss: { price: slPrice },
+            takeProfit: { price: tpPrice }
+          },
+          settings: {
+            accountSize: 10000,
+            riskAmount: 100,
+            quantity: qty,
+            timeSpanSeconds: 20 * stepSec
+          }
+        };
+
+        setPositionTools((list) => [...list, newTool]);
+        selectTool(newTool.id);
+        setActiveChartTool("cursor");
+        return;
+      }
+
+      if (tool === "fib") {
+        const timeSec =
+          normalizeTimeToSec(param.time) ?? (typeof param.time === "number" ? Number(param.time) : null);
+        if (timeSec == null || !Number.isFinite(timeSec)) return;
+
+        const point: PriceTimePoint = { time: Number(timeSec), price: Number(price) };
+        suppressDeselectUntilRef.current = Date.now() + 120;
+        const a = fibAnchorARef.current;
+        if (!a) {
+          setFibAnchorA(point);
+          return;
+        }
+        const newTool: FibInst = {
+          id: `fib_${genId()}`,
+          type: "fib_retracement",
+          anchors: { a, b: point },
+          settings: { lineWidth: 2 }
+        };
+        setFibTools((list) => [...list, newTool]);
+        selectTool(newTool.id);
+        setFibAnchorA(null);
+        setActiveChartTool("cursor");
+        return;
+      }
+
+      if (tool === "measure") {
+        const timeSec =
+          normalizeTimeToSec(param.time) ?? (typeof param.time === "number" ? Number(param.time) : null);
+        if (timeSec == null || !Number.isFinite(timeSec)) return;
+
+        const ms = measureStateRef.current;
+        const p = { time: Number(timeSec), price: Number(price), x, y };
+        if (ms.locked) {
+          setMeasureState({ start: null, current: null, locked: false });
+          setActiveChartTool("cursor");
+          return;
+        }
+        if (!ms.start) {
+          setMeasureState({ start: p, current: p, locked: false });
+          return;
+        }
+        setMeasureState({ start: ms.start, current: p, locked: true });
+        return;
+      }
+
+      // Deselect active tool when clicking on empty chart area (TradingView-like).
+      if (Date.now() < suppressDeselectUntilRef.current) return;
+      if (fibAnchorARef.current != null) return;
+      const ms = measureStateRef.current;
+      if (ms.start || ms.current || ms.locked) return;
+      setActiveToolId(null);
+    };
+
+    chart.subscribeClick(handler);
+    return () => chart.unsubscribeClick(handler);
+  }, [chartEpoch, chartRef, genId, selectTool, seriesRef, setActiveChartTool]);
 
   useEffect(() => {
     const el = wheelGuardRef.current;
@@ -1240,6 +1552,77 @@ export function ChartView() {
         }}
         className="h-full w-full"
       />
+
+      {ENABLE_DRAW_TOOLS ? (
+        <div className="pointer-events-none absolute inset-0 z-30">
+          {/* Measure */}
+          <MeasureTool
+            enabled={activeChartTool === "measure"}
+            containerRef={containerRef}
+            candleTimesSec={candleTimesSecRef.current}
+            startPoint={measureState.start}
+            currentPoint={measureState.current}
+            locked={measureState.locked}
+          />
+
+          {/* Positions */}
+          {positionTools.map((tool) => (
+            <PositionTool
+              key={tool.id}
+              chartRef={chartRef}
+              seriesRef={seriesRef}
+              containerRef={containerRef}
+              candleTimesSec={candleTimesSecRef.current}
+              tool={tool}
+              isActive={activeToolId === tool.id}
+              interactive={true}
+              onUpdate={updatePositionTool}
+              onRemove={removePositionTool}
+              onSelect={selectTool}
+              onInteractionLockChange={(locked) => {
+                interactionLockRef.current.dragging = locked;
+              }}
+            />
+          ))}
+
+          {/* Fibs */}
+          {fibTools.map((tool) => (
+            <FibTool
+              key={tool.id}
+              chartRef={chartRef}
+              seriesRef={seriesRef}
+              containerRef={containerRef}
+              candleTimesSec={candleTimesSecRef.current}
+              tool={tool}
+              isActive={activeToolId === tool.id}
+              interactive={true}
+              onUpdate={updateFibTool}
+              onRemove={removeFibTool}
+              onSelect={selectTool}
+              onInteractionLockChange={(locked) => {
+                interactionLockRef.current.dragging = locked;
+              }}
+            />
+          ))}
+
+          {/* Fib preview (creation second point) */}
+          {fibPreviewTool ? (
+            <FibTool
+              key="__fib_preview__"
+              chartRef={chartRef}
+              seriesRef={seriesRef}
+              containerRef={containerRef}
+              candleTimesSec={candleTimesSecRef.current}
+              tool={fibPreviewTool}
+              isActive={false}
+              interactive={false}
+              onUpdate={() => {}}
+              onRemove={() => {}}
+              onSelect={() => {}}
+            />
+          ) : null}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="pointer-events-none absolute left-2 top-2 rounded border border-red-500/30 bg-red-950/60 px-2 py-1 text-[11px] text-red-200">
