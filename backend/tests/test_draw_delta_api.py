@@ -90,7 +90,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(str(majors[0].get("shape")), "circle")
         self.assertEqual(str(minors[0].get("shape")), "circle")
         self.assertAlmostEqual(float(majors[0].get("size")), 1.0, places=6)
-        self.assertAlmostEqual(float(minors[0].get("size")), 0.6, places=6)
+        self.assertAlmostEqual(float(minors[0].get("size")), 0.5, places=6)
 
         next_version = int(draw["next_cursor"]["version_id"])
         self.assertGreater(next_version, 0)

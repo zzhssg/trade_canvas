@@ -132,7 +132,7 @@ class OverlayOrchestrator:
                             "shape": "circle",
                             # Keep the field for schema stability, but do not render a letter label.
                             "text": "",
-                            "size": 1.0 if level == "pivot.major" else 0.6,
+                            "size": 1.0 if level == "pivot.major" else 0.5,
                         },
                     )
                 )

@@ -65,6 +65,7 @@ class OverlayDeltaApiTests(unittest.TestCase):
 
         # Regression: pivot.major marker keeps `text` field but should be blank (no legacy "P").
         majors: list[dict] = []
+        minors: list[dict] = []
         for item in payload["instruction_catalog_patch"]:
             if not isinstance(item, dict) or item.get("kind") != "marker":
                 continue
@@ -73,9 +74,17 @@ class OverlayDeltaApiTests(unittest.TestCase):
                 continue
             if d.get("feature") == "pivot.major":
                 majors.append(d)
+            if d.get("feature") == "pivot.minor":
+                minors.append(d)
         self.assertTrue(majors, "expected at least one pivot.major marker in patch")
         self.assertIn("text", majors[0])
         self.assertEqual(majors[0].get("text"), "")
+
+        # Regression: pivot.minor markers render as smaller circle dots (no legacy square).
+        self.assertTrue(minors, "expected at least one pivot.minor marker in patch")
+        self.assertEqual(minors[0].get("shape"), "circle")
+        self.assertAlmostEqual(float(minors[0].get("size")), 0.5, places=6)
+        self.assertEqual(minors[0].get("text"), "")
 
         next_version = int(payload["next_cursor"]["version_id"])
         self.assertGreater(next_version, 0)

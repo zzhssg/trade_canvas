@@ -253,7 +253,7 @@ export function ChartView() {
         if (t < minTime || t > maxTime) continue;
 
         const position = def["position"] === "aboveBar" || def["position"] === "belowBar" ? def["position"] : null;
-        const shape =
+        const rawShape =
           def["shape"] === "circle" ||
           def["shape"] === "square" ||
           def["shape"] === "arrowUp" ||
@@ -261,10 +261,24 @@ export function ChartView() {
             ? def["shape"]
             : null;
         const color = typeof def["color"] === "string" ? def["color"] : null;
-        const text = typeof def["text"] === "string" ? def["text"] : "";
-        const sizeDefault = feature === "pivot.minor" ? 0.6 : 1.0;
+        const rawText = typeof def["text"] === "string" ? def["text"] : "";
         const sizeRaw = Number(def["size"]);
-        const size = Number.isFinite(sizeRaw) && sizeRaw > 0 ? sizeRaw : sizeDefault;
+
+        // Pivot marker style normalization (backward compatible with legacy overlay defs).
+        // - major: never show "P" label
+        // - minor: always render as a smaller circle dot than major
+        const isPivotMajor = feature === "pivot.major";
+        const isPivotMinor = feature === "pivot.minor";
+        const text = isPivotMajor || isPivotMinor ? "" : rawText;
+        const shape = isPivotMinor ? "circle" : rawShape;
+        const sizeDefault = isPivotMinor ? 0.5 : 1.0;
+        const size =
+          isPivotMinor
+            ? 0.5
+            : Number.isFinite(sizeRaw) && sizeRaw > 0
+              ? sizeRaw
+              : sizeDefault;
+
         if (!position || !shape || !color) continue;
 
         next.push({ time: t as UTCTimestamp, position, color, shape, text, size });
