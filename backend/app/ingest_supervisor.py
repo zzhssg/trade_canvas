@@ -11,6 +11,7 @@ from .store import CandleStore
 from .ws_hub import CandleHub
 from .factor_orchestrator import FactorOrchestrator
 from .overlay_orchestrator import OverlayOrchestrator
+from .derived_timeframes import is_derived_series_id, to_base_series_id
 
 
 @dataclass
@@ -64,6 +65,8 @@ class IngestSupervisor:
                 self._jobs[series_id] = job
 
     async def subscribe(self, series_id: str) -> bool:
+        if is_derived_series_id(series_id):
+            series_id = to_base_series_id(series_id)
         if series_id in self._whitelist:
             return True
 
@@ -110,6 +113,8 @@ class IngestSupervisor:
         return True
 
     async def unsubscribe(self, series_id: str) -> None:
+        if is_derived_series_id(series_id):
+            series_id = to_base_series_id(series_id)
         if series_id in self._whitelist:
             return
         async with self._lock:

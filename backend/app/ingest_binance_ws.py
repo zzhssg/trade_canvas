@@ -14,6 +14,7 @@ from .store import CandleStore
 from .ws_hub import CandleHub
 from .factor_orchestrator import FactorOrchestrator
 from .overlay_orchestrator import OverlayOrchestrator
+from .derived_timeframes import DerivedTimeframeFanout, derived_enabled, derived_base_timeframe, derived_timeframes
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,19 @@ async def run_binance_ws_ingest_loop(
     last_forming_emit_at = 0.0
     last_forming_candle_time: int | None = None
 
+    fanout: DerivedTimeframeFanout | None = None
+    if derived_enabled():
+        try:
+            base_tf = derived_base_timeframe()
+            if str(series.timeframe).strip() == str(base_tf).strip():
+                fanout = DerivedTimeframeFanout(
+                    base_timeframe=base_tf,
+                    derived=derived_timeframes(),
+                    forming_min_interval_ms=int(forming_min_interval_ms),
+                )
+        except Exception:
+            fanout = None
+
     async def flush(reason: str) -> None:
         nonlocal buf, last_flush_at, last_emitted_time
         if not buf:
@@ -170,6 +184,12 @@ async def run_binance_ws_ingest_loop(
             return
 
         up_to_time = int(deduped[-1].candle_time)
+        derived_batches: dict[str, list[CandleClosed]] = {}
+        if fanout is not None:
+            try:
+                derived_batches = fanout.on_base_closed_batch(base_series_id=series_id, candles=deduped)
+            except Exception:
+                derived_batches = {}
 
         # IMPORTANT: keep the asyncio event loop responsive.
         # SQLite writes and factor/overlay computation are sync and may take seconds.
@@ -177,6 +197,8 @@ async def run_binance_ws_ingest_loop(
             t0 = perf_counter()
             with store.connect() as conn:
                 store.upsert_many_closed_in_conn(conn, series_id, deduped)
+                for derived_series_id, derived in derived_batches.items():
+                    store.upsert_many_closed_in_conn(conn, derived_series_id, derived)
                 conn.commit()
 
             if factor_orchestrator is not None:
@@ -184,17 +206,42 @@ async def run_binance_ws_ingest_loop(
                     factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
                 except Exception:
                     pass
+                for derived_series_id, derived in derived_batches.items():
+                    if not derived:
+                        continue
+                    try:
+                        factor_orchestrator.ingest_closed(
+                            series_id=derived_series_id,
+                            up_to_candle_time=int(derived[-1].candle_time),
+                        )
+                    except Exception:
+                        pass
             if overlay_orchestrator is not None:
                 try:
                     overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
                 except Exception:
                     pass
+                for derived_series_id, derived in derived_batches.items():
+                    if not derived:
+                        continue
+                    try:
+                        overlay_orchestrator.ingest_closed(
+                            series_id=derived_series_id,
+                            up_to_candle_time=int(derived[-1].candle_time),
+                        )
+                    except Exception:
+                        pass
             return int((perf_counter() - t0) * 1000)
 
         db_ms = await run_blocking(_persist_and_compute)
 
         t1 = time.perf_counter()
         await hub.publish_closed_batch(series_id=series_id, candles=deduped)
+        for derived_series_id, derived in derived_batches.items():
+            try:
+                await hub.publish_closed_batch(series_id=derived_series_id, candles=derived)
+            except Exception:
+                pass
         publish_ms = int((time.perf_counter() - t1) * 1000)
 
         last_emitted_time = max(last_emitted_time, up_to_time)
@@ -246,6 +293,17 @@ async def run_binance_ws_ingest_loop(
                                 or (now - last_forming_emit_at) >= forming_min_interval_s
                             ):
                                 await hub.publish_forming(series_id=series_id, candle=candle)
+                                if fanout is not None:
+                                    try:
+                                        derived_forming = fanout.on_base_forming(
+                                            base_series_id=series_id,
+                                            candle=candle,
+                                            now=now,
+                                        )
+                                        for derived_series_id, derived_candle in derived_forming:
+                                            await hub.publish_forming(series_id=derived_series_id, candle=derived_candle)
+                                    except Exception:
+                                        pass
                                 last_forming_emit_at = now
                                 last_forming_candle_time = candle.candle_time
                         continue

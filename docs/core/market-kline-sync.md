@@ -2,7 +2,7 @@
 title: 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
 status: draft
 created: 2026-02-02
-updated: 2026-02-03
+updated: 2026-02-07
 ---
 
 # 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
@@ -125,6 +125,31 @@ Whitelist（白名单 `series_id` 列表）的真源位置：
 v1 实现建议（后端开关）：
 - `TRADE_CANVAS_ENABLE_ONDEMAND_INGEST=1`
 - `TRADE_CANVAS_ONDEMAND_IDLE_TTL_S=<seconds>`（默认 60）
+
+### 3.3 单一上游实时源 + 多周期派生（Derived Timeframes）
+
+动机：上游实时源（例如 Binance WS）通常以 `1m` 的频率最稳定；为了避免“每个 timeframe 各起一条 ingest job”，引入 **从 base(1m) 派生多周期** 的能力：
+
+- 仅连接 `...:1m` 的上游 WS（单一上游连接）
+- 在服务端对 `5m/15m/1h/4h/1d` 做二次加工
+- **forming 仅用于展示**：只走 `WS /ws/market`，不落库、不进入因子/策略
+- **closed 为权威输入**：派生周期的 `CandleClosed` 落库（独立 `series_id`），并触发因子/overlay 的增量计算
+
+开关（默认关闭，便于回滚）：
+- `TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES=1`：启用派生
+- `TRADE_CANVAS_DERIVED_BASE_TIMEFRAME=1m`：基准周期（v1 固定 1m）
+- `TRADE_CANVAS_DERIVED_TIMEFRAMES=5m,15m,1h,4h,1d`：派生周期集合（缺省值与前端默认集合对齐，且排除 base）
+
+订阅行为（重要）：
+- 当客户端订阅派生 `series_id`（例如 `...:5m`）且派生能力启用：
+  - supervisor 会把订阅映射到 base `...:1m` 管理 refcount / job 生命周期（避免再起一条 5m 的上游 ingest）
+  - 派生 `forming/closed` 由服务端从 base 1m 流中 fanout 得到，并按派生 `series_id` 推送给客户端
+
+首次订阅回填（best-effort）：
+- 若客户端首次订阅派生 `series_id`，且本地 store 中该派生序列尚无历史：
+  - 服务端可从本地 base(1m) tail 派生一段派生 closed 回填（只要 base 有足够闭合分钟）
+  - 目的：让图表能“立即渲染”并尽快进入实时跟随
+- 缺口/断线：派生周期的闭合要求“桶内分钟齐全”；若 base 丢分钟导致派生桶无法闭合，应通过 `gap` 显式暴露并回退到 HTTP 增量补齐。
 
 ---
 
