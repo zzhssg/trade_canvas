@@ -1,6 +1,6 @@
 ---
 title: Replay OverlayPackage v1 MVP（window 增量 + checkpoint/diff + catalog_base/patch）
-status: 开发中
+status: 已上线
 owner:
 created: 2026-02-04
 updated: 2026-02-07
