@@ -1,13 +1,19 @@
+import { useEffect } from "react";
+
 import { ChartView } from "../widgets/ChartView";
 import { useCenterScrollLock } from "../layout/centerScrollLock";
 import { FactorPanel } from "./FactorPanel";
+import { useReplayStore } from "../state/replayStore";
 import { useUiStore } from "../state/uiStore";
 import { useTopMarkets } from "../services/useTopMarkets";
 
 const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
+const ENABLE_REPLAY_V1 = String(import.meta.env.VITE_ENABLE_REPLAY_V1 ?? "1") === "1";
 
 export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
   const { market, setMarket, symbol, setSymbol, timeframe, setTimeframe } = useUiStore();
+  const replayMode = useReplayStore((s) => s.mode);
+  const setReplayMode = useReplayStore((s) => s.setMode);
   const scrollLock = useCenterScrollLock();
   const topMarkets = useTopMarkets({ market, quoteAsset: "USDT", limit: 20, stream: false });
   const symbolOptions = Array.from(new Set([symbol, ...(topMarkets.data?.items ?? []).map((it) => it.symbol)]));
@@ -15,15 +21,15 @@ export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
     ? TIMEFRAMES
     : ([...TIMEFRAMES, timeframe] as const);
 
+  useEffect(() => {
+    setReplayMode(mode);
+  }, [mode, setReplayMode]);
+
   return (
     <div className="h-full w-full p-3">
       <div className="flex h-full w-full flex-col gap-3">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="rounded-md border border-white/10 bg-black/20 px-2 py-1 font-mono text-[11px] text-white/80">
-              mode:{mode}
-            </span>
-
             <div className="flex items-center gap-1 rounded-md border border-white/10 bg-black/20 p-1">
               <button
                 type="button"
@@ -102,8 +108,28 @@ export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
               ))}
             </div>
           </div>
-          <div className="shrink-0 rounded-md border border-white/10 bg-black/20 px-2 py-1 font-mono text-[11px] text-white/60">
-            candle_id: —
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              data-testid="mode-toggle"
+              disabled={!ENABLE_REPLAY_V1}
+              onClick={() => {
+                if (!ENABLE_REPLAY_V1) return;
+                setReplayMode(replayMode === "live" ? "replay" : "live");
+              }}
+              className={[
+                "rounded-md border px-2 py-1 font-mono text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60",
+                ENABLE_REPLAY_V1
+                  ? "border-white/10 bg-black/25 text-white/80 hover:bg-white/10"
+                  : "border-white/5 bg-black/20 text-white/30"
+              ].join(" ")}
+              title={ENABLE_REPLAY_V1 ? "切换实盘/复盘" : "Replay disabled (VITE_ENABLE_REPLAY_V1 != 1)"}
+            >
+              mode:{replayMode}
+            </button>
+            <div className="rounded-md border border-white/10 bg-black/20 px-2 py-1 font-mono text-[11px] text-white/60">
+              candle_id: —
+            </div>
           </div>
         </div>
         <FactorPanel />

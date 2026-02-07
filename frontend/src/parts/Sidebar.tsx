@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTopMarkets } from "../services/useTopMarkets";
 import { ENABLE_DEBUG_TOOL } from "../debug/debug";
 import { DebugPanel } from "./DebugPanel";
+import { ReplayPanel } from "./ReplayPanel";
 
 const ALL_TABS = ["Market", "Strategy", "Indicators", "Replay", "Debug"] as const;
 type SidebarTabKey = (typeof ALL_TABS)[number];
@@ -98,7 +99,7 @@ export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
           ) : null}
           {activeSidebarTab === "Replay" ? (
             <Section title="Replay">
-              <div className="text-xs text-white/60">load replay package (todo)</div>
+              <ReplayPanel />
             </Section>
           ) : null}
           {activeSidebarTab === "Debug" ? (
