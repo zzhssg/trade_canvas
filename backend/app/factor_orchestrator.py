@@ -12,7 +12,7 @@ from .factor_store import FactorEventWrite, FactorStore
 from .pen import ConfirmedPen, PivotMajorPoint
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
-from .zhongshu import ZhongshuDead
+from .zhongshu import ZhongshuDead, build_alive_zhongshu_from_confirmed_pens
 
 
 def _truthy_flag(v: str | None) -> bool:
@@ -620,7 +620,6 @@ class FactorOrchestrator:
                         )
                         anchor_current_ref = new_ref
                         anchor_strength = float(strength)
-
             pivot_time_minor = int(visible_time) - int(s.pivot_window_minor) * int(tf_s)
             minor_candidates = _compute_minor_candidates(
                 candles=candles,
@@ -680,10 +679,75 @@ class FactorOrchestrator:
                     anchor_current_ref = new_ref
                     anchor_strength = float(strength)
 
+        # Head snapshots (append-only via seq).
+        pen_head: dict[str, Any] = {}
+        if confirmed_pens:
+            last_pen = confirmed_pens[-1]
+            candidate = build_pen_head_candidate(candles=candles, last_confirmed=last_pen, aligned_time=int(up_to))
+            if candidate is not None:
+                pen_head["candidate"] = candidate
+
+        zhongshu_head: dict[str, Any] = {}
+        if confirmed_pens:
+            alive = build_alive_zhongshu_from_confirmed_pens(confirmed_pens, up_to_visible_time=int(up_to))
+            if alive is not None and int(alive.visible_time) == int(up_to):
+                zhongshu_head["alive"] = [
+                    {
+                        "start_time": int(alive.start_time),
+                        "end_time": int(alive.end_time),
+                        "zg": float(alive.zg),
+                        "zd": float(alive.zd),
+                        "formed_time": int(alive.formed_time),
+                        "death_time": None,
+                        "visible_time": int(alive.visible_time),
+                    }
+                ]
+
+        anchor_head: dict[str, Any] = {}
+        if confirmed_pens or anchor_current_ref is not None:
+            current_anchor_ref = anchor_current_ref
+            reverse_anchor_ref = None
+            if isinstance(pen_head.get("candidate"), dict):
+                cand = pen_head.get("candidate") or {}
+                reverse_anchor_ref = {
+                    "kind": "candidate",
+                    "start_time": int(cand.get("start_time") or 0),
+                    "end_time": int(cand.get("end_time") or 0),
+                    "direction": int(cand.get("direction") or 0),
+                }
+            anchor_head = {
+                "current_anchor_ref": current_anchor_ref,
+                "reverse_anchor_ref": reverse_anchor_ref,
+            }
+
         with self._factor_store.connect() as conn:
             before_changes = int(conn.total_changes)
-            self._factor_store.upsert_head_time_in_conn(conn, series_id=series_id, head_time=int(up_to))
             self._factor_store.insert_events_in_conn(conn, events=events)
+            if confirmed_pens:
+                self._factor_store.insert_head_snapshot_in_conn(
+                    conn,
+                    series_id=series_id,
+                    factor_name="pen",
+                    candle_time=int(up_to),
+                    head=pen_head,
+                )
+            if zhongshu_head.get("alive"):
+                self._factor_store.insert_head_snapshot_in_conn(
+                    conn,
+                    series_id=series_id,
+                    factor_name="zhongshu",
+                    candle_time=int(up_to),
+                    head=zhongshu_head,
+                )
+            if anchor_head:
+                self._factor_store.insert_head_snapshot_in_conn(
+                    conn,
+                    series_id=series_id,
+                    factor_name="anchor",
+                    candle_time=int(up_to),
+                    head=anchor_head,
+                )
+            self._factor_store.upsert_head_time_in_conn(conn, series_id=series_id, head_time=int(up_to))
             conn.commit()
             wrote = int(conn.total_changes) - before_changes
 

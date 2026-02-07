@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -108,7 +110,59 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
             self.assertEqual(msg["type"], "candle_closed")
             self.assertEqual(msg["candle"]["candle_time"], 220)
 
+    def test_ws_gap_race_does_not_duplicate(self) -> None:
+        # Seed with one candle.
+        self._ingest(100)
+
+        started = threading.Event()
+        proceed = threading.Event()
+
+        from backend.app.store import CandleStore
+
+        original_get_closed = CandleStore.get_closed
+
+        def delayed_get_closed(self, series_id: str, *, since: int | None, limit: int):
+            started.set()
+            proceed.wait(timeout=1.0)
+            return original_get_closed(self, series_id, since=since, limit=limit)
+
+        with mock.patch("backend.app.store.CandleStore.get_closed", new=delayed_get_closed):
+            with self.client.websocket_connect("/ws/market") as ws:
+                ws.send_json({"type": "subscribe", "series_id": self.series_id, "since": 100})
+
+                if not started.wait(timeout=1.0):
+                    proceed.set()
+                    self.fail("catchup did not start")
+
+                self._ingest(220)
+                proceed.set()
+
+                gap = ws.receive_json()
+                self.assertEqual(gap["type"], "gap")
+                self.assertEqual(gap["series_id"], self.series_id)
+                self.assertEqual(gap["expected_next_time"], 160)
+                self.assertEqual(gap["actual_time"], 220)
+
+                msg = ws.receive_json()
+                self.assertEqual(msg["type"], "candle_closed")
+                self.assertEqual(msg["candle"]["candle_time"], 220)
+
+                got: dict[str, object] = {}
+
+                def recv_one() -> None:
+                    try:
+                        got["msg"] = ws.receive_json()
+                    except BaseException as e:
+                        got["exc"] = e
+
+                t = threading.Thread(target=recv_one, daemon=True)
+                t.start()
+                t.join(timeout=0.2)
+                self.assertTrue(t.is_alive(), "unexpected extra ws message after catchup race")
+                ws.close()
+                t.join(timeout=1.0)
+                self.assertNotIn("msg", got)
+
 
 if __name__ == "__main__":
     unittest.main()
-

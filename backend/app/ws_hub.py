@@ -141,6 +141,16 @@ class CandleHub:
                 return
             sub.last_sent_time = candle_time
 
+    async def get_last_sent(self, ws: WebSocket, *, series_id: str) -> int | None:
+        async with self._lock:
+            subs = self._subs_by_ws.get(ws)
+            if not subs:
+                return None
+            sub = subs.get(series_id)
+            if sub is None:
+                return None
+            return sub.last_sent_time
+
     async def unsubscribe(self, ws: WebSocket, *, series_id: str) -> None:
         async with self._lock:
             subs = self._subs_by_ws.get(ws)
@@ -178,7 +188,7 @@ class CandleHub:
                 if sub.last_sent_time is not None:
                     expected_next = sub.last_sent_time + sub.timeframe_s
 
-                if sub.last_sent_time is not None and candle.candle_time < sub.last_sent_time:
+                if sub.last_sent_time is not None and candle.candle_time <= sub.last_sent_time:
                     continue
 
                 if expected_next is not None and candle.candle_time > expected_next:

@@ -1,9 +1,9 @@
 ---
 title: Replay OverlayPackage v1 MVP（window 增量 + checkpoint/diff + catalog_base/patch）
-status: 开发中
+status: 已上线
 owner:
 created: 2026-02-04
-updated: 2026-02-04
+updated: 2026-02-07
 ---
 
 ## 背景
@@ -60,6 +60,7 @@ updated: 2026-02-04
 ## 任务拆解（每步都可回滚）
 
 - [ ] 新增契约与 API 文档：`docs/core/contracts/overlay_replay_protocol_v1.md`、`docs/core/api/v1/http_replay.md`
+  - endpoints：`GET /api/replay/overlay_package/read_only`、`POST /api/replay/overlay_package/build`、`GET /api/replay/overlay_package/status`、`GET /api/replay/overlay_package/window`
   - 验收：`bash docs/scripts/doc_audit.sh`
   - 回滚：删除新增文档
 - [ ] 后端新增 endpoints + 磁盘缓存构建（开关默认关闭）

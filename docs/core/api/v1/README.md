@@ -48,6 +48,5 @@ updated: 2026-02-07
 - Replay（HTTP）：`docs/core/api/v1/http_replay.md`
 - World（HTTP）：`docs/core/api/v1/http_world.md`
 - Backtest（HTTP）：`docs/core/api/v1/http_backtest.md`
-- Dev（HTTP）：`docs/core/api/v1/http_dev.md`
 - Market WS：`docs/core/api/v1/ws_market.md`
 - Debug WS：`docs/core/api/v1/ws_debug.md`

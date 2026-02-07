@@ -37,6 +37,16 @@ class FactorEventWrite:
 
 
 @dataclass(frozen=True)
+class FactorHeadSnapshotRow:
+    id: int
+    series_id: str
+    factor_name: str
+    candle_time: int
+    seq: int
+    head: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class FactorStore:
     db_path: Path
 
@@ -76,11 +86,29 @@ class FactorStore:
             """
         )
         conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS factor_head_snapshots (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              series_id TEXT NOT NULL,
+              factor_name TEXT NOT NULL,
+              candle_time INTEGER NOT NULL,
+              seq INTEGER NOT NULL,
+              head_json TEXT NOT NULL,
+              created_at_ms INTEGER NOT NULL,
+              UNIQUE (series_id, factor_name, candle_time, seq)
+            )
+            """
+        )
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_factor_events_series_time ON factor_events(series_id, candle_time);"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_factor_events_series_factor_time ON factor_events(series_id, factor_name, candle_time);"
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_factor_head_series_factor_time ON factor_head_snapshots(series_id, factor_name, candle_time);"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_factor_head_series_time ON factor_head_snapshots(series_id, candle_time);")
         conn.commit()
 
     def upsert_head_time_in_conn(self, conn: sqlite3.Connection, *, series_id: str, head_time: int) -> None:
@@ -139,6 +167,93 @@ class FactorStore:
                 )
                 for e in events
             ],
+        )
+
+    def insert_head_snapshot_in_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        series_id: str,
+        factor_name: str,
+        candle_time: int,
+        head: dict[str, Any],
+    ) -> int | None:
+        if head is None:
+            return None
+        row = conn.execute(
+            """
+            SELECT seq, head_json
+            FROM factor_head_snapshots
+            WHERE series_id = ? AND factor_name = ? AND candle_time = ?
+            ORDER BY seq DESC
+            LIMIT 1
+            """,
+            (series_id, factor_name, int(candle_time)),
+        ).fetchone()
+        if row is not None:
+            try:
+                prev = json.loads(row["head_json"])
+            except Exception:
+                prev = None
+            if isinstance(prev, dict) and prev == head:
+                return int(row["seq"])
+            next_seq = int(row["seq"]) + 1
+        else:
+            next_seq = 0
+
+        now_ms = int(time.time() * 1000)
+        conn.execute(
+            """
+            INSERT INTO factor_head_snapshots(
+              series_id, factor_name, candle_time, seq, head_json, created_at_ms
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                series_id,
+                factor_name,
+                int(candle_time),
+                int(next_seq),
+                json.dumps(head, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                now_ms,
+            ),
+        )
+        return int(next_seq)
+
+    def get_head_at_or_before(
+        self,
+        *,
+        series_id: str,
+        factor_name: str,
+        candle_time: int,
+    ) -> FactorHeadSnapshotRow | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, series_id, factor_name, candle_time, seq, head_json
+                FROM factor_head_snapshots
+                WHERE series_id = ? AND factor_name = ? AND candle_time <= ?
+                ORDER BY candle_time DESC, seq DESC
+                LIMIT 1
+                """,
+                (series_id, factor_name, int(candle_time)),
+            ).fetchone()
+        if row is None:
+            return None
+        payload: Any = {}
+        try:
+            payload = json.loads(row["head_json"])
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        return FactorHeadSnapshotRow(
+            id=int(row["id"]),
+            series_id=str(row["series_id"]),
+            factor_name=str(row["factor_name"]),
+            candle_time=int(row["candle_time"]),
+            seq=int(row["seq"]),
+            head=payload,
         )
 
     def get_events_between_times(
