@@ -79,6 +79,18 @@ test("live chart loads catchup and follows WS", async ({ page, request }) => {
         }
       })
     );
+    localStorage.setItem(
+      "trade-canvas-factors",
+      JSON.stringify({
+        version: 1,
+        state: {
+          visibleFeatures: {
+            "anchor": true,
+            "anchor.switch": true
+          }
+        }
+      })
+    );
   });
 
   // Mock feed → store/API:
@@ -141,6 +153,17 @@ test("live chart loads catchup and follows WS", async ({ page, request }) => {
     })
     .toBeGreaterThan(0);
 
+  // Anchor switch markers are rendered from overlay delta (sub_feature enabled).
+  await expect
+    .poll(async () => {
+      const raw = await page.locator('[data-testid="chart-view"]').getAttribute("data-anchor-switch-count");
+      const n = raw ? Number(raw) : 0;
+      return Number.isFinite(n) ? n : 0;
+    })
+    .toBeGreaterThan(0);
+
+  await page.screenshot({ path: "output/playwright/anchor_switch.png", fullPage: false });
+
   // Then push a closed candle and ensure the frontend receives it via WS.
   await ingestClosedCandle(request, base * (total + 1), 1);
   const chart = page.locator('[data-testid="chart-view"]');
@@ -148,6 +171,7 @@ test("live chart loads catchup and follows WS", async ({ page, request }) => {
 });
 
 test("@smoke live backfill burst does not hammer delta/slices", async ({ page, request }) => {
+  const burstSeriesId = "binance:futures:ETH/USDT:15m";
   await page.addInitScript(() => {
     localStorage.clear();
     localStorage.setItem(
@@ -157,8 +181,8 @@ test("@smoke live backfill burst does not hammer delta/slices", async ({ page, r
         state: {
           exchange: "binance",
           market: "futures",
-          symbol: "BTC/USDT",
-          timeframe: "5m",
+          symbol: "ETH/USDT",
+          timeframe: "15m",
           sidebarCollapsed: false,
           sidebarWidth: 280,
           bottomCollapsed: false,
@@ -170,9 +194,9 @@ test("@smoke live backfill burst does not hammer delta/slices", async ({ page, r
     );
   });
 
-  const base = 300;
+  const base = 900;
   for (let i = 0; i < 20; i++) {
-    await ingestClosedCandle(request, base * (i + 1), i + 1);
+    await ingestClosedCandleForSeries(request, burstSeriesId, base * (i + 1), i + 1);
   }
 
   let deltaGets = 0;
@@ -185,7 +209,7 @@ test("@smoke live backfill burst does not hammer delta/slices", async ({ page, r
   });
 
   // Set up cold-start probe before navigation so we don't miss the first fast response.
-  const sidQuery = `series_id=${encodeURIComponent(seriesId())}`;
+  const sidQuery = `series_id=${encodeURIComponent(burstSeriesId)}`;
   const frameRespPromise = page.waitForResponse(
     (r) => r.url().includes("/api/frame/live") && r.url().includes(sidQuery) && r.request().method() === "GET" && r.status() === 200
   );
@@ -206,7 +230,7 @@ test("@smoke live backfill burst does not hammer delta/slices", async ({ page, r
   const tasks: Array<Promise<void>> = [];
   for (let i = 0; i < count; i++) {
     const t = base * (start + i + 1);
-    tasks.push(ingestClosedCandle(request, t, 1));
+    tasks.push(ingestClosedCandleForSeries(request, burstSeriesId, t, 1));
   }
   await Promise.all(tasks);
 

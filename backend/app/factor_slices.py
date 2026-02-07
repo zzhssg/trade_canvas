@@ -1,0 +1,244 @@
+from __future__ import annotations
+
+from typing import Any
+
+from .factor_store import FactorStore
+from .schemas import FactorMetaV1, FactorSliceV1, GetFactorSlicesResponseV1
+from .store import CandleStore
+from .timeframe import series_id_timeframe, timeframe_to_seconds
+from .zhongshu import build_alive_zhongshu_from_confirmed_pens
+
+
+def _is_visible(payload: dict, *, at_time: int) -> bool:
+    vt = payload.get("visible_time")
+    if vt is None:
+        return True
+    try:
+        return int(vt) <= int(at_time)
+    except Exception:
+        return True
+
+
+def build_pen_head_candidate(
+    *,
+    candles: list[Any],
+    last_confirmed: dict | None,
+    aligned_time: int,
+) -> dict | None:
+    if not last_confirmed:
+        return None
+
+    try:
+        last_end_time = int(last_confirmed.get("end_time") or 0)
+        last_end_price = float(last_confirmed.get("end_price") or 0.0)
+        last_dir = int(last_confirmed.get("direction") or 0)
+    except Exception:
+        return None
+
+    if last_end_time <= 0 or last_dir not in (-1, 1):
+        return None
+
+    tail = [c for c in candles if int(c.candle_time) > int(last_end_time) and int(c.candle_time) <= int(aligned_time)]
+    if not tail:
+        return None
+
+    if last_dir == 1:
+        best = min(tail, key=lambda c: float(c.low))
+        return {
+            "start_time": int(last_end_time),
+            "end_time": int(best.candle_time),
+            "start_price": float(last_end_price),
+            "end_price": float(best.low),
+            "direction": -1,
+        }
+
+    best = max(tail, key=lambda c: float(c.high))
+    return {
+        "start_time": int(last_end_time),
+        "end_time": int(best.candle_time),
+        "start_price": float(last_end_price),
+        "end_price": float(best.high),
+        "direction": 1,
+    }
+
+
+def build_factor_slices(
+    *,
+    candle_store: CandleStore,
+    factor_store: FactorStore,
+    series_id: str,
+    at_time: int,
+    window_candles: int,
+) -> GetFactorSlicesResponseV1:
+    aligned = candle_store.floor_time(series_id, at_time=int(at_time))
+    if aligned is None:
+        return GetFactorSlicesResponseV1(series_id=series_id, at_time=int(at_time), candle_id=None)
+
+    tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
+    start_time = max(0, int(aligned) - int(window_candles) * int(tf_s))
+
+    factor_rows = factor_store.get_events_between_times(
+        series_id=series_id,
+        factor_name=None,
+        start_candle_time=int(start_time),
+        end_candle_time=int(aligned),
+    )
+
+    piv_major: list[dict] = []
+    piv_minor: list[dict] = []
+    pen_confirmed: list[dict] = []
+    zhongshu_dead: list[dict] = []
+    anchor_switches: list[dict] = []
+
+    for r in factor_rows:
+        if r.factor_name == "pivot" and r.kind == "pivot.major":
+            payload = dict(r.payload or {})
+            if _is_visible(payload, at_time=int(aligned)):
+                piv_major.append(payload)
+        elif r.factor_name == "pivot" and r.kind == "pivot.minor":
+            payload = dict(r.payload or {})
+            if _is_visible(payload, at_time=int(aligned)):
+                piv_minor.append(payload)
+        elif r.factor_name == "pen" and r.kind == "pen.confirmed":
+            payload = dict(r.payload or {})
+            if _is_visible(payload, at_time=int(aligned)):
+                pen_confirmed.append(payload)
+        elif r.factor_name == "zhongshu" and r.kind == "zhongshu.dead":
+            payload = dict(r.payload or {})
+            if _is_visible(payload, at_time=int(aligned)):
+                zhongshu_dead.append(payload)
+        elif r.factor_name == "anchor" and r.kind == "anchor.switch":
+            payload = dict(r.payload or {})
+            if _is_visible(payload, at_time=int(aligned)):
+                anchor_switches.append(payload)
+
+    piv_major.sort(key=lambda d: (int(d.get("visible_time", 0)), int(d.get("pivot_time", 0))))
+    pen_confirmed.sort(key=lambda d: (int(d.get("visible_time", 0)), int(d.get("start_time", 0))))
+    anchor_switches.sort(key=lambda d: (int(d.get("visible_time", 0)), int(d.get("switch_time", 0))))
+
+    snapshots: dict[str, FactorSliceV1] = {}
+    factors: list[str] = []
+    candle_id = f"{series_id}:{int(aligned)}"
+
+    if piv_major:
+        factors.append("pivot")
+        snapshots["pivot"] = FactorSliceV1(
+            history={"major": piv_major, "minor": piv_minor},
+            head={},
+            meta=FactorMetaV1(
+                series_id=series_id,
+                at_time=int(aligned),
+                candle_id=candle_id,
+                factor_name="pivot",
+            ),
+        )
+
+    pen_head: dict[str, Any] = {}
+    if pen_confirmed:
+        try:
+            candles = candle_store.get_closed(series_id, since=int(start_time), limit=int(window_candles) + 5)
+            candles = [c for c in candles if int(c.candle_time) <= int(aligned)]
+        except Exception:
+            candles = []
+
+        last = pen_confirmed[-1]
+        cand = build_pen_head_candidate(candles=candles, last_confirmed=last, aligned_time=int(aligned))
+        if cand is not None:
+            pen_head["candidate"] = cand
+
+        factors.append("pen")
+        snapshots["pen"] = FactorSliceV1(
+            history={"confirmed": pen_confirmed},
+            head=pen_head,
+            meta=FactorMetaV1(
+                series_id=series_id,
+                at_time=int(aligned),
+                candle_id=candle_id,
+                factor_name="pen",
+            ),
+        )
+
+    # Zhongshu head.alive is derived from confirmed pens at t (head-only); dead is append-only history slice.
+    zhongshu_head: dict[str, Any] = {}
+    if pen_confirmed:
+        try:
+            alive = build_alive_zhongshu_from_confirmed_pens(pen_confirmed, up_to_visible_time=int(aligned))
+        except Exception:
+            alive = None
+        if alive is not None and int(alive.visible_time) == int(aligned):
+            zhongshu_head["alive"] = [
+                {
+                    "start_time": int(alive.start_time),
+                    "end_time": int(alive.end_time),
+                    "zg": float(alive.zg),
+                    "zd": float(alive.zd),
+                    "formed_time": int(alive.formed_time),
+                    "death_time": None,
+                    "visible_time": int(alive.visible_time),
+                }
+            ]
+
+    if zhongshu_dead or zhongshu_head.get("alive"):
+        factors.append("zhongshu")
+        snapshots["zhongshu"] = FactorSliceV1(
+            history={"dead": zhongshu_dead},
+            head=zhongshu_head,
+            meta=FactorMetaV1(
+                series_id=series_id,
+                at_time=int(aligned),
+                candle_id=candle_id,
+                factor_name="zhongshu",
+            ),
+        )
+
+    # Anchor snapshot:
+    # - history.switches: append-only stable switches from FactorStore
+    # - head.current_anchor_ref: the latest switch new_anchor (if available)
+    # - head.reverse_anchor_ref: optional (candidate pen derived from pen head)
+    if pen_confirmed or anchor_switches:
+        current_anchor_ref = None
+        if anchor_switches:
+            cur = anchor_switches[-1].get("new_anchor")
+            if isinstance(cur, dict):
+                current_anchor_ref = cur
+        elif pen_confirmed:
+            last = pen_confirmed[-1]
+            current_anchor_ref = {
+                "kind": "confirmed",
+                "start_time": int(last.get("start_time") or 0),
+                "end_time": int(last.get("end_time") or 0),
+                "direction": int(last.get("direction") or 0),
+            }
+
+        reverse_anchor_ref = None
+        pen_head_candidate = pen_head.get("candidate") if pen_head else None
+        if isinstance(pen_head_candidate, dict):
+            try:
+                reverse_anchor_ref = {
+                    "kind": "candidate",
+                    "start_time": int(pen_head_candidate.get("start_time") or 0),
+                    "end_time": int(pen_head_candidate.get("end_time") or 0),
+                    "direction": int(pen_head_candidate.get("direction") or 0),
+                }
+            except Exception:
+                reverse_anchor_ref = None
+
+        factors.append("anchor")
+        snapshots["anchor"] = FactorSliceV1(
+            history={"switches": anchor_switches},
+            head={"current_anchor_ref": current_anchor_ref, "reverse_anchor_ref": reverse_anchor_ref},
+            meta=FactorMetaV1(
+                series_id=series_id,
+                at_time=int(aligned),
+                candle_id=candle_id,
+                factor_name="anchor",
+            ),
+        )
+
+    return GetFactorSlicesResponseV1(
+        series_id=series_id,
+        at_time=int(aligned),
+        candle_id=candle_id,
+        factors=factors,
+        snapshots=snapshots,
+    )

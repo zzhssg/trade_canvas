@@ -33,6 +33,25 @@ export const FACTOR_CATALOG: FactorSpec[] = [
     sub_features: [{ key: "pen.confirmed", label: "Confirmed", default_visible: false }]
   },
   {
+    key: "zhongshu",
+    label: "Zhongshu",
+    default_visible: true,
+    sub_features: [
+      { key: "zhongshu.alive", label: "Alive", default_visible: true },
+      { key: "zhongshu.dead", label: "Dead", default_visible: false }
+    ]
+  },
+  {
+    key: "anchor",
+    label: "Anchor",
+    default_visible: true,
+    sub_features: [
+      { key: "anchor.current", label: "Current", default_visible: true },
+      { key: "anchor.reverse", label: "Reverse", default_visible: false },
+      { key: "anchor.switch", label: "Switches", default_visible: false }
+    ]
+  },
+  {
     key: "sma",
     label: "SMA",
     default_visible: true,
