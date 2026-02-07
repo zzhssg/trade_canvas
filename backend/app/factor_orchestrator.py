@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .anchor_semantics import should_append_switch
@@ -345,6 +348,7 @@ class FactorOrchestrator:
                 FactorSpec("anchor", ("pen", "zhongshu")),
             ]
         )
+        self._logic_hash_cache: str | None = None
 
     def set_debug_hub(self, hub: DebugHub | None) -> None:
         self._debug_hub = hub
@@ -376,6 +380,41 @@ class FactorOrchestrator:
             except ValueError:
                 lookback = self._settings.lookback_candles
         return FactorSettings(pivot_window_major=int(major), pivot_window_minor=int(minor), lookback_candles=int(lookback))
+
+    def logic_hash(self) -> str:
+        if self._logic_hash_cache is not None:
+            return self._logic_hash_cache
+
+        base = Path(__file__).resolve().parent
+        files = [
+            "factor_orchestrator.py",
+            "factor_slices.py",
+            "anchor_semantics.py",
+            "zhongshu.py",
+            "pen.py",
+        ]
+        file_hashes: dict[str, str] = {}
+        for rel in files:
+            p = base / rel
+            try:
+                payload = p.read_bytes()
+            except Exception:
+                payload = b""
+            file_hashes[rel] = hashlib.sha256(payload).hexdigest()
+
+        s = self._load_settings()
+        signature = {
+            "contract": "factor_logic_v1",
+            "files": file_hashes,
+            "params": {
+                "pivot_window_major": int(s.pivot_window_major),
+                "pivot_window_minor": int(s.pivot_window_minor),
+                "lookback_candles": int(s.lookback_candles),
+            },
+        }
+        raw = json.dumps(signature, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        self._logic_hash_cache = hashlib.sha256(raw).hexdigest()
+        return self._logic_hash_cache
 
     def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None:
         t0 = time.perf_counter()
@@ -751,7 +790,12 @@ class FactorOrchestrator:
                     candle_time=int(up_to),
                     head=anchor_head,
                 )
-            self._factor_store.upsert_head_time_in_conn(conn, series_id=series_id, head_time=int(up_to))
+            self._factor_store.upsert_head_time_in_conn(
+                conn,
+                series_id=series_id,
+                head_time=int(up_to),
+                logic_hash=self.logic_hash(),
+            )
             conn.commit()
             wrote = int(conn.total_changes) - before_changes
 

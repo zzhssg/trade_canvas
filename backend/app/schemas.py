@@ -125,6 +125,19 @@ class GetFactorSlicesResponseV1(BaseModel):
     snapshots: dict[str, FactorSliceV1] = Field(default_factory=dict)
 
 
+class FactorRebuildRequestV1(BaseModel):
+    series_id: str = Field(..., min_length=1)
+    include_overlay: bool = True
+
+
+class FactorRebuildResponseV1(BaseModel):
+    ok: bool
+    series_id: str
+    rebuilt_to_time: int
+    factor_logic_hash: str
+    include_overlay: bool
+
+
 class ReplayPrepareRequestV1(BaseModel):
     series_id: str = Field(..., min_length=1)
     to_time: int | None = Field(default=None, ge=0)
