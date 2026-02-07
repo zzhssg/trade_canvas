@@ -80,6 +80,14 @@ from .timeframe import series_id_timeframe, timeframe_to_seconds
 from .whitelist import load_market_whitelist
 from .ws_hub import CandleHub
 from .worktree_manager import WorktreeManager
+from .series_id import parse_series_id
+from .derived_timeframes import (
+    derived_base_timeframe,
+    derived_enabled,
+    is_derived_series_id,
+    rollup_closed_candles,
+    to_base_series_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1193,6 +1201,52 @@ def create_app() -> FastAPI:
                                 }
                             )
                             continue
+
+                    # Best-effort backfill: if a derived series is requested and it has no local history yet,
+                    # derive a small tail window from the base 1m history so the chart can render immediately.
+                    if derived_enabled() and is_derived_series_id(series_id):
+                        try:
+                            if store.head_time(series_id) is None:
+                                base_series_id = to_base_series_id(series_id)
+                                limit_raw = (os.environ.get("TRADE_CANVAS_DERIVED_BACKFILL_BASE_CANDLES") or "").strip()
+                                try:
+                                    base_limit = max(100, int(limit_raw)) if limit_raw else 2000
+                                except ValueError:
+                                    base_limit = 2000
+
+                                def _backfill() -> None:
+                                    if store.head_time(series_id) is not None:
+                                        return
+                                    base_candles = store.get_closed(base_series_id, since=None, limit=int(base_limit))
+                                    if not base_candles:
+                                        return
+                                    derived_tf = parse_series_id(series_id).timeframe
+                                    derived_closed = rollup_closed_candles(
+                                        base_timeframe=derived_base_timeframe(),
+                                        derived_timeframe=derived_tf,
+                                        base_candles=base_candles,
+                                    )
+                                    if not derived_closed:
+                                        return
+                                    with store.connect() as conn:
+                                        store.upsert_many_closed_in_conn(conn, series_id, derived_closed)
+                                        conn.commit()
+                                    try:
+                                        ws.app.state.factor_orchestrator.ingest_closed(
+                                            series_id=series_id, up_to_candle_time=int(derived_closed[-1].candle_time)
+                                        )
+                                    except Exception:
+                                        pass
+                                    try:
+                                        ws.app.state.overlay_orchestrator.ingest_closed(
+                                            series_id=series_id, up_to_candle_time=int(derived_closed[-1].candle_time)
+                                        )
+                                    except Exception:
+                                        pass
+
+                                await run_blocking(_backfill)
+                        except Exception:
+                            pass
 
                     await hub.subscribe(ws, series_id=series_id, since=since, supports_batch=bool(supports_batch))
                     if series_id not in subscribed_series:

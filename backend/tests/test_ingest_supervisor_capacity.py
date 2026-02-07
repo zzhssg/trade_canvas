@@ -21,6 +21,9 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmpdir.cleanup()
         os.environ.pop("TRADE_CANVAS_ONDEMAND_MAX_JOBS", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES", None)
+        os.environ.pop("TRADE_CANVAS_DERIVED_BASE_TIMEFRAME", None)
+        os.environ.pop("TRADE_CANVAS_DERIVED_TIMEFRAMES", None)
 
     def test_capacity_denies_when_full_and_no_idle(self) -> None:
         os.environ["TRADE_CANVAS_ONDEMAND_MAX_JOBS"] = "1"
@@ -92,7 +95,44 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_derived_subscription_maps_to_base_job(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES"] = "1"
+        os.environ["TRADE_CANVAS_DERIVED_BASE_TIMEFRAME"] = "1m"
+        os.environ["TRADE_CANVAS_DERIVED_TIMEFRAMES"] = "5m"
+
+        store = CandleStore(db_path=self.db_path)
+        hub = CandleHub()
+        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=())
+        started: list[str] = []
+
+        def _fake_start_job(self, series_id: str, *, refcount: int) -> _Job:  # noqa: ANN001
+            started.append(series_id)
+            stop = asyncio.Event()
+
+            async def _worker() -> None:
+                await stop.wait()
+
+            task = asyncio.create_task(_worker())
+            return _Job(
+                series_id=series_id,
+                stop=stop,
+                task=task,
+                source="test",
+                refcount=refcount,
+                last_zero_at=None,
+                started_at=time.time(),
+            )
+
+        async def run() -> None:
+            with patch.object(IngestSupervisor, "_start_job", new=_fake_start_job):
+                ok = await sup.subscribe("binance:spot:BTC/USDT:5m")
+                self.assertTrue(ok)
+                self.assertEqual(started, ["binance:spot:BTC/USDT:1m"])
+                await sup.unsubscribe("binance:spot:BTC/USDT:5m")
+            await sup.close()
+
+        asyncio.run(run())
+
 
 if __name__ == "__main__":
     unittest.main()
-
