@@ -32,7 +32,8 @@ import {
   fetchFactorSlices,
   fetchWorldFrameAtTime,
   fetchWorldFrameLive,
-  pollWorldDelta
+  pollWorldDelta,
+  prepareReplay
 } from "./chart/api";
 import { MAX_BAR_SPACING_ON_FIT_CONTENT, clampBarSpacing } from "./chart/barSpacing";
 import { mergeCandlesWindow, mergeCandleWindow, toChartCandle } from "./chart/candles";
@@ -55,7 +56,7 @@ import { parseMarketWsMessage } from "./chart/ws";
 import { useReplayPackage } from "./chart/useReplayPackage";
 
 const INITIAL_TAIL_LIMIT = 2000;
-const ENABLE_REPLAY_V1 = import.meta.env.VITE_ENABLE_REPLAY_V1 === "1";
+const ENABLE_REPLAY_V1 = String(import.meta.env.VITE_ENABLE_REPLAY_V1 ?? "1") === "1";
 const ENABLE_PEN_SEGMENT_COLOR = import.meta.env.VITE_ENABLE_PEN_SEGMENT_COLOR === "1";
 // Default to enabled (unless explicitly disabled) to avoid "delta + slices" double-fetch loops in live mode.
 const ENABLE_WORLD_FRAME = String(import.meta.env.VITE_ENABLE_WORLD_FRAME ?? "1") === "1";
@@ -79,6 +80,28 @@ export function ChartView() {
   const appliedRef = useRef<{ len: number; lastTime: number | null }>({ len: 0, lastTime: null });
   const [error, setError] = useState<string | null>(null);
   const { exchange, market, symbol, timeframe, activeChartTool, setActiveChartTool } = useUiStore();
+  const replayMode = useReplayStore((s) => s.mode);
+  const replayPlaying = useReplayStore((s) => s.playing);
+  const replaySpeedMs = useReplayStore((s) => s.speedMs);
+  const replayIndex = useReplayStore((s) => s.index);
+  const replayTotal = useReplayStore((s) => s.total);
+  const replayFocusTime = useReplayStore((s) => s.focusTime);
+  const replayPrepareStatus = useReplayStore((s) => s.prepareStatus);
+  const replayPreparedAlignedTime = useReplayStore((s) => s.preparedAlignedTime);
+  const setReplayPlaying = useReplayStore((s) => s.setPlaying);
+  const setReplayIndex = useReplayStore((s) => s.setIndex);
+  const setReplayTotal = useReplayStore((s) => s.setTotal);
+  const setReplayFocusTime = useReplayStore((s) => s.setFocusTime);
+  const setReplayFrame = useReplayStore((s) => s.setFrame);
+  const setReplayFrameLoading = useReplayStore((s) => s.setFrameLoading);
+  const setReplayFrameError = useReplayStore((s) => s.setFrameError);
+  const setReplayPrepareStatus = useReplayStore((s) => s.setPrepareStatus);
+  const setReplayPrepareError = useReplayStore((s) => s.setPrepareError);
+  const setReplayPreparedAlignedTime = useReplayStore((s) => s.setPreparedAlignedTime);
+  const setReplaySlices = useReplayStore((s) => s.setCurrentSlices);
+  const setReplayCandle = useReplayStore((s) => s.setCurrentCandle);
+  const setReplayDrawInstructions = useReplayStore((s) => s.setCurrentDrawInstructions);
+  const resetReplayData = useReplayStore((s) => s.resetData);
   const seriesId = useMemo(() => `${exchange}:${market}:${symbol}:${timeframe}`, [exchange, market, symbol, timeframe]);
 
   const { visibleFeatures } = useFactorStore();
@@ -99,31 +122,26 @@ export function ChartView() {
   const [zhongshuCount, setZhongshuCount] = useState(0);
   const [anchorCount, setAnchorCount] = useState(0);
   const [anchorSwitchCount, setAnchorSwitchCount] = useState(0);
-  const replayEnabled = useReplayStore((s) => s.enabled);
-  const setReplayEnabled = useReplayStore((s) => s.setEnabled);
-  const replayPlaying = useReplayStore((s) => s.playing);
-  const setReplayPlaying = useReplayStore((s) => s.setPlaying);
-  const replayIndex = useReplayStore((s) => s.index);
-  const setReplayIndex = useReplayStore((s) => s.setIndex);
-  const replaySpeedMs = useReplayStore((s) => s.speedMs);
-  const setReplaySpeedMs = useReplayStore((s) => s.setSpeedMs);
-  const setReplaySlices = useReplayStore((s) => s.setCurrentSlices);
-  const setReplayCandle = useReplayStore((s) => s.setCurrentCandle);
+  const replayEnabled = ENABLE_REPLAY_V1 && replayMode === "replay";
+  const [replayMaskX, setReplayMaskX] = useState<number | null>(null);
   const replayAllCandlesRef = useRef<Array<Candle | null>>([]);
   const replayWindowIndexRef = useRef<number | null>(null);
   const replayPatchRef = useRef<OverlayInstructionPatchItemV1[]>([]);
   const replayPatchAppliedIdxRef = useRef<number>(0);
+  const replayFramePullInFlightRef = useRef(false);
+  const replayFramePendingTimeRef = useRef<number | null>(null);
+  const replayFrameLatestTimeRef = useRef<number | null>(null);
   const followPendingTimeRef = useRef<number | null>(null);
   const followTimerIdRef = useRef<number | null>(null);
 
   const replayPackage = useReplayPackage({
     seriesId,
-    enabled: replayEnabled,
+    enabled: replayEnabled && replayPrepareStatus === "ready",
     windowCandles: REPLAY_WINDOW_CANDLES,
     windowSize: REPLAY_WINDOW_SIZE,
     snapshotInterval: REPLAY_SNAPSHOT_INTERVAL
   });
-  const replayPackageEnabled = replayEnabled && replayPackage.enabled;
+  const replayPackageEnabled = replayEnabled && replayPrepareStatus === "ready" && replayPackage.enabled;
   const replayPackageStatus = replayPackage.status;
   const replayPackageMeta = replayPackage.metadata;
   const replayPackageHistory = replayPackage.historyEvents;
@@ -161,6 +179,33 @@ export function ChartView() {
     activeToolIdRef.current = activeToolId;
   }, [activeToolId]);
 
+  const findReplayIndexByTime = useCallback((timeSec: number) => {
+    const all = candlesRef.current;
+    if (all.length === 0) return null;
+    let lo = 0;
+    let hi = all.length - 1;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const t = Number(all[mid]!.time);
+      if (t === timeSec) return mid;
+      if (t < timeSec) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    const idx = Math.max(0, Math.min(all.length - 1, hi));
+    return idx;
+  }, []);
+
+  const setReplayIndexAndFocus = useCallback(
+    (nextIndex: number, opts?: { pause?: boolean }) => {
+      const total = replayTotal;
+      if (total <= 0) return;
+      const clamped = Math.max(0, Math.min(nextIndex, total - 1));
+      if (opts?.pause) setReplayPlaying(false);
+      setReplayIndex(clamped);
+    },
+    [replayTotal, setReplayIndex, setReplayPlaying]
+  );
+
   const genId = useCallback(() => Math.random().toString(36).substring(2, 9), []);
 
   const clearDrawTools = useCallback(() => {
@@ -178,6 +223,46 @@ export function ChartView() {
     clearDrawTools();
     setActiveChartTool("cursor");
   }, [clearDrawTools, seriesId, setActiveChartTool]);
+
+  useEffect(() => {
+    resetReplayData();
+  }, [resetReplayData, seriesId]);
+
+  useEffect(() => {
+    if (!replayEnabled) resetReplayData();
+  }, [replayEnabled, resetReplayData]);
+
+  useEffect(() => {
+    if (!replayEnabled) {
+      setReplayPrepareStatus("idle");
+      setReplayPrepareError(null);
+      setReplayPreparedAlignedTime(null);
+      return;
+    }
+
+    let cancelled = false;
+    setReplayPrepareStatus("loading");
+    setReplayPrepareError(null);
+    setReplayPreparedAlignedTime(null);
+
+    const run = async () => {
+      try {
+        const prep = await prepareReplay({ seriesId, windowCandles: INITIAL_TAIL_LIMIT });
+        if (cancelled) return;
+        setReplayPreparedAlignedTime(prep.aligned_time);
+        setReplayPrepareStatus("ready");
+      } catch (e: unknown) {
+        if (cancelled) return;
+        setReplayPrepareStatus("error");
+        setReplayPrepareError(e instanceof Error ? e.message : "Replay prepare failed");
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [replayEnabled, seriesId, setReplayPrepareError, setReplayPrepareStatus, setReplayPreparedAlignedTime]);
 
   useEffect(() => {
     if (ENABLE_DRAW_TOOLS) return;
@@ -399,6 +484,18 @@ export function ChartView() {
 
       const tool = activeChartToolRef.current;
 
+      if (replayEnabled && tool === "cursor") {
+        const timeSec =
+          normalizeTimeToSec(param.time) ?? (typeof param.time === "number" ? Number(param.time) : null);
+        if (timeSec != null && Number.isFinite(timeSec)) {
+          const idx = findReplayIndexByTime(Math.floor(Number(timeSec)));
+          if (idx != null) {
+            setReplayIndexAndFocus(idx, { pause: true });
+            return;
+          }
+        }
+      }
+
       if (tool === "position_long" || tool === "position_short") {
         const timeSec =
           normalizeTimeToSec(param.time) ?? (typeof param.time === "number" ? Number(param.time) : null);
@@ -490,7 +587,7 @@ export function ChartView() {
 
     chart.subscribeClick(handler);
     return () => chart.unsubscribeClick(handler);
-  }, [chartEpoch, chartRef, genId, selectTool, seriesRef, setActiveChartTool]);
+  }, [chartEpoch, chartRef, findReplayIndexByTime, genId, replayEnabled, selectTool, seriesRef, setActiveChartTool, setReplayIndexAndFocus]);
 
   useEffect(() => {
     const el = wheelGuardRef.current;
@@ -543,22 +640,6 @@ export function ChartView() {
     visibleFeaturesRef.current = visibleFeatures;
   }, [visibleFeatures]);
 
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    const timeScale = chart.timeScale();
-
-    const update = () => {
-      const spacing = timeScale.options().barSpacing;
-      setBarSpacing((prev) => (prev === spacing ? prev : spacing));
-    };
-
-    update();
-    const handler = () => update();
-    timeScale.subscribeVisibleLogicalRangeChange(handler);
-    return () => timeScale.unsubscribeVisibleLogicalRangeChange(handler);
-  }, [chartEpoch]);
-
   const effectiveVisible = useCallback(
     (key: string): boolean => {
       const features = visibleFeaturesRef.current;
@@ -571,6 +652,44 @@ export function ChartView() {
     },
     [parentBySubKey]
   );
+
+  const updateReplayMask = useCallback(() => {
+    if (!replayEnabled || replayFocusTime == null) {
+      setReplayMaskX(null);
+      return;
+    }
+    const chart = chartRef.current;
+    if (!chart) return;
+    const coord = chart.timeScale().timeToCoordinate(replayFocusTime as UTCTimestamp);
+    if (coord == null || Number.isNaN(coord)) {
+      setReplayMaskX(null);
+      return;
+    }
+    const widthPx = containerRef.current?.clientWidth ?? null;
+    const clamped = widthPx != null ? Math.max(0, Math.min(coord, widthPx)) : coord;
+    setReplayMaskX(clamped);
+  }, [replayEnabled, replayFocusTime]);
+
+  useEffect(() => {
+    updateReplayMask();
+  }, [height, replayEnabled, replayFocusTime, updateReplayMask, width]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const timeScale = chart.timeScale();
+
+    const update = () => {
+      const spacing = timeScale.options().barSpacing;
+      setBarSpacing((prev) => (prev === spacing ? prev : spacing));
+      updateReplayMask();
+    };
+
+    update();
+    const handler = () => update();
+    timeScale.subscribeVisibleLogicalRangeChange(handler);
+    return () => timeScale.unsubscribeVisibleLogicalRangeChange(handler);
+  }, [chartEpoch, updateReplayMask]);
 
   const syncMarkers = useCallback(() => {
     const markers = [...pivotMarkersRef.current, ...anchorSwitchMarkersRef.current, ...entryMarkersRef.current];
@@ -1183,6 +1302,12 @@ export function ChartView() {
   const applyReplayOverlayAtTime = useCallback(
     (toTime: number) => {
       const patch = replayPatchRef.current;
+      if (patch.length === 0) return;
+      const lastApplied = replayPatchAppliedIdxRef.current > 0 ? patch[replayPatchAppliedIdxRef.current - 1] : null;
+      if (lastApplied && lastApplied.visible_time > toTime) {
+        overlayCatalogRef.current.clear();
+        replayPatchAppliedIdxRef.current = 0;
+      }
       let i = replayPatchAppliedIdxRef.current;
       for (; i < patch.length; i++) {
         const p = patch[i]!;
@@ -1194,6 +1319,10 @@ export function ChartView() {
       const tfSeconds = timeframeToSeconds(timeframe);
       const cutoffTime = tfSeconds ? Math.max(0, Math.floor(toTime - INITIAL_TAIL_LIMIT * tfSeconds)) : 0;
       overlayActiveIdsRef.current = new Set(recomputeActiveIdsFromCatalog({ cutoffTime, toTime }));
+      const activeInstructions = Array.from(overlayActiveIdsRef.current)
+        .map((id) => overlayCatalogRef.current.get(id))
+        .filter(Boolean) as OverlayInstructionPatchItemV1[];
+      setReplayDrawInstructions(activeInstructions);
 
       rebuildPivotMarkersFromOverlay();
       rebuildAnchorSwitchMarkersFromOverlay();
@@ -1212,6 +1341,7 @@ export function ChartView() {
       rebuildPenPointsFromOverlay,
       rebuildPivotMarkersFromOverlay,
       rebuildAnchorSwitchMarkersFromOverlay,
+      setReplayDrawInstructions,
       syncMarkers,
       timeframe
     ]
@@ -1236,6 +1366,10 @@ export function ChartView() {
 
       const activeIds = resolveReplayActiveIds(window, targetIdx);
       overlayActiveIdsRef.current = new Set(activeIds);
+      const activeInstructions = activeIds
+        .map((id) => overlayCatalogRef.current.get(id))
+        .filter(Boolean) as OverlayInstructionPatchItemV1[];
+      setReplayDrawInstructions(activeInstructions);
       rebuildPivotMarkersFromOverlay();
       rebuildPenPointsFromOverlay();
       if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
@@ -1250,31 +1384,62 @@ export function ChartView() {
       rebuildPenPointsFromOverlay,
       rebuildPivotMarkersFromOverlay,
       resolveReplayActiveIds,
+      setReplayDrawInstructions,
       setPenPointCount,
       syncMarkers
     ]
   );
 
-  const setReplayIndexAndCandles = useCallback(
-    (nextIndex: number, opts?: { pause?: boolean }) => {
-      const total = replayPackageEnabled ? replayPackageMeta?.total_candles ?? 0 : replayAllCandlesRef.current.length;
-      if (total <= 0) return;
-      const clamped = Math.max(0, Math.min(nextIndex, total - 1));
-      if (opts?.pause) setReplayPlaying(false);
-      setReplayIndex(clamped);
-      if (replayPackageEnabled) return;
-      const all = replayAllCandlesRef.current as Candle[];
-      if (all.length === 0) return;
-      setCandles((prev) => {
-        // Append-only fast-path for smooth playback.
-        const next =
-          clamped === prev.length && clamped < all.length ? [...prev, all[clamped]!] : all.slice(0, clamped + 1);
-        candlesRef.current = next;
-        return next;
-      });
-      applyReplayOverlayAtTime(all[clamped]!.time as number);
+  const requestReplayFrameAtTime = useCallback(
+    async (atTime: number) => {
+      const aligned = Math.max(0, Math.floor(atTime));
+      if (!replayEnabled || aligned <= 0) return;
+      if (replayFrameLatestTimeRef.current === aligned) return;
+      replayFramePendingTimeRef.current = aligned;
+      if (replayFramePullInFlightRef.current) return;
+
+      replayFramePullInFlightRef.current = true;
+      setReplayFrameLoading(true);
+      setReplayFrameError(null);
+      try {
+        while (replayFramePendingTimeRef.current != null) {
+          const next = replayFramePendingTimeRef.current;
+          replayFramePendingTimeRef.current = null;
+          const frame = await fetchWorldFrameAtTime({ seriesId, atTime: next, windowCandles: INITIAL_TAIL_LIMIT });
+          if (!replayEnabled) break;
+          replayFrameLatestTimeRef.current = next;
+          setReplayFrame(frame);
+          applyPenAndAnchorFromFactorSlices(frame.factor_slices);
+          setReplaySlices(frame.factor_slices);
+          setReplayCandle({
+            candleId: frame.time.candle_id,
+            atTime: frame.time.aligned_time,
+            activeIds: frame.draw_state?.active_ids ?? []
+          });
+          const patch = Array.isArray(frame.draw_state?.instruction_catalog_patch)
+            ? frame.draw_state.instruction_catalog_patch
+            : [];
+          setReplayDrawInstructions(patch);
+        }
+      } catch (e: unknown) {
+        if (!replayEnabled) return;
+        setReplayFrameError(e instanceof Error ? e.message : "Failed to load replay frame");
+      } finally {
+        if (replayEnabled) setReplayFrameLoading(false);
+        replayFramePullInFlightRef.current = false;
+      }
     },
-    [applyReplayOverlayAtTime, replayPackageEnabled, replayPackageMeta?.total_candles, setReplayIndex, setReplayPlaying]
+    [
+      applyPenAndAnchorFromFactorSlices,
+      replayEnabled,
+      seriesId,
+      setReplayCandle,
+      setReplayDrawInstructions,
+      setReplayFrame,
+      setReplayFrameError,
+      setReplayFrameLoading,
+      setReplaySlices
+    ]
   );
 
   useEffect(() => {
@@ -1498,6 +1663,7 @@ export function ChartView() {
 
   useEffect(() => {
     if (replayPackageEnabled) return;
+    if (replayEnabled && replayPrepareStatus !== "ready") return;
     let isActive = true;
     let ws: WebSocket | null = null;
 
@@ -1561,10 +1727,11 @@ export function ChartView() {
             replayAllCandlesRef.current = initial.candles;
             replayPatchRef.current = [];
             replayPatchAppliedIdxRef.current = 0;
-            setReplayIndex(0);
-            setReplayPlaying(true);
-
-            const endTime = initial.candles[initial.candles.length - 1]!.time as number;
+            overlayCatalogRef.current.clear();
+            overlayActiveIdsRef.current.clear();
+            overlayCursorVersionRef.current = 0;
+            replayFrameLatestTimeRef.current = null;
+            const endTime = replayPreparedAlignedTime ?? (initial.candles[initial.candles.length - 1]!.time as number);
             try {
               const draw = await fetchDrawDelta({ seriesId, cursorVersionId: 0, windowCandles: INITIAL_TAIL_LIMIT, atTime: endTime });
               if (!isActive) return;
@@ -1576,14 +1743,12 @@ export function ChartView() {
               replayPatchRef.current = [];
             }
 
-            overlayCatalogRef.current.clear();
-            overlayActiveIdsRef.current.clear();
-            overlayCursorVersionRef.current = 0;
-
-            const first = initial.candles[0]!;
-            candlesRef.current = [first];
-            setCandles([first]);
-            applyReplayOverlayAtTime(first.time as number);
+            candlesRef.current = initial.candles;
+            setCandles(initial.candles);
+            setReplayTotal(initial.candles.length);
+            setReplayPlaying(false);
+            const lastIdx = Math.max(0, initial.candles.length - 1);
+            setReplayIndex(lastIdx);
             return;
           }
 
@@ -1921,13 +2086,20 @@ export function ChartView() {
     fetchOverlayLikeDelta,
     fetchWorldFrameAtTime,
     fetchWorldFrameLive,
+    requestReplayFrameAtTime,
     rebuildOverlayPolylinesFromOverlay,
     rebuildPenPointsFromOverlay,
     rebuildPivotMarkersFromOverlay,
     rebuildAnchorSwitchMarkersFromOverlay,
     replayEnabled,
+    replayPrepareStatus,
+    replayPreparedAlignedTime,
     replayPackageEnabled,
     seriesId,
+    setReplayFocusTime,
+    setReplayIndex,
+    setReplayPlaying,
+    setReplayTotal,
     syncMarkers
   ]);
 
@@ -1952,10 +2124,25 @@ export function ChartView() {
     replayPatchRef.current = [];
     replayPatchAppliedIdxRef.current = 0;
     setReplayIndex(0);
-    setReplayPlaying(true);
+    setReplayPlaying(false);
+    setReplayTotal(0);
+    setReplayFocusTime(null);
+    setReplayFrame(null);
     setReplaySlices(null);
     setReplayCandle({ candleId: null, atTime: null, activeIds: [] });
-  }, [replayPackageEnabled, seriesId, setReplayCandle, setReplayIndex, setReplayPlaying, setReplaySlices]);
+    setReplayDrawInstructions([]);
+  }, [
+    replayPackageEnabled,
+    seriesId,
+    setReplayCandle,
+    setReplayDrawInstructions,
+    setReplayFocusTime,
+    setReplayFrame,
+    setReplayIndex,
+    setReplayPlaying,
+    setReplaySlices,
+    setReplayTotal
+  ]);
 
   useEffect(() => {
     if (!replayPackageEnabled) return;
@@ -1964,7 +2151,9 @@ export function ChartView() {
     if (!meta || meta.total_candles <= 0) return;
     const metaValue = meta;
     const total = metaValue.total_candles;
-    const clamped = Math.max(0, Math.min(replayIndex, total - 1));
+    setReplayTotal(total);
+    const desiredIndex = replayFocusTime == null ? total - 1 : replayIndex;
+    const clamped = Math.max(0, Math.min(desiredIndex, total - 1));
     if (clamped !== replayIndex) {
       setReplayIndex(clamped);
       return;
@@ -1973,32 +2162,39 @@ export function ChartView() {
     let cancelled = false;
 
     async function run() {
-      await replayEnsureWindowRange(0, clamped);
+      await replayEnsureWindowRange(0, total - 1);
       if (cancelled) return;
+
+      if (replayAllCandlesRef.current.length !== total) {
+        replayAllCandlesRef.current = Array.from({ length: total }, () => null);
+      }
+      for (const bundle of Object.values(replayPackageWindows)) {
+        const startIdx = bundle.window.start_idx;
+        const kline = bundle.window.kline ?? [];
+        kline.forEach((bar, i) => {
+          replayAllCandlesRef.current[startIdx + i] = toReplayCandle(bar);
+        });
+      }
+
+      const filled = replayAllCandlesRef.current.filter(Boolean) as Candle[];
+      if (filled.length === total) {
+        const all = replayAllCandlesRef.current as Candle[];
+        candlesRef.current = all;
+        setCandles(all);
+      } else if (filled.length > 0) {
+        candlesRef.current = filled;
+        setCandles(filled);
+      }
 
       const windowIndex = Math.floor(clamped / metaValue.window_size);
       const bundle = replayPackageWindows[windowIndex];
       if (!bundle) return;
 
-      if (replayAllCandlesRef.current.length !== total) {
-        replayAllCandlesRef.current = Array.from({ length: total }, () => null);
-      }
-      const startIdx = bundle.window.start_idx;
-      const kline = bundle.window.kline ?? [];
-      kline.forEach((bar, i) => {
-        replayAllCandlesRef.current[startIdx + i] = toReplayCandle(bar);
-      });
-
-      const slice = replayAllCandlesRef.current.slice(0, clamped + 1).filter(Boolean) as Candle[];
-      if (slice.length > 0) {
-        candlesRef.current = slice;
-        setCandles(slice);
-      }
-
       const activeIds = applyReplayPackageWindow(bundle, clamped);
       const candle = replayAllCandlesRef.current[clamped];
       if (!candle) return;
       const toTime = candle.time as number;
+      setReplayFocusTime(toTime);
       const delta = bundle.historyDeltaByIdx[clamped];
       const toEventId = delta ? delta.to_event_id : 0;
       const slices = buildReplayFactorSlices({
@@ -2022,6 +2218,7 @@ export function ChartView() {
     applyReplayPackageWindow,
     buildReplayFactorSlices,
     replayIndex,
+    replayFocusTime,
     replayEnsureWindowRange,
     replayPackageHistory,
     replayPackageEnabled,
@@ -2030,24 +2227,48 @@ export function ChartView() {
     replayPackageWindows,
     seriesId,
     setReplayCandle,
+    setReplayFocusTime,
     setReplayIndex,
     setReplaySlices,
+    setReplayTotal,
     toReplayCandle
   ]);
 
   useEffect(() => {
     if (!replayEnabled) return;
+    if (replayPackageEnabled) return;
+    const all = replayAllCandlesRef.current as Candle[];
+    if (all.length === 0) return;
+    const clamped = Math.max(0, Math.min(replayIndex, replayTotal - 1));
+    if (clamped !== replayIndex) {
+      setReplayIndex(clamped);
+      return;
+    }
+    const time = all[clamped]!.time as number;
+    setReplayFocusTime(time);
+    applyReplayOverlayAtTime(time);
+    void requestReplayFrameAtTime(time);
+  }, [
+    applyReplayOverlayAtTime,
+    replayEnabled,
+    replayIndex,
+    replayPackageEnabled,
+    replayTotal,
+    requestReplayFrameAtTime,
+    setReplayFocusTime,
+    setReplayIndex
+  ]);
+
+  useEffect(() => {
+    if (!replayEnabled) return;
     if (!replayPlaying) return;
-    const total = replayPackageEnabled ? replayPackageMeta?.total_candles ?? 0 : replayAllCandlesRef.current.length;
-    if (total <= 0) return;
-    if (replayIndex >= total - 1) return;
+    if (replayTotal <= 0) return;
+    if (replayIndex >= replayTotal - 1) return;
     const id = window.setTimeout(() => {
-      setReplayIndexAndCandles(replayIndex + 1);
+      setReplayIndexAndFocus(replayIndex + 1);
     }, replaySpeedMs);
     return () => window.clearTimeout(id);
-  }, [replayEnabled, replayIndex, replayPackageEnabled, replayPlaying, replaySpeedMs, setReplayIndexAndCandles, replayPackageMeta?.total_candles]);
-
-  const replayTotal = replayPackageEnabled ? replayPackageMeta?.total_candles ?? 0 : replayAllCandlesRef.current.length;
+  }, [replayEnabled, replayIndex, replayPlaying, replaySpeedMs, replayTotal, setReplayIndexAndFocus]);
 
   return (
     <div
@@ -2069,58 +2290,14 @@ export function ChartView() {
       data-anchor-count={String(anchorCount)}
       data-anchor-switch-count={String(anchorSwitchCount)}
       data-anchor-on={anchorCount > 0 ? "1" : "0"}
+      data-replay-mode={replayEnabled ? "replay" : "live"}
+      data-replay-index={String(replayIndex)}
+      data-replay-total={String(replayTotal)}
+      data-replay-focus-time={replayFocusTime != null ? String(replayFocusTime) : ""}
+      data-replay-playing={replayPlaying ? "1" : "0"}
       className="relative h-full w-full"
       title={error ?? undefined}
     >
-      {ENABLE_REPLAY_V1 ? (
-        <div className="absolute right-2 top-2 z-20 flex items-center gap-2 rounded border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-white/80">
-          <button
-            className="rounded bg-white/10 px-2 py-1 text-white/90 hover:bg-white/15"
-            onClick={() => {
-              const next = !replayEnabled;
-              setReplayEnabled(next);
-              setReplayPlaying(next);
-            }}
-          >
-            Replay {replayEnabled ? "ON" : "OFF"}
-          </button>
-          {replayEnabled ? (
-            <>
-              <button
-                className="rounded bg-white/10 px-2 py-1 text-white/90 hover:bg-white/15"
-                onClick={() => setReplayPlaying(!replayPlaying)}
-              >
-                {replayPlaying ? "Pause" : "Play"}
-              </button>
-              <select
-                className="rounded bg-white/10 px-2 py-1 text-white/90"
-                value={replaySpeedMs}
-                onChange={(e) => setReplaySpeedMs(Number(e.target.value))}
-                title="Replay speed"
-              >
-                <option value={50}>20x</option>
-                <option value={100}>10x</option>
-                <option value={200}>5x</option>
-                <option value={400}>2x</option>
-                <option value={800}>1x</option>
-              </select>
-              <input
-                className="w-56"
-                type="range"
-                min={0}
-                max={Math.max(0, replayTotal - 1)}
-                value={replayIndex}
-                onChange={(e) => setReplayIndexAndCandles(Number(e.target.value), { pause: true })}
-                title="Seek"
-              />
-              <span className="font-mono text-white/70" title="index / total">
-                {replayTotal ? `${replayIndex + 1}/${replayTotal}` : "0/0"}
-              </span>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-
       <div
         ref={(el) => {
           containerRef.current = el;
@@ -2128,6 +2305,20 @@ export function ChartView() {
         }}
         className="h-full w-full"
       />
+
+      {replayEnabled && replayMaskX != null ? (
+        <>
+          <div
+            data-testid="replay-mask"
+            className="pointer-events-none absolute inset-y-0 right-0 z-10 bg-black/55"
+            style={{ left: `${replayMaskX}px` }}
+          />
+          <div
+            className="pointer-events-none absolute inset-y-0 z-20 w-px bg-amber-300/70"
+            style={{ left: `${replayMaskX}px` }}
+          />
+        </>
+      ) : null}
 
       {ENABLE_DRAW_TOOLS ? (
         <div className="pointer-events-none absolute inset-0 z-30">

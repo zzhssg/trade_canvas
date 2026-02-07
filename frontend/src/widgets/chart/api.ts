@@ -5,6 +5,7 @@ import type {
   DrawDeltaV1,
   GetCandlesResponse,
   GetFactorSlicesResponseV1,
+  ReplayPrepareResponseV1,
   ReplayBuildRequestV1,
   ReplayBuildResponseV1,
   ReplayCoverageStatusResponseV1,
@@ -90,6 +91,24 @@ export async function fetchFactorSlices(params: {
   const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as GetFactorSlicesResponseV1;
+}
+
+export async function prepareReplay(params: {
+  seriesId: string;
+  toTime?: number;
+  windowCandles?: number;
+}): Promise<ReplayPrepareResponseV1> {
+  const res = await fetch(apiUrl("/api/replay/prepare"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      series_id: params.seriesId,
+      to_time: params.toTime ?? null,
+      window_candles: params.windowCandles ?? null
+    })
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as ReplayPrepareResponseV1;
 }
 
 export async function fetchWorldFrameLive(params: {

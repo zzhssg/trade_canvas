@@ -124,6 +124,23 @@ class GetFactorSlicesResponseV1(BaseModel):
     factors: list[str] = Field(default_factory=list)
     snapshots: dict[str, FactorSliceV1] = Field(default_factory=dict)
 
+
+class ReplayPrepareRequestV1(BaseModel):
+    series_id: str = Field(..., min_length=1)
+    to_time: int | None = Field(default=None, ge=0)
+    window_candles: int | None = Field(default=None, ge=1, le=5000)
+
+
+class ReplayPrepareResponseV1(BaseModel):
+    ok: bool
+    series_id: str
+    requested_time: int
+    aligned_time: int
+    window_candles: int
+    factor_head_time: int | None
+    overlay_head_time: int | None
+    computed: bool
+
 class OverlayInstructionPatchItemV1(BaseModel):
     version_id: int
     instruction_id: str

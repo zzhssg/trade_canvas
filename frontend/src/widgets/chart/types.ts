@@ -47,6 +47,17 @@ export type FactorMetaV1 = ApiFactorMetaV1;
 export type FactorSliceV1 = ApiFactorSliceV1;
 export type GetFactorSlicesResponseV1 = ApiGetFactorSlicesResponseV1;
 
+export type ReplayPrepareResponseV1 = {
+  ok: boolean;
+  series_id: string;
+  requested_time: number;
+  aligned_time: number;
+  window_candles: number;
+  factor_head_time: number | null;
+  overlay_head_time: number | null;
+  computed: boolean;
+};
+
 export type PlotLinePointV1 = ApiPlotLinePointV1;
 export type OverlayInstructionPatchItemV1 = ApiOverlayInstructionPatchItemV1;
 

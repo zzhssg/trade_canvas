@@ -2,7 +2,7 @@
 title: API v1 · World（HTTP）
 status: draft
 created: 2026-02-03
-updated: 2026-02-03
+updated: 2026-02-07
 ---
 
 # API v1 · World（HTTP）
@@ -93,3 +93,39 @@ curl --noproxy '*' -sS \
 - v1 world delta 的增量游标是 `after_id`，当前实现把它映射到 draw 的 `version_id`（compat projection）。
 - 每次 poll 最多返回 1 条 record：当 cursor 没前进时 `records=[]`，`next_cursor.id` 保持不变。
 
+## POST /api/replay/prepare
+
+### 示例（curl）
+
+```bash
+curl --noproxy '*' -sS -X POST \
+  "http://127.0.0.1:8000/api/replay/prepare" \
+  -H "Content-Type: application/json" \
+  -d '{"series_id":"binance:futures:BTC/USDT:1m","to_time":1700000005,"window_candles":2000}'
+```
+
+### 示例请求（json）
+
+```json
+{"series_id":"binance:futures:BTC/USDT:1m","to_time":1700000005,"window_candles":2000}
+```
+
+### 示例响应（json）
+
+```json
+{
+  "ok": true,
+  "series_id": "binance:futures:BTC/USDT:1m",
+  "requested_time": 1700000005,
+  "aligned_time": 1700000000,
+  "window_candles": 2000,
+  "factor_head_time": 1700000000,
+  "overlay_head_time": 1700000000,
+  "computed": true
+}
+```
+
+### 语义
+
+- replay prepare 会确保 factor/overlay ledger 已补算并落库到 `aligned_time`，否则返回 409。
+- `aligned_time` 为回放加载的对齐时间（close candle）。

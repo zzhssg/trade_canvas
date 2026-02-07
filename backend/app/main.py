@@ -49,6 +49,8 @@ from .schemas import (
     IngestCandleFormingResponse,
     LimitQuery,
     SinceQuery,
+    ReplayPrepareRequestV1,
+    ReplayPrepareResponseV1,
     StrategyListResponse,
     TopMarketsLimitQuery,
     TopMarketsResponse,
@@ -523,6 +525,71 @@ def create_app() -> FastAPI:
         """
         return app.state.factor_slices_service.get_slices(
             series_id=series_id, at_time=int(at_time), window_candles=int(window_candles)
+        )
+
+    @app.post("/api/replay/prepare", response_model=ReplayPrepareResponseV1)
+    def prepare_replay(req: ReplayPrepareRequestV1) -> ReplayPrepareResponseV1:
+        """
+        Replay prepare:
+        - Ensures factor/overlay ledgers are computed up to aligned time.
+        - Returns aligned_time for replay loading.
+        """
+        series_id = req.series_id
+        store_head = store.head_time(series_id)
+        if store_head is None:
+            raise HTTPException(status_code=404, detail="no_data")
+        requested_time = int(req.to_time) if req.to_time is not None else int(store_head)
+        aligned = store.floor_time(series_id, at_time=int(requested_time))
+        if aligned is None:
+            raise HTTPException(status_code=404, detail="no_data")
+
+        window_candles = int(req.window_candles or 2000)
+        window_candles = min(5000, max(100, window_candles))
+
+        computed = False
+        factor_head = app.state.factor_store.head_time(series_id)
+        overlay_head = app.state.overlay_store.head_time(series_id)
+
+        if factor_head is None or int(factor_head) < int(aligned):
+            app.state.factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
+            factor_head = app.state.factor_store.head_time(series_id)
+            computed = True
+
+        if overlay_head is None or int(overlay_head) < int(aligned):
+            app.state.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
+            overlay_head = app.state.overlay_store.head_time(series_id)
+            computed = True
+
+        if factor_head is None or int(factor_head) < int(aligned):
+            raise HTTPException(status_code=409, detail="ledger_out_of_sync:factor")
+        if overlay_head is None or int(overlay_head) < int(aligned):
+            raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
+
+        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
+            app.state.debug_hub.emit(
+                pipe="read",
+                event="read.http.replay_prepare",
+                series_id=series_id,
+                message="prepare replay",
+                data={
+                    "requested_time": int(requested_time),
+                    "aligned_time": int(aligned),
+                    "window_candles": int(window_candles),
+                    "factor_head_time": int(factor_head),
+                    "overlay_head_time": int(overlay_head),
+                    "computed": bool(computed),
+                },
+            )
+
+        return ReplayPrepareResponseV1(
+            ok=True,
+            series_id=series_id,
+            requested_time=int(requested_time),
+            aligned_time=int(aligned),
+            window_candles=int(window_candles),
+            factor_head_time=int(factor_head) if factor_head is not None else None,
+            overlay_head_time=int(overlay_head) if overlay_head is not None else None,
+            computed=bool(computed),
         )
 
     @app.get("/api/frame/live", response_model=WorldStateV1)
