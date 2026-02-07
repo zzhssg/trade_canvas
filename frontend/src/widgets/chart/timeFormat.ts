@@ -54,4 +54,3 @@ export function formatChartTimeYmdHm(time: Time): string {
   if (sec == null) return "--";
   return formatUnixSecondsYmdHm(sec);
 }
-
