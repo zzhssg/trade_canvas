@@ -1,6 +1,26 @@
+import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 
 const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
+const apiBase =
+  process.env.E2E_API_BASE_URL ?? process.env.VITE_API_BASE ?? process.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+async function ingestClosedCandle(request: APIRequestContext, candle_time: number, price: number) {
+  const res = await request.post(`${apiBase}/api/market/ingest/candle_closed`, {
+    data: {
+      series_id: "binance:futures:BTC/USDT:1m",
+      candle: {
+        candle_time,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: 10
+      }
+    }
+  });
+  expect(res.ok()).toBeTruthy();
+}
 
 async function ensureScrollable(page: any) {
   await page.evaluate(() => {
@@ -14,8 +34,12 @@ async function ensureScrollable(page: any) {
   });
 }
 
-test("wheel over chart zooms horizontally (no middle scroll) @smoke", async ({ page }) => {
+test("wheel over chart zooms horizontally (no middle scroll) @smoke", async ({ page, request }) => {
   await page.addInitScript(() => localStorage.clear());
+  const base = 60;
+  for (let i = 0; i < 3; i++) {
+    await ingestClosedCandle(request, base * (i + 1), i + 1);
+  }
   await page.goto(`${frontendBase}/live`, { waitUntil: "domcontentloaded" });
 
   const middle = page.getByTestId("middle-scroll");
@@ -50,8 +74,12 @@ test("wheel over chart zooms horizontally (no middle scroll) @smoke", async ({ p
   expect(scrollTopAfter).toBe(scrollTopBefore);
 });
 
-test("wheel outside chart scrolls middle (no chart zoom) @smoke", async ({ page }) => {
+test("wheel outside chart scrolls middle (no chart zoom) @smoke", async ({ page, request }) => {
   await page.addInitScript(() => localStorage.clear());
+  const base = 60;
+  for (let i = 0; i < 3; i++) {
+    await ingestClosedCandle(request, base * (i + 1), i + 1);
+  }
   await page.goto(`${frontendBase}/live`, { waitUntil: "domcontentloaded" });
 
   const middle = page.getByTestId("middle-scroll");

@@ -9,6 +9,8 @@ import {
 } from "lightweight-charts";
 import { useEffect, useRef, useState } from "react";
 
+import { formatChartTimeYmdHm } from "./timeFormat";
+
 type Params = {
   containerRef: React.RefObject<HTMLDivElement | null>;
   width?: number;
@@ -54,6 +56,10 @@ export function useLightweightChart({ containerRef, width, height, onCreated, on
         background: { color: "#0b0f14" },
         textColor: "#c9d1d9"
       },
+      localization: {
+        // Crosshair time label formatting (time axis label), keep ticks unchanged.
+        timeFormatter: formatChartTimeYmdHm
+      },
       grid: {
         vertLines: { color: "rgba(255,255,255,0.05)" },
         horzLines: { color: "rgba(255,255,255,0.05)" }
@@ -68,7 +74,7 @@ export function useLightweightChart({ containerRef, width, height, onCreated, on
         vertTouchDrag: true
       },
       handleScale: {
-        mouseWheel: true,
+        mouseWheel: false,
         pinch: true,
         axisPressedMouseMove: true
       }

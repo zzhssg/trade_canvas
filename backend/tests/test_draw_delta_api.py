@@ -119,7 +119,10 @@ class DrawDeltaApiTests(unittest.TestCase):
         # Force overlay head_time to lag behind, then requesting a later at_time must fail-safe.
         overlay_store = self.client.app.state.overlay_store
         with overlay_store.connect() as conn:
-            overlay_store.upsert_head_time_in_conn(conn, series_id=self.series_id, head_time=t_mid)
+            conn.execute(
+                "UPDATE overlay_series_state SET head_time = ? WHERE series_id = ?",
+                (int(t_mid), self.series_id),
+            )
             conn.commit()
 
         res_late = self.client.get(

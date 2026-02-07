@@ -21,9 +21,9 @@ Environment overrides (optional):
   E2E_SKIP_DOC_AUDIT=1
     - Skip `bash docs/scripts/doc_audit.sh` (fast local loop; do not use for final delivery).
 
-Optional doc/plan gate (recommended when claiming "done"):
+  Optional doc/plan gate (recommended when claiming "done"):
   E2E_PLAN_DOC=docs/plan/....md
-    - Requires the plan doc front matter status to be done/已完成
+    - Requires the plan doc front matter status to be done/已完成/online/已上线
     - Requires updated: to be today's date
 EOF
 }
@@ -270,9 +270,11 @@ meta = read_frontmatter(path)
 status = (meta.get("status") or "").strip()
 updated = (meta.get("updated") or "").strip()
 
-allowed = {"done", "已完成"}
+allowed = {"done", "已完成", "online", "已上线"}
 if status not in allowed:
-    raise SystemExit(f"[e2e_acceptance] FAIL: {path} status must be done/已完成, got {status!r}")
+    raise SystemExit(
+        f"[e2e_acceptance] FAIL: {path} status must be done/已完成/online/已上线, got {status!r}"
+    )
 
 today = date.today().isoformat()
 if updated != today:

@@ -147,6 +147,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/replay/read_only": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Replay Read Only */
+        get: operations["get_replay_read_only_api_replay_read_only_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/replay/build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Replay Build */
+        post: operations["post_replay_build_api_replay_build_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/replay/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Replay Status */
+        get: operations["get_replay_status_api_replay_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/replay/window": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Replay Window */
+        get: operations["get_replay_window_api_replay_window_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/replay/ensure_coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Replay Ensure Coverage */
+        post: operations["post_replay_ensure_coverage_api_replay_ensure_coverage_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/replay/coverage_status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Replay Coverage Status */
+        get: operations["get_replay_coverage_status_api_replay_coverage_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/delta/poll": {
         parameters: {
             query?: never;
@@ -288,6 +390,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dev/worktrees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Worktrees
+         * @description List all worktrees with metadata and service status.
+         */
+        get: operations["list_worktrees_api_dev_worktrees_get"];
+        put?: never;
+        /**
+         * Create Worktree
+         * @description Create a new worktree with metadata.
+         */
+        post: operations["create_worktree_api_dev_worktrees_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/worktrees/{worktree_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Worktree
+         * @description Get a specific worktree by ID.
+         */
+        get: operations["get_worktree_api_dev_worktrees__worktree_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Worktree
+         * @description Delete a worktree and archive its metadata.
+         */
+        delete: operations["delete_worktree_api_dev_worktrees__worktree_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/worktrees/{worktree_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Worktree Services
+         * @description Start frontend + backend services for a worktree.
+         */
+        post: operations["start_worktree_services_api_dev_worktrees__worktree_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/worktrees/{worktree_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Worktree Services
+         * @description Stop services for a worktree.
+         */
+        post: operations["stop_worktree_services_api_dev_worktrees__worktree_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/ports/allocate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Allocate Ports Endpoint
+         * @description Get next available port pair.
+         */
+        get: operations["allocate_ports_endpoint_api_dev_ports_allocate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/worktrees/{worktree_id}/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Worktree Metadata
+         * @description Update worktree metadata.
+         */
+        patch: operations["update_worktree_metadata_api_dev_worktrees__worktree_id__metadata_patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -346,6 +576,143 @@ export interface components {
             close: number;
             /** Volume */
             volume: number;
+        };
+        /** DevCreateWorktreeRequest */
+        DevCreateWorktreeRequest: {
+            /** Branch */
+            branch: string;
+            /** Description */
+            description: string;
+            /** Plan Path */
+            plan_path?: string | null;
+            /**
+             * Base Branch
+             * @default main
+             */
+            base_branch: string;
+        };
+        /** DevCreateWorktreeResponse */
+        DevCreateWorktreeResponse: {
+            /** Ok */
+            ok: boolean;
+            worktree?: components["schemas"]["DevWorktreeInfo"] | null;
+            /** Error */
+            error?: string | null;
+        };
+        /** DevDeleteWorktreeRequest */
+        DevDeleteWorktreeRequest: {
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+        };
+        /** DevDeleteWorktreeResponse */
+        DevDeleteWorktreeResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Error */
+            error?: string | null;
+        };
+        /** DevPortAllocationResponse */
+        DevPortAllocationResponse: {
+            /** Backend Port */
+            backend_port: number;
+            /** Frontend Port */
+            frontend_port: number;
+        };
+        /** DevServiceState */
+        DevServiceState: {
+            /** Running */
+            running: boolean;
+            /** Port */
+            port: number;
+            /** Pid */
+            pid?: number | null;
+            /** Url */
+            url?: string | null;
+        };
+        /** DevServiceStatus */
+        DevServiceStatus: {
+            backend: components["schemas"]["DevServiceState"];
+            frontend: components["schemas"]["DevServiceState"];
+        };
+        /** DevStartServicesRequest */
+        DevStartServicesRequest: {
+            /** Backend Port */
+            backend_port?: number | null;
+            /** Frontend Port */
+            frontend_port?: number | null;
+        };
+        /** DevStartServicesResponse */
+        DevStartServicesResponse: {
+            /** Ok */
+            ok: boolean;
+            services?: components["schemas"]["DevServiceStatus"] | null;
+            /** Error */
+            error?: string | null;
+        };
+        /** DevStopServicesResponse */
+        DevStopServicesResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Error */
+            error?: string | null;
+        };
+        /** DevUpdateMetadataRequest */
+        DevUpdateMetadataRequest: {
+            /** Description */
+            description?: string | null;
+            /** Plan Path */
+            plan_path?: string | null;
+        };
+        /** DevUpdateMetadataResponse */
+        DevUpdateMetadataResponse: {
+            /** Ok */
+            ok: boolean;
+            metadata?: components["schemas"]["DevWorktreeMetadata"] | null;
+            /** Error */
+            error?: string | null;
+        };
+        /** DevWorktreeInfo */
+        DevWorktreeInfo: {
+            /** Id */
+            id: string;
+            /** Path */
+            path: string;
+            /** Branch */
+            branch: string;
+            /** Commit */
+            commit: string;
+            /** Is Detached */
+            is_detached: boolean;
+            /** Is Main */
+            is_main: boolean;
+            metadata?: components["schemas"]["DevWorktreeMetadata"] | null;
+            services?: components["schemas"]["DevServiceStatus"] | null;
+        };
+        /** DevWorktreeListResponse */
+        DevWorktreeListResponse: {
+            /** Worktrees */
+            worktrees: components["schemas"]["DevWorktreeInfo"][];
+        };
+        /** DevWorktreeMetadata */
+        DevWorktreeMetadata: {
+            /** Description */
+            description: string;
+            /** Plan Path */
+            plan_path?: string | null;
+            /**
+             * Created At
+             * @default
+             */
+            created_at: string;
+            /** Owner */
+            owner?: string | null;
+            /** Ports */
+            ports?: {
+                [key: string]: number;
+            };
         };
         /** DrawCursorV1 */
         DrawCursorV1: {
@@ -515,6 +882,22 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** OverlayReplayCheckpointV1 */
+        OverlayReplayCheckpointV1: {
+            /** At Idx */
+            at_idx: number;
+            /** Active Ids */
+            active_ids?: string[];
+        };
+        /** OverlayReplayDiffV1 */
+        OverlayReplayDiffV1: {
+            /** At Idx */
+            at_idx: number;
+            /** Add Ids */
+            add_ids?: string[];
+            /** Remove Ids */
+            remove_ids?: string[];
+        };
         /** PlotLinePointV1 */
         PlotLinePointV1: {
             /**
@@ -524,6 +907,236 @@ export interface components {
             time: number;
             /** Value */
             value: number;
+        };
+        /** ReplayBuildRequestV1 */
+        ReplayBuildRequestV1: {
+            /** Series Id */
+            series_id: string;
+            /** To Time */
+            to_time?: number | null;
+            /** Window Candles */
+            window_candles?: number | null;
+            /** Window Size */
+            window_size?: number | null;
+            /** Snapshot Interval */
+            snapshot_interval?: number | null;
+        };
+        /** ReplayBuildResponseV1 */
+        ReplayBuildResponseV1: {
+            /**
+             * Status
+             * @description building | done
+             */
+            status: string;
+            /** Job Id */
+            job_id: string;
+            /** Cache Key */
+            cache_key: string;
+        };
+        /** ReplayCoverageStatusResponseV1 */
+        ReplayCoverageStatusResponseV1: {
+            /**
+             * Status
+             * @description building | done | error
+             */
+            status: string;
+            /** Job Id */
+            job_id: string;
+            /** Candles Ready */
+            candles_ready: number;
+            /** Required Candles */
+            required_candles: number;
+            /** Head Time */
+            head_time?: number | null;
+            /** Error */
+            error?: string | null;
+        };
+        /** ReplayCoverageV1 */
+        ReplayCoverageV1: {
+            /** Required Candles */
+            required_candles: number;
+            /** Candles Ready */
+            candles_ready: number;
+            /** From Time */
+            from_time?: number | null;
+            /** To Time */
+            to_time?: number | null;
+        };
+        /** ReplayEnsureCoverageRequestV1 */
+        ReplayEnsureCoverageRequestV1: {
+            /** Series Id */
+            series_id: string;
+            /**
+             * Target Candles
+             * @default 2000
+             */
+            target_candles: number;
+            /** To Time */
+            to_time?: number | null;
+        };
+        /** ReplayEnsureCoverageResponseV1 */
+        ReplayEnsureCoverageResponseV1: {
+            /**
+             * Status
+             * @description building | done | error
+             */
+            status: string;
+            /** Job Id */
+            job_id: string;
+            /** Error */
+            error?: string | null;
+        };
+        /** ReplayFactorHeadSnapshotV1 */
+        ReplayFactorHeadSnapshotV1: {
+            /** Factor Name */
+            factor_name: string;
+            /** Candle Time */
+            candle_time: number;
+            /** Seq */
+            seq: number;
+            /** Head */
+            head?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ReplayHistoryDeltaV1 */
+        ReplayHistoryDeltaV1: {
+            /** Idx */
+            idx: number;
+            /** From Event Id */
+            from_event_id: number;
+            /** To Event Id */
+            to_event_id: number;
+        };
+        /** ReplayHistoryEventV1 */
+        ReplayHistoryEventV1: {
+            /** Event Id */
+            event_id: number;
+            /** Factor Name */
+            factor_name: string;
+            /** Candle Time */
+            candle_time: number;
+            /** Kind */
+            kind: string;
+            /** Event Key */
+            event_key: string;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ReplayKlineBarV1 */
+        ReplayKlineBarV1: {
+            /**
+             * Time
+             * @description Unix seconds (candle open time)
+             */
+            time: number;
+            /** Open */
+            open: number;
+            /** High */
+            high: number;
+            /** Low */
+            low: number;
+            /** Close */
+            close: number;
+            /** Volume */
+            volume: number;
+        };
+        /** ReplayPackageMetadataV1 */
+        ReplayPackageMetadataV1: {
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Series Id */
+            series_id: string;
+            /** Timeframe S */
+            timeframe_s: number;
+            /** Total Candles */
+            total_candles: number;
+            /** From Candle Time */
+            from_candle_time: number;
+            /** To Candle Time */
+            to_candle_time: number;
+            /** Window Size */
+            window_size: number;
+            /** Snapshot Interval */
+            snapshot_interval: number;
+            /**
+             * Preload Offset
+             * @default 0
+             */
+            preload_offset: number;
+            /**
+             * Idx To Time
+             * @default replay_kline_bars.candle_time
+             */
+            idx_to_time: string;
+        };
+        /** ReplayReadOnlyResponseV1 */
+        ReplayReadOnlyResponseV1: {
+            /**
+             * Status
+             * @description done | build_required | coverage_missing | out_of_sync
+             */
+            status: string;
+            /** Job Id */
+            job_id: string;
+            /** Cache Key */
+            cache_key: string;
+            coverage?: components["schemas"]["ReplayCoverageV1"] | null;
+            metadata?: components["schemas"]["ReplayPackageMetadataV1"] | null;
+            /** Compute Hint */
+            compute_hint?: string | null;
+        };
+        /** ReplayStatusResponseV1 */
+        ReplayStatusResponseV1: {
+            /**
+             * Status
+             * @description building | done | error | build_required
+             */
+            status: string;
+            /** Job Id */
+            job_id: string;
+            /** Cache Key */
+            cache_key: string;
+            /** Error */
+            error?: string | null;
+            metadata?: components["schemas"]["ReplayPackageMetadataV1"] | null;
+            preload_window?: components["schemas"]["ReplayWindowV1"] | null;
+            /** History Events */
+            history_events?: components["schemas"]["ReplayHistoryEventV1"][] | null;
+        };
+        /** ReplayWindowResponseV1 */
+        ReplayWindowResponseV1: {
+            /** Job Id */
+            job_id: string;
+            window: components["schemas"]["ReplayWindowV1"];
+            /** Factor Head Snapshots */
+            factor_head_snapshots?: components["schemas"]["ReplayFactorHeadSnapshotV1"][];
+            /** History Deltas */
+            history_deltas?: components["schemas"]["ReplayHistoryDeltaV1"][];
+        };
+        /** ReplayWindowV1 */
+        ReplayWindowV1: {
+            /** Window Index */
+            window_index: number;
+            /** Start Idx */
+            start_idx: number;
+            /** End Idx */
+            end_idx: number;
+            /** Kline */
+            kline?: components["schemas"]["ReplayKlineBarV1"][];
+            /** Draw Catalog Base */
+            draw_catalog_base?: components["schemas"]["OverlayInstructionPatchItemV1"][];
+            /** Draw Catalog Patch */
+            draw_catalog_patch?: components["schemas"]["OverlayInstructionPatchItemV1"][];
+            /** Draw Active Checkpoints */
+            draw_active_checkpoints?: components["schemas"]["OverlayReplayCheckpointV1"][];
+            /** Draw Active Diffs */
+            draw_active_diffs?: components["schemas"]["OverlayReplayDiffV1"][];
         };
         /** StrategyListResponse */
         StrategyListResponse: {
@@ -893,6 +1506,203 @@ export interface operations {
             };
         };
     };
+    get_replay_read_only_api_replay_read_only_get: {
+        parameters: {
+            query: {
+                series_id: string;
+                to_time?: number | null;
+                window_candles?: number | null;
+                window_size?: number | null;
+                snapshot_interval?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayReadOnlyResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_replay_build_api_replay_build_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplayBuildRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayBuildResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_replay_status_api_replay_status_get: {
+        parameters: {
+            query: {
+                job_id: string;
+                include_preload?: number;
+                include_history?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayStatusResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_replay_window_api_replay_window_get: {
+        parameters: {
+            query: {
+                job_id: string;
+                target_idx: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayWindowResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_replay_ensure_coverage_api_replay_ensure_coverage_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplayEnsureCoverageRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayEnsureCoverageResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_replay_coverage_status_api_replay_coverage_status_get: {
+        parameters: {
+            query: {
+                job_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayCoverageStatusResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     poll_world_delta_api_delta_poll_get: {
         parameters: {
             query: {
@@ -1124,6 +1934,246 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BacktestRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_worktrees_api_dev_worktrees_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevWorktreeListResponse"];
+                };
+            };
+        };
+    };
+    create_worktree_api_dev_worktrees_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevCreateWorktreeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevCreateWorktreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_worktree_api_dev_worktrees__worktree_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                worktree_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevWorktreeInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_worktree_api_dev_worktrees__worktree_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                worktree_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevDeleteWorktreeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevDeleteWorktreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_worktree_services_api_dev_worktrees__worktree_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                worktree_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevStartServicesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevStartServicesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_worktree_services_api_dev_worktrees__worktree_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                worktree_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevStopServicesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    allocate_ports_endpoint_api_dev_ports_allocate_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevPortAllocationResponse"];
+                };
+            };
+        };
+    };
+    update_worktree_metadata_api_dev_worktrees__worktree_id__metadata_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                worktree_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevUpdateMetadataRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevUpdateMetadataResponse"];
                 };
             };
             /** @description Validation Error */

@@ -1,5 +1,6 @@
-import { useUiStore } from "../state/uiStore";
 import { useEffect, useMemo, useState } from "react";
+
+import { useUiStore } from "../state/uiStore";
 import { useTopMarkets } from "../services/useTopMarkets";
 import { ENABLE_DEBUG_TOOL } from "../debug/debug";
 import { DebugPanel } from "./DebugPanel";

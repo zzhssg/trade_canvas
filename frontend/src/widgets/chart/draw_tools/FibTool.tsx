@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { computeFibLevelPrices, pairFibLevels } from "./fib";
 import { resolveTimeFromX, timeToCoordinateContinuous } from "./chartCoord";
 import type { FibInst } from "./types";
+import { formatUnixSecondsMdHm } from "../timeFormat";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -25,17 +26,6 @@ function formatPrice(price: number): string {
   const abs = Math.abs(p);
   const dp = abs >= 1000 ? 2 : abs >= 1 ? 4 : 6;
   return p.toFixed(dp);
-}
-
-function formatDateTimeShort(timeSec: number): string {
-  const t = Number(timeSec);
-  if (!Number.isFinite(t)) return "--";
-  const d = new Date(t * 1000);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${mm}-${dd} ${hh}:${mi}`;
 }
 
 type DragMode = "a" | "b" | "move" | null;
@@ -395,13 +385,13 @@ export function FibTool({
             className="absolute bottom-1 rounded border border-blue-400/40 bg-blue-600/80 px-2 py-0.5 text-[10px] text-white shadow"
             style={{ left: clampX(Number(effective.ax)), transform: "translateX(-50%)", pointerEvents: "none" }}
           >
-            {formatDateTimeShort(tool.anchors.a.time)}
+            {formatUnixSecondsMdHm(tool.anchors.a.time)}
           </div>
           <div
             className="absolute bottom-1 rounded border border-blue-400/40 bg-blue-600/80 px-2 py-0.5 text-[10px] text-white shadow"
             style={{ left: clampX(Number(effective.bx)), transform: "translateX(-50%)", pointerEvents: "none" }}
           >
-            {formatDateTimeShort(tool.anchors.b.time)}
+            {formatUnixSecondsMdHm(tool.anchors.b.time)}
           </div>
         </>
       ) : null}

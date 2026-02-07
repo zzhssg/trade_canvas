@@ -2,7 +2,7 @@
 title: 文档状态（status）约定
 status: done
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-05
 ---
 
 # 文档状态（status）约定
@@ -28,6 +28,7 @@ updated: 2026-02-02
 - `draft` / `草稿`：还在收敛中；可能不完整；实现可能尚未开始或仍频繁变化
 - `in_progress` / `开发中`：已经进入实施；文档会跟着代码快速迭代
 - `done` / `已完成`：核心内容已落地并通过验收；后续变更必须同步更新 `updated`
+- `online` / `已上线`：**与 `done/已完成` 等价**；用于强调“已进入可交付状态/可宣称完成”（兼容历史文档与门禁口径）
 - `deprecated` / `已废弃`：不再推荐使用；保留用于历史回溯（必要时给出替代链接）
 
 ## 3) 维护规则（Definition of Done）
@@ -64,6 +65,9 @@ bash docs/scripts/doc_set_status.sh in_progress docs/core/backtest.md
 
 # 验收完成
 bash docs/scripts/doc_set_status.sh done docs/core/backtest.md
+
+# 可交付/已上线（与 done 等价）
+bash docs/scripts/doc_set_status.sh 已上线 docs/core/backtest.md
 ```
 
 ### 4.2 统一文档审计入口（推荐）

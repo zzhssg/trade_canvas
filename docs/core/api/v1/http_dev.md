@@ -1,40 +1,50 @@
 ---
-title: API v1 · Dev（HTTP）
+title: Dev（Worktree / Ports）HTTP API v1
 status: draft
-created: 2026-02-07
+created: 2026-02-05
 updated: 2026-02-07
 ---
 
-# API v1 · Dev（HTTP）
+# Dev（Worktree / Ports）HTTP API v1
+
+本文件覆盖 `/api/dev/**`（开发者面板 / worktree 生命周期管理）相关 endpoints。
+
+Base URL（本地默认）：
+- `http://127.0.0.1:8000`
+
+> 说明：本文件是 `docs/scripts/api_docs_audit.py` 的门禁输入之一；章节标题与示例格式必须遵循 `docs/core/api/v1/README.md` 的约定。
 
 ## GET /api/dev/worktrees
 
-### 示例（curl）
-
 ```bash
-curl --noproxy '*' -sS "http://127.0.0.1:8000/api/dev/worktrees"
+curl --noproxy '*' -fsS http://127.0.0.1:8000/api/dev/worktrees
 ```
-
-### 示例响应（json）
 
 ```json
 {
   "worktrees": [
     {
-      "id": "ade8",
-      "path": "/Users/rick/.codex/worktrees/ade8/trade_canvas",
-      "branch": "codex/replay-ui",
-      "commit": "abc123",
+      "id": "a1b2c3d4",
+      "path": "/Users/rick/code/trade_canvas",
+      "branch": "main",
+      "commit": "deadbeef",
       "is_detached": false,
-      "is_main": false,
-      "metadata": {
-        "description": "replay ui",
-        "plan_path": "docs/plan/2026-02-07-replay-ui.md",
-        "created_at": "2026-02-07",
-        "owner": "rick",
-        "ports": {"backend": 18080, "frontend": 15180}
-      },
-      "services": null
+      "is_main": true,
+      "metadata": null,
+      "services": {
+        "backend": {
+          "running": true,
+          "port": 8000,
+          "pid": 12345,
+          "url": "http://127.0.0.1:8000"
+        },
+        "frontend": {
+          "running": false,
+          "port": 5173,
+          "pid": null,
+          "url": null
+        }
+      }
     }
   ]
 }
@@ -42,81 +52,114 @@ curl --noproxy '*' -sS "http://127.0.0.1:8000/api/dev/worktrees"
 
 ### 语义
 
-- 列出全部 worktree 及其元数据/服务状态，用于 dev panel 展示与运维。
+- 返回 worktree 列表（来自 `git worktree list --porcelain` + `.worktree-meta/*.json`）。
+- `services.*.running` 通过 PID 存活判断；如果 PID 不存在或已退出，会返回 `running=false`。
 
 ## GET /api/dev/worktrees/{worktree_id}
 
-### 示例（curl）
-
 ```bash
-curl --noproxy '*' -sS "http://127.0.0.1:8000/api/dev/worktrees/ade8"
+curl --noproxy '*' -fsS http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4
 ```
-
-### 示例响应（json）
 
 ```json
 {
-  "id": "ade8",
-  "path": "/Users/rick/.codex/worktrees/ade8/trade_canvas",
-  "branch": "codex/replay-ui",
-  "commit": "abc123",
+  "id": "a1b2c3d4",
+  "path": "/Users/rick/worktree-feature-my-feature",
+  "branch": "feature/my-feature",
+  "commit": "cafebabe",
   "is_detached": false,
   "is_main": false,
   "metadata": {
-    "description": "replay ui",
-    "plan_path": "docs/plan/2026-02-07-replay-ui.md",
-    "created_at": "2026-02-07",
+    "description": "实现 XXX 功能，包括 A、B、C 三个模块",
+    "plan_path": "docs/plan/2026-02-05-my-feature.md",
+    "created_at": "2026-02-05T02:00:00+00:00",
     "owner": "rick",
-    "ports": {"backend": 18080, "frontend": 15180}
+    "ports": {
+      "backend": 8001,
+      "frontend": 5174
+    }
   },
-  "services": null
+  "services": {
+    "backend": {
+      "running": false,
+      "port": 8001,
+      "pid": null,
+      "url": null
+    },
+    "frontend": {
+      "running": false,
+      "port": 5174,
+      "pid": null,
+      "url": null
+    }
+  }
 }
 ```
 
 ### 语义
 
-- 查询单个 worktree 的详情（用于面板展开或脚本自检）。
+- 查询单个 worktree（`worktree_id` 为 worktree path 的 sha256 前 8 位）。
+- 不存在时返回 404（`detail=worktree_not_found`）。
 
-## POST /api/dev/worktrees
-
-### 示例（curl）
+## GET /api/dev/ports/allocate
 
 ```bash
-curl --noproxy '*' -sS -X POST \
-  "http://127.0.0.1:8000/api/dev/worktrees" \
-  -H "Content-Type: application/json" \
-  -d '{"branch":"codex/replay-ui","description":"replay ui iteration","plan_path":"docs/plan/2026-02-07-replay-ui.md","base_branch":"main"}'
+curl --noproxy '*' -fsS http://127.0.0.1:8000/api/dev/ports/allocate
 ```
-
-### 示例请求（json）
 
 ```json
 {
-  "branch": "codex/replay-ui",
-  "description": "replay ui iteration",
-  "plan_path": "docs/plan/2026-02-07-replay-ui.md",
-  "base_branch": "main"
+  "backend_port": 8001,
+  "frontend_port": 5174
 }
 ```
 
-### 示例响应（json）
+### 语义
+
+- 返回“下一对可用端口”（默认后端从 8001 起、前端从 5174 起递增）。
+- 仅做分配建议，不会自动写入 `.worktree-meta/index.json`；真正分配在创建/启动 worktree 时发生。
+
+## POST /api/dev/worktrees
+
+```bash
+curl --noproxy '*' -fsS -X POST http://127.0.0.1:8000/api/dev/worktrees   -H "Content-Type: application/json"   -d @- <<'JSON'
+{
+  "branch": "feature/my-feature",
+  "description": "实现 XXX 功能，包括 A、B、C 三个模块",
+  "plan_path": "docs/plan/2026-02-05-my-feature.md",
+  "base_branch": "main"
+}
+JSON
+```
+
+```json
+{
+  "branch": "feature/my-feature",
+  "description": "实现 XXX 功能，包括 A、B、C 三个模块",
+  "plan_path": "docs/plan/2026-02-05-my-feature.md",
+  "base_branch": "main"
+}
+```
 
 ```json
 {
   "ok": true,
   "worktree": {
-    "id": "ade8",
-    "path": "/Users/rick/.codex/worktrees/ade8/trade_canvas",
-    "branch": "codex/replay-ui",
-    "commit": "abc123",
+    "id": "a1b2c3d4",
+    "path": "/Users/rick/worktree-feature-my-feature",
+    "branch": "feature/my-feature",
+    "commit": "",
     "is_detached": false,
     "is_main": false,
     "metadata": {
-      "description": "replay ui iteration",
-      "plan_path": "docs/plan/2026-02-07-replay-ui.md",
-      "created_at": "2026-02-07",
+      "description": "实现 XXX 功能，包括 A、B、C 三个模块",
+      "plan_path": "docs/plan/2026-02-05-my-feature.md",
+      "created_at": "2026-02-05T02:00:00+00:00",
       "owner": "rick",
-      "ports": {"backend": 18080, "frontend": 15180}
+      "ports": {
+        "backend": 8001,
+        "frontend": 5174
+      }
     },
     "services": null
   },
@@ -126,134 +169,40 @@ curl --noproxy '*' -sS -X POST \
 
 ### 语义
 
-- 创建新的 worktree，并写入描述/计划路径等元数据。
-
-## POST /api/dev/worktrees/{worktree_id}/start
-
-### 示例（curl）
-
-```bash
-curl --noproxy '*' -sS -X POST \
-  "http://127.0.0.1:8000/api/dev/worktrees/ade8/start" \
-  -H "Content-Type: application/json" \
-  -d '{"backend_port":18080,"frontend_port":15180}'
-```
-
-### 示例请求（json）
-
-```json
-{"backend_port":18080,"frontend_port":15180}
-```
-
-### 示例响应（json）
-
-```json
-{
-  "ok": true,
-  "services": {
-    "backend": {"running": true, "port": 18080, "pid": 12345, "url": "http://127.0.0.1:18080"},
-    "frontend": {"running": true, "port": 15180, "pid": 23456, "url": "http://127.0.0.1:15180"}
-  },
-  "error": null
-}
-```
-
-### 语义
-
-- 启动指定 worktree 的前后端服务（可指定端口）。
-
-## POST /api/dev/worktrees/{worktree_id}/stop
-
-### 示例（curl）
-
-```bash
-curl --noproxy '*' -sS -X POST \
-  "http://127.0.0.1:8000/api/dev/worktrees/ade8/stop"
-```
-
-### 示例响应（json）
-
-```json
-{"ok": true, "error": null}
-```
-
-### 语义
-
-- 停止指定 worktree 的前后端服务。
-
-## DELETE /api/dev/worktrees/{worktree_id}
-
-### 示例（curl）
-
-```bash
-curl --noproxy '*' -sS -X DELETE \
-  "http://127.0.0.1:8000/api/dev/worktrees/ade8" \
-  -H "Content-Type: application/json" \
-  -d '{"force":false}'
-```
-
-### 示例请求（json）
-
-```json
-{"force": false}
-```
-
-### 示例响应（json）
-
-```json
-{"ok": true, "error": null}
-```
-
-### 语义
-
-- 删除指定 worktree（可选 force）。
-
-## GET /api/dev/ports/allocate
-
-### 示例（curl）
-
-```bash
-curl --noproxy '*' -sS "http://127.0.0.1:8000/api/dev/ports/allocate"
-```
-
-### 示例响应（json）
-
-```json
-{"backend_port": 18080, "frontend_port": 15180}
-```
-
-### 语义
-
-- 获取下一组可用端口（backend/frontend）。
+- 创建一个新的 git worktree，并写入元数据 `.worktree-meta/{id}.json`。
+- `description` 最少 20 字符（不满足会返回 `ok=false`）。
+- 若分支不存在，会从 `base_branch` 创建分支后再创建 worktree。
 
 ## PATCH /api/dev/worktrees/{worktree_id}/metadata
 
-### 示例（curl）
-
 ```bash
-curl --noproxy '*' -sS -X PATCH \
-  "http://127.0.0.1:8000/api/dev/worktrees/ade8/metadata" \
-  -H "Content-Type: application/json" \
-  -d '{"description":"replay ui","plan_path":"docs/plan/2026-02-07-replay-ui.md"}'
+curl --noproxy '*' -fsS -X PATCH http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4/metadata   -H "Content-Type: application/json"   -d @- <<'JSON'
+{
+  "description": "实现 XXX 功能（补充：含验收与回滚口径）",
+  "plan_path": "docs/plan/2026-02-05-my-feature.md"
+}
+JSON
 ```
-
-### 示例请求（json）
 
 ```json
-{"description":"replay ui","plan_path":"docs/plan/2026-02-07-replay-ui.md"}
+{
+  "description": "实现 XXX 功能（补充：含验收与回滚口径）",
+  "plan_path": "docs/plan/2026-02-05-my-feature.md"
+}
 ```
-
-### 示例响应（json）
 
 ```json
 {
   "ok": true,
   "metadata": {
-    "description": "replay ui",
-    "plan_path": "docs/plan/2026-02-07-replay-ui.md",
-    "created_at": "2026-02-07",
+    "description": "实现 XXX 功能（补充：含验收与回滚口径）",
+    "plan_path": "docs/plan/2026-02-05-my-feature.md",
+    "created_at": "2026-02-05T02:00:00+00:00",
     "owner": "rick",
-    "ports": {"backend": 18080, "frontend": 15180}
+    "ports": {
+      "backend": 8001,
+      "frontend": 5174
+    }
   },
   "error": null
 }
@@ -261,4 +210,96 @@ curl --noproxy '*' -sS -X PATCH \
 
 ### 语义
 
-- 更新 worktree 的描述/plan_path 元数据。
+- 仅更新 `.worktree-meta/{id}.json`；不做 git 操作。
+- worktree 不存在时返回：`ok=false, error=worktree_not_found`。
+
+## POST /api/dev/worktrees/{worktree_id}/start
+
+```bash
+curl --noproxy '*' -fsS -X POST http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4/start   -H "Content-Type: application/json"   -d @- <<'JSON'
+{
+  "backend_port": 8001,
+  "frontend_port": 5174
+}
+JSON
+```
+
+```json
+{
+  "backend_port": 8001,
+  "frontend_port": 5174
+}
+```
+
+```json
+{
+  "ok": true,
+  "services": {
+    "backend": {
+      "running": true,
+      "port": 8001,
+      "pid": 22222,
+      "url": "http://127.0.0.1:8001"
+    },
+    "frontend": {
+      "running": true,
+      "port": 5174,
+      "pid": 33333,
+      "url": "http://127.0.0.1:5174"
+    }
+  },
+  "error": null
+}
+```
+
+### 语义
+
+- 启动该 worktree 的后端与前端服务，并把 PID 写入 `.worktree-meta/index.json` 的 `active_services`。
+- 若端口未指定，会尝试从 metadata 中读取或自动分配。
+- 该操作有副作用（启动进程、占用端口）。
+
+## POST /api/dev/worktrees/{worktree_id}/stop
+
+```bash
+curl --noproxy '*' -fsS -X POST http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4/stop
+```
+
+```json
+{
+  "ok": true,
+  "error": null
+}
+```
+
+### 语义
+
+- 停止该 worktree 的服务（向对应进程组发送 SIGTERM），并从 `active_services` 中清理记录。
+- 若该 worktree 当前没有活跃服务，可能返回 `ok=false`（以实现为准）。
+
+## DELETE /api/dev/worktrees/{worktree_id}
+
+```bash
+curl --noproxy '*' -fsS -X DELETE http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4   -H "Content-Type: application/json"   -d @- <<'JSON'
+{
+  "force": false
+}
+JSON
+```
+
+```json
+{
+  "force": false
+}
+```
+
+```json
+{
+  "ok": true,
+  "error": null
+}
+```
+
+### 语义
+
+- 停止服务后删除 worktree，并将 `.worktree-meta/{id}.json` 归档到 `.worktree-meta/archive/`。
+- `force=true` 时会以 `git worktree remove --force` 删除（谨慎使用）。

@@ -5,6 +5,14 @@ import { useUiStore } from "../state/uiStore";
 
 const SPEED_OPTIONS = [50, 100, 200, 400, 800];
 
+function formatJson(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value ?? "");
+  }
+}
+
 export function ReplayPanel() {
   const { exchange, market, symbol, timeframe } = useUiStore();
   const mode = useReplayStore((s) => s.mode);
@@ -18,16 +26,29 @@ export function ReplayPanel() {
   const frameError = useReplayStore((s) => s.frameError);
   const prepareStatus = useReplayStore((s) => s.prepareStatus);
   const prepareError = useReplayStore((s) => s.prepareError);
+  const status = useReplayStore((s) => s.status);
+  const coverage = useReplayStore((s) => s.coverage);
+  const coverageStatus = useReplayStore((s) => s.coverageStatus);
+  const metadata = useReplayStore((s) => s.metadata);
+  const currentSlices = useReplayStore((s) => s.currentSlices);
+  const currentCandleId = useReplayStore((s) => s.currentCandleId);
+  const currentAtTime = useReplayStore((s) => s.currentAtTime);
+  const currentDrawActiveIds = useReplayStore((s) => s.currentDrawActiveIds);
+  const currentDrawInstructions = useReplayStore((s) => s.currentDrawInstructions);
   const setPlaying = useReplayStore((s) => s.setPlaying);
   const setSpeedMs = useReplayStore((s) => s.setSpeedMs);
   const setIndex = useReplayStore((s) => s.setIndex);
 
   const seriesId = useMemo(() => `${exchange}:${market}:${symbol}:${timeframe}`, [exchange, market, symbol, timeframe]);
-  const drawJson = useMemo(() => (frame ? JSON.stringify(frame.draw_state, null, 2) : ""), [frame]);
-  const factorJson = useMemo(() => (frame ? JSON.stringify(frame.factor_slices, null, 2) : ""), [frame]);
+  const drawPayload = currentDrawInstructions.length > 0 ? currentDrawInstructions : frame?.draw_state ?? null;
+  const factorPayload = currentSlices?.snapshots ?? frame?.factor_slices?.snapshots ?? null;
+  const drawJson = useMemo(() => (drawPayload ? formatJson(drawPayload) : ""), [drawPayload]);
+  const factorJson = useMemo(() => (factorPayload ? formatJson(factorPayload) : ""), [factorPayload]);
 
-  const disabled = mode !== "replay" || total === 0;
+  const disabled = mode !== "replay" || total === 0 || prepareStatus === "loading" || prepareStatus === "error";
   const sliderMax = Math.max(0, total - 1);
+  const candleId = currentCandleId ?? frame?.time?.candle_id ?? "—";
+  const atTime = currentAtTime ?? focusTime ?? frame?.time?.aligned_time ?? null;
 
   return (
     <div className="flex flex-col gap-3 text-[11px] text-white/70">
@@ -37,9 +58,7 @@ export function ReplayPanel() {
       </div>
 
       {mode !== "replay" ? (
-        <div className="rounded-lg border border-white/10 bg-black/20 p-2 text-white/50">
-          切换到 replay 模式后可用。
-        </div>
+        <div className="rounded-lg border border-white/10 bg-black/20 p-2 text-white/50">切换到 replay 模式后可用。</div>
       ) : null}
 
       <div className="rounded-lg border border-white/10 bg-black/20 p-2 text-white/60">
@@ -49,18 +68,39 @@ export function ReplayPanel() {
         </div>
         {prepareError ? <div className="mt-1 text-rose-200">{prepareError}</div> : null}
         <div className="mt-2 flex items-center justify-between">
+          <span>package</span>
+          <span className="font-mono">{status}</span>
+        </div>
+        {coverage ? (
+          <div className="mt-1 text-[10px] text-white/55">
+            coverage {coverage.candles_ready}/{coverage.required_candles}
+          </div>
+        ) : null}
+        {coverageStatus ? (
+          <div className="mt-1 text-[10px] text-white/45">
+            {coverageStatus.status}
+            {coverageStatus.head_time ? ` · head=${coverageStatus.head_time}` : ""}
+          </div>
+        ) : null}
+        {metadata ? (
+          <div className="mt-1 text-[10px] text-white/45">
+            window={metadata.window_size} · snapshot={metadata.snapshot_interval}
+          </div>
+        ) : null}
+        <div className="mt-2 flex items-center justify-between">
           <span>frame</span>
           <span className="font-mono">{frameLoading ? "loading" : frame ? "ready" : "idle"}</span>
         </div>
         {frameError ? <div className="mt-1 text-rose-200">{frameError}</div> : null}
         <div className="mt-2 flex items-center justify-between">
           <span>focus_time</span>
-          <span className="font-mono">{focusTime ?? "—"}</span>
+          <span className="font-mono">{atTime ?? "—"}</span>
         </div>
         <div className="mt-1 flex items-center justify-between">
           <span>candle_id</span>
-          <span className="font-mono">{frame?.time.candle_id ?? "—"}</span>
+          <span className="font-mono">{candleId}</span>
         </div>
+        <div className="mt-1 text-[10px] text-white/45">draw_active: {currentDrawActiveIds.length}</div>
       </div>
 
       <div className="rounded-lg border border-white/10 bg-black/20 p-2">
@@ -95,9 +135,7 @@ export function ReplayPanel() {
             ))}
           </select>
 
-          <span className="font-mono text-white/60">
-            {total ? `${index + 1}/${total}` : "0/0"}
-          </span>
+          <span className="font-mono text-white/60">{total ? `${index + 1}/${total}` : "0/0"}</span>
         </div>
 
         <input

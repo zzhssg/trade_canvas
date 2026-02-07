@@ -62,9 +62,21 @@ from .schemas import (
 )
 from .market_list import BinanceMarketListService, MinIntervalLimiter
 from .factor_orchestrator import FactorOrchestrator
+from .factor_slices_service import FactorSlicesService
 from .factor_store import FactorStore
 from .overlay_orchestrator import OverlayOrchestrator
 from .overlay_store import OverlayStore
+from .replay_package_protocol_v1 import (
+    ReplayBuildRequestV1,
+    ReplayBuildResponseV1,
+    ReplayCoverageStatusResponseV1,
+    ReplayEnsureCoverageRequestV1,
+    ReplayEnsureCoverageResponseV1,
+    ReplayReadOnlyResponseV1,
+    ReplayStatusResponseV1,
+    ReplayWindowResponseV1,
+)
+from .replay_package_service_v1 import ReplayPackageServiceV1
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 from .whitelist import load_market_whitelist
@@ -155,8 +167,15 @@ def create_app() -> FastAPI:
     store = CandleStore(db_path=settings.db_path)
     factor_store = FactorStore(db_path=settings.db_path)
     factor_orchestrator = FactorOrchestrator(candle_store=store, factor_store=factor_store)
+    factor_slices_service = FactorSlicesService(candle_store=store, factor_store=factor_store)
     overlay_store = OverlayStore(db_path=settings.db_path)
     overlay_orchestrator = OverlayOrchestrator(candle_store=store, factor_store=factor_store, overlay_store=overlay_store)
+    replay_service = ReplayPackageServiceV1(
+        candle_store=store,
+        factor_store=factor_store,
+        overlay_store=overlay_store,
+        factor_slices_service=factor_slices_service,
+    )
     debug_hub = DebugHub()
     factor_orchestrator.set_debug_hub(debug_hub)
     overlay_orchestrator.set_debug_hub(debug_hub)
@@ -213,8 +232,10 @@ def create_app() -> FastAPI:
     app.state.hub = hub
     app.state.factor_store = factor_store
     app.state.factor_orchestrator = factor_orchestrator
+    app.state.factor_slices_service = factor_slices_service
     app.state.overlay_store = overlay_store
     app.state.overlay_orchestrator = overlay_orchestrator
+    app.state.replay_service = replay_service
     app.state.whitelist = whitelist
     app.state.market_list = market_list
     app.state.force_limiter = force_limiter
@@ -483,224 +504,8 @@ def create_app() -> FastAPI:
         - pivot: history.major from factor events, head.minor computed on the fly
         - pen: history.confirmed from factor events
         """
-        from .schemas import FactorMetaV1, FactorSliceV1
-
-        aligned = store.floor_time(series_id, at_time=int(at_time))
-        if aligned is None:
-            return GetFactorSlicesResponseV1(series_id=series_id, at_time=int(at_time), candle_id=None)
-
-        tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
-        start_time = max(0, int(aligned) - int(window_candles) * int(tf_s))
-
-        factor_rows = app.state.factor_store.get_events_between_times(
-            series_id=series_id,
-            factor_name=None,
-            start_candle_time=int(start_time),
-            end_candle_time=int(aligned),
-        )
-
-        piv_major: list[dict] = []
-        piv_minor: list[dict] = []
-        pen_confirmed: list[dict] = []
-        zhongshu_dead: list[dict] = []
-        anchor_switches: list[dict] = []
-
-        def is_visible(payload: dict, *, at_time: int) -> bool:
-            vt = payload.get("visible_time")
-            if vt is None:
-                return True
-            try:
-                return int(vt) <= int(at_time)
-            except Exception:
-                return True
-
-        for r in factor_rows:
-            if r.factor_name == "pivot" and r.kind == "pivot.major":
-                payload = dict(r.payload or {})
-                if is_visible(payload, at_time=int(aligned)):
-                    piv_major.append(payload)
-            elif r.factor_name == "pivot" and r.kind == "pivot.minor":
-                payload = dict(r.payload or {})
-                if is_visible(payload, at_time=int(aligned)):
-                    piv_minor.append(payload)
-            elif r.factor_name == "pen" and r.kind == "pen.confirmed":
-                payload = dict(r.payload or {})
-                if is_visible(payload, at_time=int(aligned)):
-                    pen_confirmed.append(payload)
-            elif r.factor_name == "zhongshu" and r.kind == "zhongshu.dead":
-                payload = dict(r.payload or {})
-                if is_visible(payload, at_time=int(aligned)):
-                    zhongshu_dead.append(payload)
-            elif r.factor_name == "anchor" and r.kind == "anchor.switch":
-                payload = dict(r.payload or {})
-                if is_visible(payload, at_time=int(aligned)):
-                    anchor_switches.append(payload)
-
-        piv_major.sort(key=lambda d: (int(d.get("visible_time", 0)), int(d.get("pivot_time", 0))))
-        pen_confirmed.sort(key=lambda d: (int(d.get("visible_time", 0)), int(d.get("start_time", 0))))
-        anchor_switches.sort(key=lambda d: (int(d.get("visible_time", 0)), int(d.get("switch_time", 0))))
-
-        snapshots: dict[str, FactorSliceV1] = {}
-        factors: list[str] = []
-        candle_id = f"{series_id}:{int(aligned)}"
-
-        if piv_major:
-            factors.append("pivot")
-            snapshots["pivot"] = FactorSliceV1(
-                history={"major": piv_major, "minor": piv_minor},
-                head={},
-                meta=FactorMetaV1(
-                    series_id=series_id,
-                    at_time=int(aligned),
-                    candle_id=candle_id,
-                    factor_name="pivot",
-                ),
-            )
-
-        if pen_confirmed:
-            # Candidate pen (head-only): from last confirmed pen end_time to the most extreme point
-            # in the reverse direction within the current tail window.
-            pen_head: dict = {}
-            try:
-                candles = store.get_closed(series_id, since=int(start_time), limit=int(window_candles) + 5)
-                candles = [c for c in candles if int(c.candle_time) <= int(aligned)]
-            except Exception:
-                candles = []
-
-            last = pen_confirmed[-1]
-            try:
-                last_end_time = int(last.get("end_time") or 0)
-                last_end_price = float(last.get("end_price") or 0.0)
-                last_dir = int(last.get("direction") or 0)
-            except Exception:
-                last_end_time = 0
-                last_end_price = 0.0
-                last_dir = 0
-
-            if candles and last_end_time > 0 and last_dir in (-1, 1):
-                tail = [c for c in candles if int(c.candle_time) > int(last_end_time) and int(c.candle_time) <= int(aligned)]
-                if tail:
-                    if last_dir == 1:
-                        # Last confirmed pen was up; candidate is down to min(low).
-                        best = min(tail, key=lambda c: float(c.low))
-                        pen_head["candidate"] = {
-                            "start_time": int(last_end_time),
-                            "end_time": int(best.candle_time),
-                            "start_price": float(last_end_price),
-                            "end_price": float(best.low),
-                            "direction": -1,
-                        }
-                    else:
-                        # Last confirmed pen was down; candidate is up to max(high).
-                        best = max(tail, key=lambda c: float(c.high))
-                        pen_head["candidate"] = {
-                            "start_time": int(last_end_time),
-                            "end_time": int(best.candle_time),
-                            "start_price": float(last_end_price),
-                            "end_price": float(best.high),
-                            "direction": 1,
-                        }
-
-            factors.append("pen")
-            snapshots["pen"] = FactorSliceV1(
-                history={"confirmed": pen_confirmed},
-                head=pen_head,
-                meta=FactorMetaV1(
-                    series_id=series_id,
-                    at_time=int(aligned),
-                    candle_id=candle_id,
-                    factor_name="pen",
-                ),
-            )
-
-        # Zhongshu head.alive is derived from confirmed pens at t (head-only); dead is append-only history slice.
-        zhongshu_head: dict = {}
-        if pen_confirmed:
-            try:
-                from .zhongshu import build_alive_zhongshu_from_confirmed_pens
-
-                alive = build_alive_zhongshu_from_confirmed_pens(pen_confirmed, up_to_visible_time=int(aligned))
-            except Exception:
-                alive = None
-            if alive is not None and int(alive.visible_time) == int(aligned):
-                zhongshu_head["alive"] = [
-                    {
-                        "start_time": int(alive.start_time),
-                        "end_time": int(alive.end_time),
-                        "zg": float(alive.zg),
-                        "zd": float(alive.zd),
-                        "formed_time": int(alive.formed_time),
-                        "death_time": None,
-                        "visible_time": int(alive.visible_time),
-                    }
-                ]
-
-        if zhongshu_dead or zhongshu_head.get("alive"):
-            factors.append("zhongshu")
-            snapshots["zhongshu"] = FactorSliceV1(
-                history={"dead": zhongshu_dead},
-                head=zhongshu_head,
-                meta=FactorMetaV1(
-                    series_id=series_id,
-                    at_time=int(aligned),
-                    candle_id=candle_id,
-                    factor_name="zhongshu",
-                ),
-            )
-
-        # Anchor snapshot:
-        # - history.switches: append-only stable switches from FactorStore
-        # - head.current_anchor_ref: the latest stable anchor (confirmed) if available
-        # - head.reverse_anchor_ref: optional (candidate pen derived from pen head)
-        if pen_confirmed or anchor_switches:
-            current_anchor_ref = None
-            if anchor_switches:
-                cur = anchor_switches[-1].get("new_anchor")
-                if isinstance(cur, dict):
-                    current_anchor_ref = cur
-            elif pen_confirmed:
-                last = pen_confirmed[-1]
-                current_anchor_ref = {
-                    "kind": "confirmed",
-                    "start_time": int(last.get("start_time") or 0),
-                    "end_time": int(last.get("end_time") or 0),
-                    "direction": int(last.get("direction") or 0),
-                }
-
-            reverse_anchor_ref = None
-            try:
-                pen_head_candidate = (snapshots.get("pen").head or {}).get("candidate") if "pen" in snapshots else None
-            except Exception:
-                pen_head_candidate = None
-            if isinstance(pen_head_candidate, dict):
-                try:
-                    reverse_anchor_ref = {
-                        "kind": "candidate",
-                        "start_time": int(pen_head_candidate.get("start_time") or 0),
-                        "end_time": int(pen_head_candidate.get("end_time") or 0),
-                        "direction": int(pen_head_candidate.get("direction") or 0),
-                    }
-                except Exception:
-                    reverse_anchor_ref = None
-
-            factors.append("anchor")
-            snapshots["anchor"] = FactorSliceV1(
-                history={"switches": anchor_switches},
-                head={"current_anchor_ref": current_anchor_ref, "reverse_anchor_ref": reverse_anchor_ref},
-                meta=FactorMetaV1(
-                    series_id=series_id,
-                    at_time=int(aligned),
-                    candle_id=candle_id,
-                    factor_name="anchor",
-                ),
-            )
-
-        return GetFactorSlicesResponseV1(
-            series_id=series_id,
-            at_time=int(aligned),
-            candle_id=candle_id,
-            factors=factors,
-            snapshots=snapshots,
+        return app.state.factor_slices_service.get_slices(
+            series_id=series_id, at_time=int(at_time), window_candles=int(window_candles)
         )
 
     @app.post("/api/replay/prepare", response_model=ReplayPrepareResponseV1)
@@ -780,7 +585,11 @@ def create_app() -> FastAPI:
         store_head = store.head_time(series_id)
         if store_head is None:
             raise HTTPException(status_code=404, detail="no_data")
-        aligned = store.floor_time(series_id, at_time=int(store_head))
+        overlay_head = app.state.overlay_store.head_time(series_id)
+        if overlay_head is None:
+            raise HTTPException(status_code=404, detail="no_overlay")
+        aligned_base = min(int(store_head), int(overlay_head))
+        aligned = store.floor_time(series_id, at_time=int(aligned_base))
         if aligned is None:
             raise HTTPException(status_code=404, detail="no_data")
 
@@ -836,6 +645,104 @@ def create_app() -> FastAPI:
             factor_slices=factor_slices,
             draw_state=draw_state,
         )
+
+    @app.get("/api/replay/read_only", response_model=ReplayReadOnlyResponseV1)
+    def get_replay_read_only(
+        series_id: str = Query(..., min_length=1),
+        to_time: int | None = Query(default=None, ge=0),
+        window_candles: int | None = Query(default=None, ge=1, le=5000),
+        window_size: int | None = Query(default=None, ge=1, le=2000),
+        snapshot_interval: int | None = Query(default=None, ge=1, le=200),
+    ) -> ReplayReadOnlyResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        status, job_id, cache_key, coverage, metadata, hint = service.read_only(
+            series_id=series_id,
+            to_time=to_time,
+            window_candles=window_candles,
+            window_size=window_size,
+            snapshot_interval=snapshot_interval,
+        )
+        return ReplayReadOnlyResponseV1(
+            status=status,
+            job_id=job_id,
+            cache_key=cache_key,
+            coverage=coverage,
+            metadata=metadata,
+            compute_hint=hint,
+        )
+
+    @app.post("/api/replay/build", response_model=ReplayBuildResponseV1)
+    def post_replay_build(payload: ReplayBuildRequestV1) -> ReplayBuildResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        status, job_id, cache_key = service.build(
+            series_id=payload.series_id,
+            to_time=payload.to_time,
+            window_candles=payload.window_candles,
+            window_size=payload.window_size,
+            snapshot_interval=payload.snapshot_interval,
+        )
+        return ReplayBuildResponseV1(status=status, job_id=job_id, cache_key=cache_key)
+
+    @app.get("/api/replay/status", response_model=ReplayStatusResponseV1)
+    def get_replay_status(
+        job_id: str = Query(..., min_length=1),
+        include_preload: int = Query(0, ge=0, le=1),
+        include_history: int = Query(0, ge=0, le=1),
+    ) -> ReplayStatusResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        payload = service.status(
+            job_id=job_id,
+            include_preload=bool(include_preload),
+            include_history=bool(include_history),
+        )
+        return ReplayStatusResponseV1.model_validate(payload)
+
+    @app.get("/api/replay/window", response_model=ReplayWindowResponseV1)
+    def get_replay_window(
+        job_id: str = Query(..., min_length=1),
+        target_idx: int = Query(..., ge=0),
+    ) -> ReplayWindowResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        window = service.window(job_id=job_id, target_idx=int(target_idx))
+        head_snapshots, history_deltas = service.window_extras(job_id=job_id, window=window)
+        return ReplayWindowResponseV1(
+            job_id=str(job_id),
+            window=window,
+            factor_head_snapshots=head_snapshots,
+            history_deltas=history_deltas,
+        )
+
+    @app.post("/api/replay/ensure_coverage", response_model=ReplayEnsureCoverageResponseV1)
+    def post_replay_ensure_coverage(payload: ReplayEnsureCoverageRequestV1) -> ReplayEnsureCoverageResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        status, job_id = service.ensure_coverage(
+            series_id=payload.series_id,
+            target_candles=payload.target_candles,
+            to_time=payload.to_time,
+            factor_orchestrator=app.state.factor_orchestrator,
+            overlay_orchestrator=app.state.overlay_orchestrator,
+        )
+        return ReplayEnsureCoverageResponseV1(status=status, job_id=job_id)
+
+    @app.get("/api/replay/coverage_status", response_model=ReplayCoverageStatusResponseV1)
+    def get_replay_coverage_status(job_id: str = Query(..., min_length=1)) -> ReplayCoverageStatusResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        payload = service.coverage_status(job_id=job_id)
+        if payload.get("status") == "error" and payload.get("error") == "not_found":
+            raise HTTPException(status_code=404, detail="not_found")
+        return ReplayCoverageStatusResponseV1.model_validate(payload)
 
     @app.get("/api/delta/poll", response_model=WorldDeltaPollResponseV1)
     def poll_world_delta(

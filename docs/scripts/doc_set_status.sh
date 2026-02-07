@@ -10,6 +10,7 @@ Status accepts (equivalent aliases):
   draft | 草稿
   in_progress | 开发中
   done | 已完成
+  online | 已上线
   deprecated | 已废弃
 
 Behavior:
@@ -40,6 +41,8 @@ ALIAS = {
     "开发中": "in_progress",
     "done": "done",
     "已完成": "done",
+    "online": "online",
+    "已上线": "online",
     "deprecated": "deprecated",
     "已废弃": "deprecated",
 }
@@ -48,6 +51,7 @@ CANONICAL = {
     "draft": "draft",
     "in_progress": "in_progress",
     "done": "done",
+    "online": "online",
     "deprecated": "deprecated",
 }
 
@@ -63,6 +67,7 @@ if status_key is None:
     die(f"invalid status '{raw_status}'")
 
 new_status = CANONICAL[status_key]
+new_status_written = raw_status if raw_status in {"草稿", "开发中", "已完成", "已上线", "已废弃"} else new_status
 today = date.today().isoformat()
 
 paths = sys.argv[2:]
@@ -90,7 +95,7 @@ for path in paths:
     for i in range(1, end):
         s = lines[i]
         if s.lstrip().startswith("status:"):
-            lines[i] = f"status: {new_status}\n"
+            lines[i] = f"status: {new_status_written}\n"
             found_status = True
         elif s.lstrip().startswith("updated:"):
             lines[i] = f"updated: {today}\n"
@@ -103,7 +108,7 @@ for path in paths:
             if lines[i].lstrip().startswith("title:"):
                 insert_at = i + 1
                 break
-        lines.insert(insert_at, f"status: {new_status}\n")
+        lines.insert(insert_at, f"status: {new_status_written}\n")
         end += 1
     if not found_updated:
         # Insert updated near created if present, else append before end.
@@ -118,6 +123,5 @@ for path in paths:
     with open(path, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
-print(f"OK: updated status={new_status}, updated={today} for {len(paths)} file(s)")
+print(f"OK: updated status={new_status_written}, updated={today} for {len(paths)} file(s)")
 PY
-

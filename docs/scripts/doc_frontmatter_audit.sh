@@ -25,6 +25,9 @@ ALLOWED_STATUS = {
     "开发中": "in_progress/开发中",
     "done": "done/已完成",
     "已完成": "done/已完成",
+    # online/已上线 is treated as an alias of done/已完成 (delivery-ready).
+    "online": "done/已完成",
+    "已上线": "done/已完成",
     "deprecated": "deprecated/已废弃",
     "已废弃": "deprecated/已废弃",
 }

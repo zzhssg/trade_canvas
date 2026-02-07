@@ -179,3 +179,31 @@ def maybe_bootstrap_from_freqtrade(store: CandleStore, *, series_id: str, limit:
 
     return len(candles)
 
+
+def backfill_tail_from_freqtrade(store: CandleStore, *, series_id: str, limit: int) -> int:
+    """
+    Best-effort tail backfill (append/update) from freqtrade datadir.
+    Unlike maybe_bootstrap_from_freqtrade, this runs even if the store already has data.
+    Returns the number of candles written (0 if skipped / not found).
+    """
+    if (os.environ.get("TRADE_CANVAS_MARKET_HISTORY_SOURCE") or "").strip().lower() != "freqtrade":
+        return 0
+
+    try:
+        series = parse_series_id(series_id)
+    except Exception:
+        return 0
+
+    path = _find_freqtrade_ohlcv_file(series)
+    if path is None:
+        return 0
+
+    candles = _read_freqtrade_feather(path, limit=max(int(limit), 1))
+    if not candles:
+        return 0
+
+    with store.connect() as conn:
+        store.upsert_many_closed_in_conn(conn, series_id, candles)
+        conn.commit()
+
+    return len(candles)

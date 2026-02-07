@@ -89,7 +89,7 @@ class FactorStore:
             INSERT INTO factor_series_state(series_id, head_time, updated_at_ms)
             VALUES (?, ?, ?)
             ON CONFLICT(series_id) DO UPDATE SET
-              head_time=excluded.head_time,
+              head_time=MAX(head_time, excluded.head_time),
               updated_at_ms=excluded.updated_at_ms
             """,
             (series_id, int(head_time), int(time.time() * 1000)),
@@ -104,6 +104,16 @@ class FactorStore:
             if row is None:
                 return None
             return int(row["head_time"])
+
+    def last_event_id(self, series_id: str) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT MAX(id) AS v FROM factor_events WHERE series_id = ?",
+                (series_id,),
+            ).fetchone()
+            if row is None or row["v"] is None:
+                return 0
+            return int(row["v"])
 
     def insert_events_in_conn(self, conn: sqlite3.Connection, *, events: list[FactorEventWrite]) -> None:
         if not events:
