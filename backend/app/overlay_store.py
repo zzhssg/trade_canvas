@@ -76,7 +76,7 @@ class OverlayStore:
             INSERT INTO overlay_series_state(series_id, head_time, updated_at_ms)
             VALUES (?, ?, ?)
             ON CONFLICT(series_id) DO UPDATE SET
-              head_time=excluded.head_time,
+              head_time=MAX(head_time, excluded.head_time),
               updated_at_ms=excluded.updated_at_ms
             """,
             (series_id, int(head_time), int(time.time() * 1000)),

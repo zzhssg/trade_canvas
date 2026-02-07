@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from .debug_hub import DebugHub
+from .factor_slices import build_pen_head_candidate
 from .factor_store import FactorStore
 from .overlay_store import OverlayStore
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
+from .zhongshu import build_alive_zhongshu_from_confirmed_pens
 
 
 def _truthy_flag(v: str | None) -> bool:
@@ -88,6 +90,8 @@ class OverlayOrchestrator:
         pivot_major: list[dict[str, Any]] = []
         pivot_minor: list[dict[str, Any]] = []
         pen_confirmed: list[dict[str, Any]] = []
+        zhongshu_dead: list[dict[str, Any]] = []
+        anchor_switches: list[dict[str, Any]] = []
         for r in factor_rows:
             if r.factor_name == "pivot" and r.kind == "pivot.major":
                 pivot_major.append(dict(r.payload or {}))
@@ -95,6 +99,10 @@ class OverlayOrchestrator:
                 pivot_minor.append(dict(r.payload or {}))
             elif r.factor_name == "pen" and r.kind == "pen.confirmed":
                 pen_confirmed.append(dict(r.payload or {}))
+            elif r.factor_name == "zhongshu" and r.kind == "zhongshu.dead":
+                zhongshu_dead.append(dict(r.payload or {}))
+            elif r.factor_name == "anchor" and r.kind == "anchor.switch":
+                anchor_switches.append(dict(r.payload or {}))
 
         # Build marker instructions (append-only per instruction_id).
         marker_defs: list[tuple[str, str, int, dict[str, Any]]] = []
@@ -137,6 +145,37 @@ class OverlayOrchestrator:
                     )
                 )
 
+        # Anchor switch markers.
+        for sw in anchor_switches:
+            switch_time = int(sw.get("switch_time") or 0)
+            if switch_time <= 0:
+                continue
+            if switch_time < cutoff_time or switch_time > to_time:
+                continue
+            reason = str(sw.get("reason") or "switch")
+            new_anchor = sw.get("new_anchor") if isinstance(sw.get("new_anchor"), dict) else {}
+            direction = int(new_anchor.get("direction") or 0)
+            position = "belowBar" if direction >= 0 else "aboveBar"
+            shape = "arrowUp" if direction >= 0 else "arrowDown"
+            instruction_id = f"anchor.switch:{switch_time}:{direction}:{reason}"
+            marker_defs.append(
+                (
+                    instruction_id,
+                    "marker",
+                    int(switch_time),
+                    {
+                        "type": "marker",
+                        "feature": "anchor.switch",
+                        "time": int(switch_time),
+                        "position": position,
+                        "color": "#f59e0b",
+                        "shape": shape,
+                        "text": "A",
+                        "size": 1.0,
+                    },
+                )
+            )
+
         # Build pen polyline instruction (single id, versioned).
         pen_confirmed.sort(key=lambda d: (int(d.get("start_time") or 0), int(d.get("visible_time") or 0)))
         points: list[dict[str, Any]] = []
@@ -162,6 +201,177 @@ class OverlayOrchestrator:
                 "color": "#a78bfa",
                 "lineWidth": 2,
             }
+
+        # Zhongshu + Anchor polylines (v1).
+        polyline_defs: list[tuple[str, int, dict[str, Any]]] = []
+        pen_confirmed.sort(key=lambda d: (int(d.get("visible_time") or 0), int(d.get("start_time") or 0)))
+        pen_lookup: dict[tuple[int, int, int], dict[str, Any]] = {}
+        for p in pen_confirmed:
+            key = (
+                int(p.get("start_time") or 0),
+                int(p.get("end_time") or 0),
+                int(p.get("direction") or 0),
+            )
+            pen_lookup[key] = p
+
+        candles = self._candle_store.get_closed_between_times(
+            series_id,
+            start_time=int(cutoff_time),
+            end_time=int(to_time),
+            limit=int(window_candles) + 10,
+        )
+        last_confirmed = pen_confirmed[-1] if pen_confirmed else None
+        pen_candidate = build_pen_head_candidate(candles=candles, last_confirmed=last_confirmed, aligned_time=int(to_time))
+
+        if pen_confirmed:
+            try:
+                alive = build_alive_zhongshu_from_confirmed_pens(pen_confirmed, up_to_visible_time=int(to_time))
+            except Exception:
+                alive = None
+        else:
+            alive = None
+
+        def add_polyline(
+            instruction_id: str,
+            *,
+            visible_time: int,
+            feature: str,
+            points: list[dict[str, Any]],
+            color: str,
+            line_width: int = 2,
+            line_style: str | None = None,
+        ) -> None:
+            if len(points) < 2:
+                return
+            payload: dict[str, Any] = {
+                "type": "polyline",
+                "feature": feature,
+                "points": points,
+                "color": color,
+                "lineWidth": int(line_width),
+            }
+            if line_style:
+                payload["lineStyle"] = str(line_style)
+            polyline_defs.append((instruction_id, int(visible_time), payload))
+
+        # Zhongshu dead boxes (rendered as top/bottom lines).
+        for zs in zhongshu_dead:
+            start_time = int(zs.get("start_time") or 0)
+            end_time = int(zs.get("end_time") or 0)
+            zg = float(zs.get("zg") or 0.0)
+            zd = float(zs.get("zd") or 0.0)
+            visible_time = int(zs.get("visible_time") or 0)
+            if start_time <= 0 or end_time <= 0 or visible_time <= 0:
+                continue
+            if end_time < cutoff_time or start_time > to_time:
+                continue
+            base_id = f"zhongshu.dead:{start_time}:{end_time}:{zg:.6f}:{zd:.6f}"
+            add_polyline(
+                f"{base_id}:top",
+                visible_time=visible_time,
+                feature="zhongshu.dead",
+                points=[{"time": start_time, "value": zg}, {"time": end_time, "value": zg}],
+                color="rgba(148,163,184,0.7)",
+            )
+            add_polyline(
+                f"{base_id}:bottom",
+                visible_time=visible_time,
+                feature="zhongshu.dead",
+                points=[{"time": start_time, "value": zd}, {"time": end_time, "value": zd}],
+                color="rgba(148,163,184,0.7)",
+            )
+
+        # Zhongshu alive (single evolving box).
+        if alive is not None and int(alive.visible_time) == int(to_time):
+            start_time = int(alive.start_time)
+            end_time = int(alive.end_time)
+            zg = float(alive.zg)
+            zd = float(alive.zd)
+            add_polyline(
+                "zhongshu.alive:top",
+                visible_time=int(to_time),
+                feature="zhongshu.alive",
+                points=[{"time": start_time, "value": zg}, {"time": end_time, "value": zg}],
+                color="rgba(34,197,94,0.8)",
+            )
+            add_polyline(
+                "zhongshu.alive:bottom",
+                visible_time=int(to_time),
+                feature="zhongshu.alive",
+                points=[{"time": start_time, "value": zd}, {"time": end_time, "value": zd}],
+                color="rgba(34,197,94,0.8)",
+            )
+
+        # Anchor current + reverse (polyline).
+        current_ref = None
+        if anchor_switches:
+            cur = anchor_switches[-1].get("new_anchor")
+            if isinstance(cur, dict):
+                current_ref = cur
+        elif last_confirmed is not None:
+            current_ref = {
+                "kind": "confirmed",
+                "start_time": int(last_confirmed.get("start_time") or 0),
+                "end_time": int(last_confirmed.get("end_time") or 0),
+                "direction": int(last_confirmed.get("direction") or 0),
+            }
+
+        def resolve_points(ref: dict | None) -> list[dict[str, Any]]:
+            if not ref:
+                return []
+            kind = str(ref.get("kind") or "")
+            start_time = int(ref.get("start_time") or 0)
+            end_time = int(ref.get("end_time") or 0)
+            direction = int(ref.get("direction") or 0)
+            if start_time <= 0 or end_time <= 0:
+                return []
+            if kind == "confirmed":
+                match = pen_lookup.get((start_time, end_time, direction))
+                if match:
+                    return [
+                        {"time": start_time, "value": float(match.get("start_price") or 0.0)},
+                        {"time": end_time, "value": float(match.get("end_price") or 0.0)},
+                    ]
+                return []
+            if kind == "candidate" and isinstance(pen_candidate, dict):
+                if (
+                    int(pen_candidate.get("start_time") or 0) == start_time
+                    and int(pen_candidate.get("end_time") or 0) == end_time
+                    and int(pen_candidate.get("direction") or 0) == direction
+                ):
+                    return [
+                        {"time": start_time, "value": float(pen_candidate.get("start_price") or 0.0)},
+                        {"time": end_time, "value": float(pen_candidate.get("end_price") or 0.0)},
+                    ]
+            return []
+
+        anchor_points = resolve_points(current_ref)
+        if anchor_points:
+            add_polyline(
+                "anchor.current",
+                visible_time=int(to_time),
+                feature="anchor.current",
+                points=anchor_points,
+                color="#f59e0b",
+            )
+
+        if isinstance(pen_candidate, dict):
+            reverse_ref = {
+                "kind": "candidate",
+                "start_time": int(pen_candidate.get("start_time") or 0),
+                "end_time": int(pen_candidate.get("end_time") or 0),
+                "direction": int(pen_candidate.get("direction") or 0),
+            }
+            reverse_points = resolve_points(reverse_ref)
+            if reverse_points:
+                add_polyline(
+                    "anchor.reverse",
+                    visible_time=int(to_time),
+                    feature="anchor.reverse",
+                    points=reverse_points,
+                    color="#f59e0b",
+                    line_style="dashed",
+                )
 
         with self._overlay_store.connect() as conn:
             before_changes = int(conn.total_changes)
@@ -198,6 +408,23 @@ class OverlayOrchestrator:
                         payload=pen_def,
                     )
 
+            for instruction_id, visible_time, payload in polyline_defs:
+                prev = self._overlay_store.get_latest_def_for_instruction_in_conn(
+                    conn,
+                    series_id=series_id,
+                    instruction_id=instruction_id,
+                )
+                if prev == payload:
+                    continue
+                self._overlay_store.insert_instruction_version_in_conn(
+                    conn,
+                    series_id=series_id,
+                    instruction_id=instruction_id,
+                    kind="polyline",
+                    visible_time=int(visible_time),
+                    payload=payload,
+                )
+
             self._overlay_store.upsert_head_time_in_conn(conn, series_id=series_id, head_time=int(to_time))
             conn.commit()
             wrote = int(conn.total_changes) - before_changes
@@ -214,6 +441,7 @@ class OverlayOrchestrator:
                     "factor_rows": int(len(factor_rows)),
                     "marker_defs": int(len(marker_defs)),
                     "pen_points": int(len(points)),
+                    "polyline_defs": int(len(polyline_defs)),
                     "db_changes": int(wrote),
                     "duration_ms": int((time.perf_counter() - t0) * 1000),
                 },

@@ -2,7 +2,7 @@
 title: API v1（endpoint 清单 + 示例）
 status: draft
 created: 2026-02-03
-updated: 2026-02-03
+updated: 2026-02-07
 ---
 
 # API v1（endpoint 清单 + 示例）
@@ -46,6 +46,6 @@ updated: 2026-02-03
 - Factor（HTTP）：`docs/core/api/v1/http_factor.md`
 - World（HTTP）：`docs/core/api/v1/http_world.md`
 - Backtest（HTTP）：`docs/core/api/v1/http_backtest.md`
+- Dev（HTTP）：`docs/core/api/v1/http_dev.md`
 - Market WS：`docs/core/api/v1/ws_market.md`
 - Debug WS：`docs/core/api/v1/ws_debug.md`
-

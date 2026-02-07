@@ -3,6 +3,7 @@ import {
   LineStyle,
   type IChartApi,
   type ISeriesApi,
+  type LineWidth,
   type SeriesMarker,
   type Time,
   type UTCTimestamp
@@ -71,12 +72,17 @@ export function ChartView() {
   const lineSeriesByKeyRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
   const entryMarkersRef = useRef<Array<SeriesMarker<Time>>>([]);
   const pivotMarkersRef = useRef<Array<SeriesMarker<Time>>>([]);
+  const anchorSwitchMarkersRef = useRef<Array<SeriesMarker<Time>>>([]);
   const overlayCatalogRef = useRef<Map<string, OverlayInstructionPatchItemV1>>(new Map());
   const overlayActiveIdsRef = useRef<Set<string>>(new Set());
   const overlayCursorVersionRef = useRef<number>(0);
   const overlayPullInFlightRef = useRef(false);
+  const overlayPolylineSeriesByIdRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
   const entryEnabledRef = useRef<boolean>(false);
   const [pivotCount, setPivotCount] = useState(0);
+  const [zhongshuCount, setZhongshuCount] = useState(0);
+  const [anchorCount, setAnchorCount] = useState(0);
+  const [anchorSwitchCount, setAnchorSwitchCount] = useState(0);
   const [replayEnabled, setReplayEnabled] = useState<boolean>(ENABLE_REPLAY_V1);
   const [replayPlaying, setReplayPlaying] = useState<boolean>(ENABLE_REPLAY_V1);
   const [replayIndex, setReplayIndex] = useState<number>(0);
@@ -460,15 +466,20 @@ export function ChartView() {
       const center = el.closest(CENTER_SCROLL_SELECTOR) as HTMLElement | null;
       if (center) {
         const oy = window.getComputedStyle(center).overflowY;
-        if (oy !== "hidden") return;
+        if (oy !== "hidden") {
+          // When the middle scroll container is unlocked, keep the wheel scroll native and
+          // stop the event before Lightweight Charts handles zoom.
+          event.stopPropagation();
+          return;
+        }
       }
 
       // When the middle scroll container is locked (chart hovered), prevent the page from scrolling.
       // Let Lightweight Charts handle the actual wheel zoom natively (smoother than our custom applyOptions loop).
       event.preventDefault();
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel as EventListener);
+    el.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return () => el.removeEventListener("wheel", onWheel as EventListener, { capture: true });
   }, [chartEpoch]);
 
   useEffect(() => {
@@ -505,7 +516,7 @@ export function ChartView() {
   );
 
   const syncMarkers = useCallback(() => {
-    const markers = [...pivotMarkersRef.current, ...entryMarkersRef.current];
+    const markers = [...pivotMarkersRef.current, ...anchorSwitchMarkersRef.current, ...entryMarkersRef.current];
     markersApiRef.current?.setMarkers(markers);
     setPivotCount(pivotMarkersRef.current.length);
   }, []);
@@ -601,6 +612,50 @@ export function ChartView() {
     pivotMarkersRef.current = next;
   }, [effectiveVisible]);
 
+  const rebuildAnchorSwitchMarkersFromOverlay = useCallback(() => {
+    const showAnchorSwitch = effectiveVisible("anchor.switch");
+    const range = candlesRef.current;
+    const minTime = range.length > 0 ? (range[0]!.time as number) : null;
+    const maxTime = range.length > 0 ? (range[range.length - 1]!.time as number) : null;
+
+    const next: Array<SeriesMarker<Time>> = [];
+    if (showAnchorSwitch && minTime != null && maxTime != null) {
+      const ids = Array.from(overlayActiveIdsRef.current);
+      for (const id of ids) {
+        const item = overlayCatalogRef.current.get(id);
+        if (!item || item.kind !== "marker") continue;
+
+        const def = item.definition && typeof item.definition === "object" ? (item.definition as Record<string, unknown>) : {};
+        const feature = String(def["feature"] ?? "");
+        if (feature !== "anchor.switch") continue;
+
+        const t = Number(def["time"]);
+        if (!Number.isFinite(t)) continue;
+        if (t < minTime || t > maxTime) continue;
+
+        const position = def["position"] === "aboveBar" || def["position"] === "belowBar" ? def["position"] : null;
+        const shape =
+          def["shape"] === "circle" ||
+          def["shape"] === "square" ||
+          def["shape"] === "arrowUp" ||
+          def["shape"] === "arrowDown"
+            ? def["shape"]
+            : null;
+        const color = typeof def["color"] === "string" ? def["color"] : null;
+        const text = typeof def["text"] === "string" ? def["text"] : "";
+        const sizeRaw = Number(def["size"]);
+        const size = Number.isFinite(sizeRaw) && sizeRaw > 0 ? sizeRaw : 1.0;
+        if (!position || !shape || !color) continue;
+
+        next.push({ time: t as UTCTimestamp, position, color, shape, text, size });
+      }
+    }
+
+    next.sort((a, b) => Number(a.time) - Number(b.time));
+    anchorSwitchMarkersRef.current = next;
+    setAnchorSwitchCount(next.length);
+  }, [effectiveVisible]);
+
   const rebuildPenPointsFromOverlay = useCallback(() => {
     if (!overlayActiveIdsRef.current.has("pen.confirmed")) {
       penPointsRef.current = [];
@@ -635,6 +690,88 @@ export function ChartView() {
     }
     penPointsRef.current = out;
   }, []);
+
+  const rebuildOverlayPolylinesFromOverlay = useCallback(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const range = candlesRef.current;
+    const minTime = range.length > 0 ? (range[0]!.time as number) : null;
+    const maxTime = range.length > 0 ? (range[range.length - 1]!.time as number) : null;
+
+    const want = new Map<
+      string,
+      { points: Array<{ time: UTCTimestamp; value: number }>; color: string; lineWidth: LineWidth; lineStyle: LineStyle }
+    >();
+    let nextZhongshu = 0;
+    let nextAnchor = 0;
+
+    for (const id of overlayActiveIdsRef.current) {
+      if (id === "pen.confirmed") continue;
+      const item = overlayCatalogRef.current.get(id);
+      if (!item || item.kind !== "polyline") continue;
+      const def = item.definition && typeof item.definition === "object" ? (item.definition as Record<string, unknown>) : {};
+      const feature = String(def["feature"] ?? "");
+      if (!feature || !effectiveVisible(feature)) continue;
+
+      const pointsRaw = def["points"];
+      if (!Array.isArray(pointsRaw) || pointsRaw.length === 0) continue;
+      const points: Array<{ time: UTCTimestamp; value: number }> = [];
+      for (const p of pointsRaw) {
+        if (!p || typeof p !== "object") continue;
+        const rec = p as Record<string, unknown>;
+        const t = Number(rec["time"]);
+        const v = Number(rec["value"]);
+        if (!Number.isFinite(t) || !Number.isFinite(v)) continue;
+        if (minTime != null && maxTime != null && (t < minTime || t > maxTime)) continue;
+        points.push({ time: t as UTCTimestamp, value: v });
+      }
+      if (points.length < 2) continue;
+
+      const color = typeof def["color"] === "string" && def["color"] ? (def["color"] as string) : "#f59e0b";
+      const lineWidthRaw = Number(def["lineWidth"]);
+      const lineWidthBase = Number.isFinite(lineWidthRaw) && lineWidthRaw > 0 ? lineWidthRaw : 2;
+      const lineWidth = Math.min(4, Math.max(1, Math.round(lineWidthBase))) as LineWidth;
+      const lineStyleRaw = String(def["lineStyle"] ?? "");
+      const lineStyle = lineStyleRaw === "dashed" ? LineStyle.Dashed : LineStyle.Solid;
+
+      want.set(id, { points, color, lineWidth, lineStyle });
+      if (feature.startsWith("zhongshu.")) nextZhongshu += 1;
+      if (feature.startsWith("anchor.")) nextAnchor += 1;
+    }
+
+    for (const [id, series] of overlayPolylineSeriesByIdRef.current.entries()) {
+      if (want.has(id)) continue;
+      chart.removeSeries(series);
+      overlayPolylineSeriesByIdRef.current.delete(id);
+    }
+
+    for (const [id, item] of want.entries()) {
+      let series = overlayPolylineSeriesByIdRef.current.get(id);
+      if (!series) {
+        series = chart.addSeries(LineSeries, {
+          color: item.color,
+          lineWidth: item.lineWidth,
+          lineStyle: item.lineStyle,
+          priceLineVisible: false,
+          lastValueVisible: false
+        });
+        overlayPolylineSeriesByIdRef.current.set(id, series);
+      } else {
+        series.applyOptions({
+          color: item.color,
+          lineWidth: item.lineWidth,
+          lineStyle: item.lineStyle,
+          priceLineVisible: false,
+          lastValueVisible: false
+        });
+      }
+      series.setData(item.points);
+    }
+
+    setZhongshuCount(nextZhongshu);
+    setAnchorCount(nextAnchor);
+  }, [chartEpoch, effectiveVisible]);
 
   const applyPenAndAnchorFromFactorSlices = useCallback(
     (slices: GetFactorSlicesResponseV1) => {
@@ -779,8 +916,10 @@ export function ChartView() {
       });
 
       rebuildPivotMarkersFromOverlay();
+      rebuildAnchorSwitchMarkersFromOverlay();
       syncMarkers();
       rebuildPenPointsFromOverlay();
+      rebuildOverlayPolylinesFromOverlay();
       setPenPointCount(ENABLE_PEN_SEGMENT_COLOR ? penSegmentsRef.current.length * 2 : penPointsRef.current.length);
       if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
         penSeriesRef.current.setData(penPointsRef.current);
@@ -792,8 +931,10 @@ export function ChartView() {
       applyOverlayDelta,
       applyPenAndAnchorFromFactorSlices,
       effectiveVisible,
+      rebuildOverlayPolylinesFromOverlay,
       rebuildPenPointsFromOverlay,
       rebuildPivotMarkersFromOverlay,
+      rebuildAnchorSwitchMarkersFromOverlay,
       syncMarkers
     ]
   );
@@ -848,14 +989,25 @@ export function ChartView() {
       overlayActiveIdsRef.current = new Set(recomputeActiveIdsFromCatalog({ cutoffTime, toTime }));
 
       rebuildPivotMarkersFromOverlay();
+      rebuildAnchorSwitchMarkersFromOverlay();
       rebuildPenPointsFromOverlay();
+      rebuildOverlayPolylinesFromOverlay();
       if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
         penSeriesRef.current.setData(penPointsRef.current);
       }
       setPenPointCount(penPointsRef.current.length);
       syncMarkers();
     },
-    [effectiveVisible, recomputeActiveIdsFromCatalog, rebuildPenPointsFromOverlay, rebuildPivotMarkersFromOverlay, syncMarkers, timeframe]
+    [
+      effectiveVisible,
+      recomputeActiveIdsFromCatalog,
+      rebuildOverlayPolylinesFromOverlay,
+      rebuildPenPointsFromOverlay,
+      rebuildPivotMarkersFromOverlay,
+      rebuildAnchorSwitchMarkersFromOverlay,
+      syncMarkers,
+      timeframe
+    ]
   );
 
   const setReplayIndexAndCandles = useCallback(
@@ -999,9 +1151,13 @@ export function ChartView() {
     }
 
     rebuildPivotMarkersFromOverlay();
+    rebuildAnchorSwitchMarkersFromOverlay();
+    rebuildOverlayPolylinesFromOverlay();
 
     // --- Pen confirmed line (toggle -> create/remove) ---
     const showPenConfirmed = effectiveVisible("pen.confirmed");
+    const penPointTotal =
+      ENABLE_PEN_SEGMENT_COLOR && !replayEnabled ? penSegmentsRef.current.length * 2 : penPointsRef.current.length;
     if (!showPenConfirmed) {
       if (penSeriesRef.current) {
         chart.removeSeries(penSeriesRef.current);
@@ -1013,7 +1169,6 @@ export function ChartView() {
         chart.removeSeries(anchorPenSeriesRef.current);
         anchorPenSeriesRef.current = null;
       }
-      setPenPointCount(0);
     } else {
       if (ENABLE_PEN_SEGMENT_COLOR && !replayEnabled) {
         if (penSeriesRef.current) {
@@ -1046,7 +1201,6 @@ export function ChartView() {
           }
           s.setData(seg.points);
         }
-        setPenPointCount(segs.length * 2);
       } else {
         for (const s of penSegmentSeriesByKeyRef.current.values()) chart.removeSeries(s);
         penSegmentSeriesByKeyRef.current.clear();
@@ -1055,7 +1209,6 @@ export function ChartView() {
         }
         penSeriesRef.current.applyOptions({ lineStyle: LineStyle.Solid });
         penSeriesRef.current.setData(penPointsRef.current);
-        setPenPointCount(penPointsRef.current.length);
       }
 
       const anchorPts = anchorPenPointsRef.current;
@@ -1081,8 +1234,19 @@ export function ChartView() {
       }
     }
 
+    setPenPointCount(penPointTotal);
     syncMarkers();
-  }, [anchorHighlightEpoch, chartEpoch, effectiveVisible, rebuildPivotMarkersFromOverlay, seriesId, syncMarkers, visibleFeatures]);
+  }, [
+    anchorHighlightEpoch,
+    chartEpoch,
+    effectiveVisible,
+    rebuildOverlayPolylinesFromOverlay,
+    rebuildPivotMarkersFromOverlay,
+    rebuildAnchorSwitchMarkersFromOverlay,
+    seriesId,
+    syncMarkers,
+    visibleFeatures
+  ]);
 
   useEffect(() => {
     let isActive = true;
@@ -1090,16 +1254,24 @@ export function ChartView() {
 
     async function run() {
       try {
+        const chart = chartRef.current;
         setCandles([]);
         candlesRef.current = [];
         lastWsCandleTimeRef.current = null;
         setLastWsCandleTime(null);
         appliedRef.current = { len: 0, lastTime: null };
         pivotMarkersRef.current = [];
+        anchorSwitchMarkersRef.current = [];
         overlayCatalogRef.current.clear();
         overlayActiveIdsRef.current.clear();
         overlayCursorVersionRef.current = 0;
         overlayPullInFlightRef.current = false;
+        if (chart) {
+          for (const series of overlayPolylineSeriesByIdRef.current.values()) chart.removeSeries(series);
+        }
+        overlayPolylineSeriesByIdRef.current.clear();
+        setZhongshuCount(0);
+        setAnchorCount(0);
         followPendingTimeRef.current = null;
         if (followTimerIdRef.current != null) {
           window.clearTimeout(followTimerIdRef.current);
@@ -1110,6 +1282,7 @@ export function ChartView() {
         lastFactorAtTimeRef.current = null;
         setAnchorHighlightEpoch((v) => v + 1);
         setPivotCount(0);
+        setAnchorSwitchCount(0);
         setPenPointCount(0);
         setError(null);
         let cursor = 0;
@@ -1182,6 +1355,8 @@ export function ChartView() {
             if (!isActive) return;
             applyOverlayDelta(delta);
             rebuildPivotMarkersFromOverlay();
+            rebuildAnchorSwitchMarkersFromOverlay();
+            rebuildOverlayPolylinesFromOverlay();
             syncMarkers();
             rebuildPenPointsFromOverlay();
             setPenPointCount(ENABLE_PEN_SEGMENT_COLOR ? penSegmentsRef.current.length * 2 : penPointsRef.current.length);
@@ -1249,6 +1424,8 @@ export function ChartView() {
                     next_cursor: { version_id: rec.draw_delta.next_cursor?.version_id ?? afterId }
                   });
                   rebuildPivotMarkersFromOverlay();
+                  rebuildAnchorSwitchMarkersFromOverlay();
+                  rebuildOverlayPolylinesFromOverlay();
                   syncMarkers();
                   rebuildPenPointsFromOverlay();
                   setPenPointCount(ENABLE_PEN_SEGMENT_COLOR ? penSegmentsRef.current.length * 2 : penPointsRef.current.length);
@@ -1280,6 +1457,8 @@ export function ChartView() {
               if (!isActive) return;
               applyOverlayDelta(delta);
               rebuildPivotMarkersFromOverlay();
+              rebuildAnchorSwitchMarkersFromOverlay();
+              rebuildOverlayPolylinesFromOverlay();
               syncMarkers();
               rebuildPenPointsFromOverlay();
               if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
@@ -1408,6 +1587,7 @@ export function ChartView() {
                   if (!isActive) return;
                   applyOverlayDelta(delta);
                   rebuildPivotMarkersFromOverlay();
+                  rebuildAnchorSwitchMarkersFromOverlay();
                   syncMarkers();
                   rebuildPenPointsFromOverlay();
                   if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
@@ -1456,8 +1636,10 @@ export function ChartView() {
     fetchOverlayLikeDelta,
     fetchWorldFrameAtTime,
     fetchWorldFrameLive,
+    rebuildOverlayPolylinesFromOverlay,
     rebuildPenPointsFromOverlay,
     rebuildPivotMarkersFromOverlay,
+    rebuildAnchorSwitchMarkersFromOverlay,
     replayEnabled,
     seriesId,
     syncMarkers
@@ -1491,6 +1673,10 @@ export function ChartView() {
       data-bar-spacing={barSpacing != null ? String(barSpacing) : ""}
       data-pivot-count={String(pivotCount)}
       data-pen-point-count={String(penPointCount)}
+      data-zhongshu-count={String(zhongshuCount)}
+      data-anchor-count={String(anchorCount)}
+      data-anchor-switch-count={String(anchorSwitchCount)}
+      data-anchor-on={anchorCount > 0 ? "1" : "0"}
       className="relative h-full w-full"
       title={error ?? undefined}
     >
