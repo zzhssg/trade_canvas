@@ -121,6 +121,11 @@ def _require_backtest_trades() -> bool:
     return (os.environ.get("TRADE_CANVAS_BACKTEST_REQUIRE_TRADES") or "").strip() == "1"
 
 
+def _factor_rebuild_enabled() -> bool:
+    raw = (os.environ.get("TRADE_CANVAS_ENABLE_FACTOR_REBUILD") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _extract_total_trades_from_backtest_zip(*, zip_path: Path, strategy_name: str) -> int:
     with zipfile.ZipFile(str(zip_path), "r") as zf:
         candidates = [
@@ -549,6 +554,8 @@ def create_app() -> FastAPI:
 
     @app.post("/api/factor/rebuild", response_model=FactorRebuildResponseV1)
     def rebuild_factor_data(req: FactorRebuildRequestV1) -> FactorRebuildResponseV1:
+        if not _factor_rebuild_enabled():
+            raise HTTPException(status_code=404, detail="not_found")
         series_id = str(req.series_id)
         include_overlay = bool(req.include_overlay)
         store_head = store.head_time(series_id)

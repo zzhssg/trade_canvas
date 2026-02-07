@@ -17,6 +17,7 @@ class FactorSlicesApiTests(unittest.TestCase):
         self.db_path = Path(self.tmpdir.name) / "market.db"
         os.environ["TRADE_CANVAS_DB_PATH"] = str(self.db_path)
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "1"
+        os.environ["TRADE_CANVAS_ENABLE_FACTOR_REBUILD"] = "1"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MAJOR"] = "2"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MINOR"] = "1"
         os.environ["TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES"] = "200"
@@ -28,6 +29,7 @@ class FactorSlicesApiTests(unittest.TestCase):
         for k in (
             "TRADE_CANVAS_DB_PATH",
             "TRADE_CANVAS_ENABLE_FACTOR_INGEST",
+            "TRADE_CANVAS_ENABLE_FACTOR_REBUILD",
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
@@ -120,6 +122,11 @@ class FactorSlicesApiTests(unittest.TestCase):
 
         ok = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
         self.assertEqual(ok.status_code, 200, ok.text)
+
+    def test_factor_rebuild_returns_404_when_feature_disabled(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_FACTOR_REBUILD"] = "0"
+        res = self.client.post("/api/factor/rebuild", json={"series_id": self.series_id, "include_overlay": False})
+        self.assertEqual(res.status_code, 404, res.text)
 
 
 if __name__ == "__main__":
