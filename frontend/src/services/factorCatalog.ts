@@ -30,7 +30,11 @@ export const FACTOR_CATALOG: FactorSpec[] = [
     key: "pen",
     label: "Pen",
     default_visible: true,
-    sub_features: [{ key: "pen.confirmed", label: "Confirmed", default_visible: false }]
+    sub_features: [
+      { key: "pen.confirmed", label: "Confirmed", default_visible: false },
+      { key: "pen.extending", label: "Extending", default_visible: false },
+      { key: "pen.candidate", label: "Candidate", default_visible: false }
+    ]
   },
   {
     key: "zhongshu",

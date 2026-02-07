@@ -7,7 +7,7 @@ from typing import Any
 
 from .debug_hub import DebugHub
 from .factor_graph import FactorGraph, FactorSpec
-from .factor_slices import build_pen_head_candidate
+from .factor_slices import build_pen_head_candidate, build_pen_head_preview
 from .factor_store import FactorEventWrite, FactorStore
 from .pen import ConfirmedPen, PivotMajorPoint
 from .store import CandleStore
@@ -682,10 +682,20 @@ class FactorOrchestrator:
         # Head snapshots (append-only via seq).
         pen_head: dict[str, Any] = {}
         if confirmed_pens:
-            last_pen = confirmed_pens[-1]
-            candidate = build_pen_head_candidate(candles=candles, last_confirmed=last_pen, aligned_time=int(up_to))
-            if candidate is not None:
-                pen_head["candidate"] = candidate
+            major_for_head = [
+                {
+                    "pivot_time": int(p.pivot_time),
+                    "pivot_price": float(p.pivot_price),
+                    "direction": str(p.direction),
+                    "visible_time": int(p.visible_time),
+                }
+                for p in effective_pivots
+            ]
+            preview = build_pen_head_preview(candles=candles, major_pivots=major_for_head, aligned_time=int(up_to))
+            for key in ("extending", "candidate"):
+                v = preview.get(key)
+                if isinstance(v, dict):
+                    pen_head[key] = v
 
         zhongshu_head: dict[str, Any] = {}
         if confirmed_pens:

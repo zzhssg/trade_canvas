@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .debug_hub import DebugHub
-from .factor_slices import build_pen_head_candidate
+from .factor_slices import build_pen_head_candidate, build_pen_head_preview
 from .factor_store import FactorStore
 from .overlay_store import OverlayStore
 from .store import CandleStore
@@ -198,7 +198,7 @@ class OverlayOrchestrator:
                 "type": "polyline",
                 "feature": "pen.confirmed",
                 "points": list(points),
-                "color": "#a78bfa",
+                "color": "#ffffff",
                 "lineWidth": 2,
             }
 
@@ -221,7 +221,12 @@ class OverlayOrchestrator:
             limit=int(window_candles) + 10,
         )
         last_confirmed = pen_confirmed[-1] if pen_confirmed else None
-        pen_candidate = build_pen_head_candidate(candles=candles, last_confirmed=last_confirmed, aligned_time=int(to_time))
+        preview = build_pen_head_preview(candles=candles, major_pivots=pivot_major, aligned_time=int(to_time))
+        pen_extending = preview.get("extending") if isinstance(preview.get("extending"), dict) else None
+        pen_candidate = preview.get("candidate") if isinstance(preview.get("candidate"), dict) else None
+        if pen_candidate is None:
+            # Fallback for old data snapshots without enough major pivots in the current window.
+            pen_candidate = build_pen_head_candidate(candles=candles, last_confirmed=last_confirmed, aligned_time=int(to_time))
 
         if pen_confirmed:
             try:
@@ -372,6 +377,32 @@ class OverlayOrchestrator:
                     color="#f59e0b",
                     line_style="dashed",
                 )
+
+        if isinstance(pen_extending, dict):
+            add_polyline(
+                "pen.extending",
+                visible_time=int(to_time),
+                feature="pen.extending",
+                points=[
+                    {"time": int(pen_extending.get("start_time") or 0), "value": float(pen_extending.get("start_price") or 0.0)},
+                    {"time": int(pen_extending.get("end_time") or 0), "value": float(pen_extending.get("end_price") or 0.0)},
+                ],
+                color="#ffffff",
+                line_style="dashed",
+            )
+
+        if isinstance(pen_candidate, dict):
+            add_polyline(
+                "pen.candidate",
+                visible_time=int(to_time),
+                feature="pen.candidate",
+                points=[
+                    {"time": int(pen_candidate.get("start_time") or 0), "value": float(pen_candidate.get("start_price") or 0.0)},
+                    {"time": int(pen_candidate.get("end_time") or 0), "value": float(pen_candidate.get("end_price") or 0.0)},
+                ],
+                color="#ffffff",
+                line_style="dashed",
+            )
 
         with self._overlay_store.connect() as conn:
             before_changes = int(conn.total_changes)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .factor_slices import build_pen_head_preview
 from .factor_store import FactorStore
 from .schemas import FactorMetaV1, FactorSliceV1, GetFactorSlicesResponseV1
 from .store import CandleStore
@@ -107,47 +108,16 @@ class FactorSlicesService:
             if pen_head_row is not None:
                 pen_head = dict(pen_head_row.head or {})
             else:
-                # Candidate pen (head-only): from last confirmed pen end_time to the most extreme point
-                # in the reverse direction within the current tail window.
                 try:
                     candles = self.candle_store.get_closed(series_id, since=int(start_time), limit=int(window_candles) + 5)
                     candles = [c for c in candles if int(c.candle_time) <= int(aligned)]
                 except Exception:
                     candles = []
-
-                last = pen_confirmed[-1]
-                try:
-                    last_end_time = int(last.get("end_time") or 0)
-                    last_end_price = float(last.get("end_price") or 0.0)
-                    last_dir = int(last.get("direction") or 0)
-                except Exception:
-                    last_end_time = 0
-                    last_end_price = 0.0
-                    last_dir = 0
-
-                if candles and last_end_time > 0 and last_dir in (-1, 1):
-                    tail = [c for c in candles if int(c.candle_time) > int(last_end_time) and int(c.candle_time) <= int(aligned)]
-                    if tail:
-                        if last_dir == 1:
-                            # Last confirmed pen was up; candidate is down to min(low).
-                            best = min(tail, key=lambda c: float(c.low))
-                            pen_head["candidate"] = {
-                                "start_time": int(last_end_time),
-                                "end_time": int(best.candle_time),
-                                "start_price": float(last_end_price),
-                                "end_price": float(best.low),
-                                "direction": -1,
-                            }
-                        else:
-                            # Last confirmed pen was down; candidate is up to max(high).
-                            best = max(tail, key=lambda c: float(c.high))
-                            pen_head["candidate"] = {
-                                "start_time": int(last_end_time),
-                                "end_time": int(best.candle_time),
-                                "start_price": float(last_end_price),
-                                "end_price": float(best.high),
-                                "direction": 1,
-                            }
+                preview = build_pen_head_preview(candles=candles, major_pivots=piv_major, aligned_time=int(aligned))
+                for key in ("extending", "candidate"):
+                    v = preview.get(key)
+                    if isinstance(v, dict):
+                        pen_head[key] = v
 
             factors.append("pen")
             snapshots["pen"] = FactorSliceV1(

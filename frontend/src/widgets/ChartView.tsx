@@ -1597,7 +1597,7 @@ export function ChartView() {
           }
         }
         for (const seg of segs) {
-          const color = seg.highlighted ? "#f59e0b" : "#a78bfa";
+          const color = seg.highlighted ? "#f59e0b" : "#ffffff";
           const lineWidth = 2;
           let s = penSegmentSeriesByKeyRef.current.get(seg.key);
           if (!s) {
@@ -1618,7 +1618,7 @@ export function ChartView() {
         for (const s of penSegmentSeriesByKeyRef.current.values()) chart.removeSeries(s);
         penSegmentSeriesByKeyRef.current.clear();
         if (!penSeriesRef.current) {
-          penSeriesRef.current = chart.addSeries(LineSeries, { color: "#a78bfa", lineWidth: 2, lineStyle: LineStyle.Solid });
+          penSeriesRef.current = chart.addSeries(LineSeries, { color: "#ffffff", lineWidth: 2, lineStyle: LineStyle.Solid });
         }
         penSeriesRef.current.applyOptions({ lineStyle: LineStyle.Solid });
         penSeriesRef.current.setData(penPointsRef.current);
