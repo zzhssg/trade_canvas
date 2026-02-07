@@ -331,6 +331,8 @@ export function ChartView() {
   const anchorPenIsDashedRef = useRef<boolean>(false);
   const factorPullInFlightRef = useRef(false);
   const lastFactorAtTimeRef = useRef<number | null>(null);
+  const zhongshuRectCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [overlayPaintEpoch, setOverlayPaintEpoch] = useState(0);
 
   const { chartRef, candleSeriesRef: seriesRef, markersApiRef, chartEpoch } = useLightweightChart({
     containerRef,
@@ -368,6 +370,9 @@ export function ChartView() {
       lastFactorAtTimeRef.current = null;
       entryEnabledRef.current = false;
       appliedRef.current = { len: 0, lastTime: null };
+      const rectCanvas = zhongshuRectCanvasRef.current;
+      if (rectCanvas && rectCanvas.parentElement) rectCanvas.parentElement.removeChild(rectCanvas);
+      zhongshuRectCanvasRef.current = null;
     }
   });
 
@@ -947,7 +952,156 @@ export function ChartView() {
 
     setZhongshuCount(nextZhongshu);
     setAnchorCount(nextAnchor);
+    setOverlayPaintEpoch((v) => v + 1);
   }, [chartEpoch, effectiveVisible]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    const container = containerRef.current;
+    if (!chart || !series || !container) return;
+
+    const ensureCanvas = () => {
+      let canvas = zhongshuRectCanvasRef.current;
+      if (!canvas) {
+        canvas = document.createElement("canvas");
+        canvas.className = "pointer-events-none absolute inset-0 z-[5]";
+        container.appendChild(canvas);
+        zhongshuRectCanvasRef.current = canvas;
+      } else if (canvas.parentElement !== container) {
+        container.appendChild(canvas);
+      }
+      return canvas;
+    };
+
+    const resizeCanvas = (canvas: HTMLCanvasElement) => {
+      const dpr = window.devicePixelRatio || 1;
+      const widthPx = Math.max(1, Math.floor(container.clientWidth));
+      const heightPx = Math.max(1, Math.floor(container.clientHeight));
+      const nextWidth = Math.floor(widthPx * dpr);
+      const nextHeight = Math.floor(heightPx * dpr);
+      if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
+        canvas.width = nextWidth;
+        canvas.height = nextHeight;
+      }
+      canvas.style.width = `${widthPx}px`;
+      canvas.style.height = `${heightPx}px`;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return ctx;
+    };
+
+    const draw = () => {
+      const canvas = ensureCanvas();
+      const ctx = resizeCanvas(canvas);
+      if (!ctx) return;
+      ctx.clearRect(0, 0, container.clientWidth, container.clientHeight);
+
+      const timeScale = chart.timeScale();
+      const visible = timeScale.getVisibleRange();
+      const visibleFrom = visible ? normalizeTimeToSec(visible.from as Time) : null;
+      const visibleTo = visible ? normalizeTimeToSec(visible.to as Time) : null;
+      const visibleFromX = visibleFrom != null ? timeScale.timeToCoordinate(visibleFrom as UTCTimestamp) : null;
+      const visibleToX = visibleTo != null ? timeScale.timeToCoordinate(visibleTo as UTCTimestamp) : null;
+
+      type Edge = { startTime: number; endTime: number; value: number };
+      type RectSeed = {
+        feature: string;
+        top?: Edge;
+        bottom?: Edge;
+      };
+      const rectMap = new Map<string, RectSeed>();
+      for (const instructionId of overlayActiveIdsRef.current) {
+        const item = overlayCatalogRef.current.get(instructionId);
+        if (!item || item.kind !== "polyline") continue;
+        const def = item.definition && typeof item.definition === "object" ? (item.definition as Record<string, unknown>) : {};
+        const feature = String(def["feature"] ?? "");
+        if (!(feature === "zhongshu.alive" || feature === "zhongshu.dead")) continue;
+        if (!effectiveVisible(feature)) continue;
+        const isTop = instructionId.endsWith(":top");
+        const isBottom = instructionId.endsWith(":bottom");
+        if (!isTop && !isBottom) continue;
+        const pointsRaw = def["points"];
+        if (!Array.isArray(pointsRaw) || pointsRaw.length < 2) continue;
+        const p0 = pointsRaw[0];
+        const p1 = pointsRaw[pointsRaw.length - 1];
+        if (!p0 || typeof p0 !== "object" || !p1 || typeof p1 !== "object") continue;
+        const r0 = p0 as Record<string, unknown>;
+        const r1 = p1 as Record<string, unknown>;
+        const t0 = Number(r0["time"]);
+        const t1 = Number(r1["time"]);
+        const y0 = Number(r0["value"]);
+        if (!Number.isFinite(t0) || !Number.isFinite(t1) || !Number.isFinite(y0)) continue;
+        const edge: Edge = {
+          startTime: Math.min(Math.floor(t0), Math.floor(t1)),
+          endTime: Math.max(Math.floor(t0), Math.floor(t1)),
+          value: y0
+        };
+        const key = isTop ? instructionId.slice(0, -4) : instructionId.slice(0, -7);
+        const seed = rectMap.get(key) ?? { feature };
+        if (isTop) seed.top = edge;
+        else seed.bottom = edge;
+        rectMap.set(key, seed);
+      }
+
+      const clampTimeCoord = (t: number) => {
+        let x = timeScale.timeToCoordinate(t as UTCTimestamp);
+        if (x != null && Number.isFinite(x)) return x;
+        if (visibleFrom == null || visibleTo == null) return null;
+        if (t < visibleFrom && visibleFromX != null && Number.isFinite(visibleFromX)) return visibleFromX;
+        if (t > visibleTo && visibleToX != null && Number.isFinite(visibleToX)) return visibleToX;
+        return null;
+      };
+
+      for (const seed of rectMap.values()) {
+        if (!seed.top || !seed.bottom) continue;
+        const x0 = clampTimeCoord(Math.min(seed.top.startTime, seed.bottom.startTime));
+        const x1 = clampTimeCoord(Math.max(seed.top.endTime, seed.bottom.endTime));
+        const yTop = series.priceToCoordinate(seed.top.value);
+        const yBottom = series.priceToCoordinate(seed.bottom.value);
+        if (x0 == null || x1 == null || yTop == null || yBottom == null) continue;
+        const left = Math.min(x0, x1);
+        const right = Math.max(x0, x1);
+        const top = Math.min(yTop, yBottom);
+        const bottom = Math.max(yTop, yBottom);
+        const width = Math.max(0, right - left);
+        const height = Math.max(0, bottom - top);
+        if (width <= 0 || height <= 0) continue;
+
+        const isAlive = seed.feature === "zhongshu.alive";
+        const fillColor = isAlive ? "rgba(34, 197, 94, 0.15)" : "rgba(128, 128, 128, 0.08)";
+        const borderColor = isAlive ? "rgba(34, 197, 94, 0.6)" : "rgba(148, 163, 184, 0.7)";
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, top, width, height);
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 1;
+        if (isAlive) {
+          ctx.setLineDash([]);
+        } else {
+          ctx.setLineDash([6, 4]);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+
+    const ro = new ResizeObserver(() => draw());
+    ro.observe(container);
+    const timeScale = chart.timeScale();
+    const onRangeChange = () => draw();
+    timeScale.subscribeVisibleTimeRangeChange(onRangeChange);
+    draw();
+
+    return () => {
+      ro.disconnect();
+      timeScale.unsubscribeVisibleTimeRangeChange(onRangeChange);
+    };
+  }, [chartEpoch, chartRef, effectiveVisible, overlayPaintEpoch, seriesRef]);
 
   const applyPenAndAnchorFromFactorSlices = useCallback(
     (slices: GetFactorSlicesResponseV1) => {
