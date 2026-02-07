@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .anchor_semantics import build_anchor_history_from_switches
 from .factor_slices import build_pen_head_preview
 from .factor_store import FactorStore
 from .schemas import FactorMetaV1, FactorSliceV1, GetFactorSlicesResponseV1
@@ -173,14 +174,15 @@ class FactorSlicesService:
         # - head.current_anchor_ref: the latest stable anchor (confirmed) if available
         # - head.reverse_anchor_ref: optional (candidate pen derived from pen head)
         if pen_confirmed or anchor_switches:
+            history_anchors, history_switches = build_anchor_history_from_switches(anchor_switches)
             if anchor_head_row is not None:
                 anchor_head = dict(anchor_head_row.head or {})
                 current_anchor_ref = anchor_head.get("current_anchor_ref")
                 reverse_anchor_ref = anchor_head.get("reverse_anchor_ref")
             else:
                 current_anchor_ref = None
-                if anchor_switches:
-                    cur = anchor_switches[-1].get("new_anchor")
+                if history_switches:
+                    cur = history_switches[-1].get("new_anchor")
                     if isinstance(cur, dict):
                         current_anchor_ref = cur
                 elif pen_confirmed:
@@ -210,7 +212,7 @@ class FactorSlicesService:
 
             factors.append("anchor")
             snapshots["anchor"] = FactorSliceV1(
-                history={"switches": anchor_switches},
+                history={"anchors": history_anchors, "switches": history_switches},
                 head={"current_anchor_ref": current_anchor_ref, "reverse_anchor_ref": reverse_anchor_ref},
                 meta=FactorMetaV1(
                     series_id=series_id,
