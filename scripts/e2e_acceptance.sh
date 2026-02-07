@@ -170,6 +170,8 @@ else
     # Pin ingest flags for deterministic E2E (avoid inheriting dev shell env).
     export TRADE_CANVAS_ENABLE_FACTOR_INGEST="1"
     export TRADE_CANVAS_ENABLE_OVERLAY_INGEST="1"
+    export TRADE_CANVAS_ENABLE_REPLAY_V1="${TRADE_CANVAS_ENABLE_REPLAY_V1:-1}"
+    export TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE="${TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE:-1}"
     export TRADE_CANVAS_PIVOT_WINDOW_MAJOR="${TRADE_CANVAS_PIVOT_WINDOW_MAJOR:-50}"
     export TRADE_CANVAS_PIVOT_WINDOW_MINOR="${TRADE_CANVAS_PIVOT_WINDOW_MINOR:-5}"
     export TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES="${TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES:-20000}"
@@ -192,6 +194,8 @@ else
     cd frontend
     export VITE_API_BASE="$backend_base"
     export VITE_API_BASE_URL="$backend_base"
+    export VITE_ENABLE_REPLAY_V1="${VITE_ENABLE_REPLAY_V1:-1}"
+    export VITE_ENABLE_REPLAY_PACKAGE_V1="${VITE_ENABLE_REPLAY_PACKAGE_V1:-0}"
     npm run dev -- --host "$frontend_host" --port "$frontend_port"
   ) &
   frontend_pid="$!"

@@ -534,6 +534,9 @@ def create_app() -> FastAPI:
         - Ensures factor/overlay ledgers are computed up to aligned time.
         - Returns aligned_time for replay loading.
         """
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
         series_id = req.series_id
         store_head = store.head_time(series_id)
         if store_head is None:
@@ -653,10 +656,10 @@ def create_app() -> FastAPI:
         if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
             app.state.debug_hub.emit(
                 pipe="read",
-                event="read.http.world_frame_live",
+                event="read.http.world_frame_at_time",
                 series_id=series_id,
-                message="get world frame live",
-                data={"at_time": int(store_head), "aligned_time": int(aligned), "candle_id": str(candle_id)},
+                message="get world frame at_time",
+                data={"at_time": int(at_time), "aligned_time": int(aligned), "candle_id": str(candle_id)},
             )
         return WorldStateV1(
             series_id=series_id,

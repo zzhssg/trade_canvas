@@ -1,11 +1,11 @@
 ---
-title: Anchor Contract v1（锚：current + historical anchors + switches）
+title: Anchor Contract v1（锚：current + switches）
 status: draft
 created: 2026-02-02
-updated: 2026-02-07
+updated: 2026-02-06
 ---
 
-# Anchor Contract v1（锚：current + historical anchors + switches）
+# Anchor Contract v1（锚：current + switches）
 
 目标：为 trade_canvas 的 `anchor` 因子定义最小可落地契约，使其能：
 
@@ -79,7 +79,6 @@ type AnchorSwitchV1 = {
 ```ts
 type AnchorSliceV1 = FactorSliceV1 & {
   history: {
-    anchors: PenRefV1[]            // append-only；与 switches 1:1 对齐（按 switch_time 可见）
     switches: AnchorSwitchV1[]     // append-only（switch_time<=t）
   }
   head: {
@@ -95,8 +94,6 @@ type AnchorSliceV1 = FactorSliceV1 & {
 
 1) **依赖只能来自 deps_snapshot**：切片/计算阶段读取 `pen/zhongshu` 必须来自 `deps_snapshot`，禁止回调依赖因子的 `slice_at()`。
 2) **history 纯切片**：`history.switches` 只能按 `switch_time<=t` 过滤，禁止重算。
-   - `history.anchors` 必须与 `history.switches` 在同一可见性口径下过滤；
-   - 过滤后强约束：`len(anchors) == len(switches)`，且第 i 个 anchor 必须等于第 i 个 switch 的 `new_anchor`。
 3) **head 无未来函数**：
    - `head.current_anchor_ref` 必须满足 `end_time<=t`；
    - 若候选锚的确认需要上游事件（例如新 pen.confirmed 出现），则 `switch_time` 必须取“确认可见”时刻，而不是结构发生的更早时刻。
@@ -121,7 +118,6 @@ v1 的目标不是“最强语义”，而是“可复现 + 可验收 + 可演�
 
 - 当出现一根新的可见 pen（confirmed 或 candidate），且其力度明显超过当前锚（阈值可参数化），产生 `AnchorSwitchV1`（reason=`strong_pen`）；
 - 或当检测到“新中枢形成”并满足策略口径时触发（reason=`zhongshu_entry`）。
-- 若新锚与旧锚 **start_time 相同**（仅末端极值更新），视为“锚更新”而非“换锚”，**不得追加 switch**。
 
 可见性：
 - `switch_time` 推荐直接使用触发该切换的 pen 的 `visible_time`（或等价确认时刻），避免未来函数。

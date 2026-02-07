@@ -5,9 +5,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .anchor_semantics import build_anchor_history_from_switches
 from .debug_hub import DebugHub
-from .factor_slices import build_pen_head_candidate, build_pen_head_preview
+from .factor_slices import build_pen_head_candidate
 from .factor_store import FactorStore
 from .overlay_store import OverlayStore
 from .store import CandleStore
@@ -222,12 +221,7 @@ class OverlayOrchestrator:
             limit=int(window_candles) + 10,
         )
         last_confirmed = pen_confirmed[-1] if pen_confirmed else None
-        preview = build_pen_head_preview(candles=candles, major_pivots=pivot_major, aligned_time=int(to_time))
-        pen_extending = preview.get("extending") if isinstance(preview.get("extending"), dict) else None
-        pen_candidate = preview.get("candidate") if isinstance(preview.get("candidate"), dict) else None
-        if pen_candidate is None:
-            # Fallback for old data snapshots without enough major pivots in the current window.
-            pen_candidate = build_pen_head_candidate(candles=candles, last_confirmed=last_confirmed, aligned_time=int(to_time))
+        pen_candidate = build_pen_head_candidate(candles=candles, last_confirmed=last_confirmed, aligned_time=int(to_time))
 
         if pen_confirmed:
             try:
@@ -308,12 +302,10 @@ class OverlayOrchestrator:
                 color="rgba(34,197,94,0.8)",
             )
 
-        history_anchors, history_switches = build_anchor_history_from_switches(anchor_switches)
-
-        # Anchor current + reverse + history (polyline).
+        # Anchor current + reverse (polyline).
         current_ref = None
-        if history_switches:
-            cur = history_switches[-1].get("new_anchor")
+        if anchor_switches:
+            cur = anchor_switches[-1].get("new_anchor")
             if isinstance(cur, dict):
                 current_ref = cur
         elif last_confirmed is not None:
@@ -363,25 +355,6 @@ class OverlayOrchestrator:
                 color="#f59e0b",
             )
 
-        for idx, anchor_ref in enumerate(history_anchors):
-            history_points = resolve_points(anchor_ref)
-            if not history_points:
-                continue
-            switch_payload = history_switches[idx]
-            switch_time = int(switch_payload.get("switch_time") or to_time)
-            instruction_id = (
-                f"anchor.history:{switch_time}:{int(anchor_ref.get('start_time') or 0)}:"
-                f"{int(anchor_ref.get('end_time') or 0)}:{int(anchor_ref.get('direction') or 0)}"
-            )
-            add_polyline(
-                instruction_id,
-                visible_time=max(1, switch_time),
-                feature="anchor.history",
-                points=history_points,
-                color="rgba(245,158,11,0.28)",
-                line_width=1,
-            )
-
         if isinstance(pen_candidate, dict):
             reverse_ref = {
                 "kind": "candidate",
@@ -399,32 +372,6 @@ class OverlayOrchestrator:
                     color="#f59e0b",
                     line_style="dashed",
                 )
-
-        if isinstance(pen_extending, dict):
-            add_polyline(
-                "pen.extending",
-                visible_time=int(to_time),
-                feature="pen.extending",
-                points=[
-                    {"time": int(pen_extending.get("start_time") or 0), "value": float(pen_extending.get("start_price") or 0.0)},
-                    {"time": int(pen_extending.get("end_time") or 0), "value": float(pen_extending.get("end_price") or 0.0)},
-                ],
-                color="#ffffff",
-                line_style="dashed",
-            )
-
-        if isinstance(pen_candidate, dict):
-            add_polyline(
-                "pen.candidate",
-                visible_time=int(to_time),
-                feature="pen.candidate",
-                points=[
-                    {"time": int(pen_candidate.get("start_time") or 0), "value": float(pen_candidate.get("start_price") or 0.0)},
-                    {"time": int(pen_candidate.get("end_time") or 0), "value": float(pen_candidate.get("end_price") or 0.0)},
-                ],
-                color="#ffffff",
-                line_style="dashed",
-            )
 
         with self._overlay_store.connect() as conn:
             before_changes = int(conn.total_changes)

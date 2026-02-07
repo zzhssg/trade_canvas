@@ -70,14 +70,8 @@ class AnchorFactorTests(unittest.TestCase):
             self.assertLessEqual(int(rev.get("end_time") or 0), int(payload["at_time"]))
 
         hist = a.get("history") or {}
-        anchors = hist.get("anchors") or []
         switches = hist.get("switches") or []
         self.assertGreaterEqual(len(switches), 1, "expected at least one stable anchor switch event")
-        self.assertEqual(len(anchors), len(switches), "history anchors should align 1:1 with switches")
-        for idx, sw in enumerate(switches):
-            new_anchor = sw.get("new_anchor") if isinstance(sw, dict) else None
-            self.assertIsInstance(new_anchor, dict)
-            self.assertEqual(anchors[idx], new_anchor)
 
         # Idempotent: re-ingesting the last candle should not grow switches (FactorStore UNIQUE event_key).
         before = len(switches)

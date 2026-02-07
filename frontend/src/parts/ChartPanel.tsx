@@ -8,7 +8,7 @@ import { useUiStore } from "../state/uiStore";
 import { useTopMarkets } from "../services/useTopMarkets";
 
 const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
-const ENABLE_REPLAY_V1 = String(import.meta.env.VITE_ENABLE_REPLAY_V1 ?? "1") === "1";
+const ENABLE_REPLAY_V1 = import.meta.env.VITE_ENABLE_REPLAY_V1 === "1";
 
 export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
   const { market, setMarket, symbol, setSymbol, timeframe, setTimeframe } = useUiStore();
