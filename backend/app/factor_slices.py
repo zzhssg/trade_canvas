@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .anchor_semantics import build_anchor_history_from_switches
 from .factor_store import FactorStore
 from .schemas import FactorMetaV1, FactorSliceV1, GetFactorSlicesResponseV1
 from .store import CandleStore
@@ -196,9 +197,10 @@ def build_factor_slices(
     # - head.current_anchor_ref: the latest switch new_anchor (if available)
     # - head.reverse_anchor_ref: optional (candidate pen derived from pen head)
     if pen_confirmed or anchor_switches:
+        history_anchors, history_switches = build_anchor_history_from_switches(anchor_switches)
         current_anchor_ref = None
-        if anchor_switches:
-            cur = anchor_switches[-1].get("new_anchor")
+        if history_switches:
+            cur = history_switches[-1].get("new_anchor")
             if isinstance(cur, dict):
                 current_anchor_ref = cur
         elif pen_confirmed:
@@ -225,7 +227,7 @@ def build_factor_slices(
 
         factors.append("anchor")
         snapshots["anchor"] = FactorSliceV1(
-            history={"switches": anchor_switches},
+            history={"anchors": history_anchors, "switches": history_switches},
             head={"current_anchor_ref": current_anchor_ref, "reverse_anchor_ref": reverse_anchor_ref},
             meta=FactorMetaV1(
                 series_id=series_id,

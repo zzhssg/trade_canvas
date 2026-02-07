@@ -47,6 +47,7 @@ export const FACTOR_CATALOG: FactorSpec[] = [
     default_visible: true,
     sub_features: [
       { key: "anchor.current", label: "Current", default_visible: true },
+      { key: "anchor.history", label: "History", default_visible: false },
       { key: "anchor.reverse", label: "Reverse", default_visible: false },
       { key: "anchor.switch", label: "Switches", default_visible: false }
     ]

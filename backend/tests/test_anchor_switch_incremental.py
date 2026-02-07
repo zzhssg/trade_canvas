@@ -86,10 +86,11 @@ class AnchorSwitchIncrementalTests(unittest.TestCase):
         payload = res.json()
         self.assertIn("anchor", payload["factors"])
         anchor = payload["snapshots"]["anchor"]
+        anchors = (anchor.get("history") or {}).get("anchors") or []
         switches = anchor["history"]["switches"]
+        self.assertEqual(len(anchors), len(switches))
         reasons = {s.get("reason") for s in switches}
         self.assertIn("strong_pen", reasons)
-        self.assertIn("zhongshu_entry", reasons)
         cur = anchor["head"]["current_anchor_ref"]
         self.assertIsNotNone(cur)
         self.assertLessEqual(int(cur.get("end_time") or 0), int(payload["at_time"]))

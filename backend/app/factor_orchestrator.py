@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from .anchor_semantics import should_append_switch
 from .debug_hub import DebugHub
 from .factor_graph import FactorGraph, FactorSpec
 from .factor_slices import build_pen_head_candidate
@@ -573,25 +574,26 @@ class FactorOrchestrator:
 
                     if formed_entry is not None:
                         new_ref = _pen_ref_from_pen(formed_entry, kind="confirmed")
-                        key_switch = (
-                            f"zhongshu_entry:{int(visible_time)}:{new_ref['start_time']}:{new_ref['end_time']}:{new_ref['direction']}"
-                        )
-                        events.append(
-                            FactorEventWrite(
-                                series_id=series_id,
-                                factor_name="anchor",
-                                candle_time=int(visible_time),
-                                kind="anchor.switch",
-                                event_key=key_switch,
-                                payload={
-                                    "switch_time": int(visible_time),
-                                    "reason": "zhongshu_entry",
-                                    "old_anchor": dict(anchor_current_ref) if isinstance(anchor_current_ref, dict) else None,
-                                    "new_anchor": dict(new_ref),
-                                    "visible_time": int(visible_time),
-                                },
+                        if should_append_switch(old_anchor=anchor_current_ref, new_anchor=new_ref):
+                            key_switch = (
+                                f"zhongshu_entry:{int(visible_time)}:{new_ref['start_time']}:{new_ref['end_time']}:{new_ref['direction']}"
                             )
-                        )
+                            events.append(
+                                FactorEventWrite(
+                                    series_id=series_id,
+                                    factor_name="anchor",
+                                    candle_time=int(visible_time),
+                                    kind="anchor.switch",
+                                    event_key=key_switch,
+                                    payload={
+                                        "switch_time": int(visible_time),
+                                        "reason": "zhongshu_entry",
+                                        "old_anchor": dict(anchor_current_ref) if isinstance(anchor_current_ref, dict) else None,
+                                        "new_anchor": dict(new_ref),
+                                        "visible_time": int(visible_time),
+                                    },
+                                )
+                            )
                         anchor_current_ref = new_ref
                         anchor_strength = _pen_strength(formed_entry)
 
@@ -599,25 +601,26 @@ class FactorOrchestrator:
                     strength = _pen_strength(pen_payload)
                     if anchor_strength is None or strength > float(anchor_strength or -1.0):
                         new_ref = _pen_ref_from_pen(pen_payload, kind="confirmed")
-                        key_switch = (
-                            f"strong_pen:{int(visible_time)}:{new_ref['kind']}:{new_ref['start_time']}:{new_ref['end_time']}:{new_ref['direction']}"
-                        )
-                        events.append(
-                            FactorEventWrite(
-                                series_id=series_id,
-                                factor_name="anchor",
-                                candle_time=int(visible_time),
-                                kind="anchor.switch",
-                                event_key=key_switch,
-                                payload={
-                                    "switch_time": int(visible_time),
-                                    "reason": "strong_pen",
-                                    "old_anchor": dict(anchor_current_ref) if isinstance(anchor_current_ref, dict) else None,
-                                    "new_anchor": dict(new_ref),
-                                    "visible_time": int(visible_time),
-                                },
+                        if should_append_switch(old_anchor=anchor_current_ref, new_anchor=new_ref):
+                            key_switch = (
+                                f"strong_pen:{int(visible_time)}:{new_ref['kind']}:{new_ref['start_time']}:{new_ref['end_time']}:{new_ref['direction']}"
                             )
-                        )
+                            events.append(
+                                FactorEventWrite(
+                                    series_id=series_id,
+                                    factor_name="anchor",
+                                    candle_time=int(visible_time),
+                                    kind="anchor.switch",
+                                    event_key=key_switch,
+                                    payload={
+                                        "switch_time": int(visible_time),
+                                        "reason": "strong_pen",
+                                        "old_anchor": dict(anchor_current_ref) if isinstance(anchor_current_ref, dict) else None,
+                                        "new_anchor": dict(new_ref),
+                                        "visible_time": int(visible_time),
+                                    },
+                                )
+                            )
                         anchor_current_ref = new_ref
                         anchor_strength = float(strength)
             pivot_time_minor = int(visible_time) - int(s.pivot_window_minor) * int(tf_s)
@@ -657,25 +660,26 @@ class FactorOrchestrator:
                 strength = _pen_strength(candidate)
                 if anchor_strength is None or strength > float(anchor_strength or -1.0):
                     new_ref = _pen_ref_from_pen(candidate, kind="candidate")
-                    key_switch = (
-                        f"strong_pen:{int(visible_time)}:{new_ref['kind']}:{new_ref['start_time']}:{new_ref['end_time']}:{new_ref['direction']}"
-                    )
-                    events.append(
-                        FactorEventWrite(
-                            series_id=series_id,
-                            factor_name="anchor",
-                            candle_time=int(visible_time),
-                            kind="anchor.switch",
-                            event_key=key_switch,
-                            payload={
-                                "switch_time": int(visible_time),
-                                "reason": "strong_pen",
-                                "old_anchor": dict(anchor_current_ref) if isinstance(anchor_current_ref, dict) else None,
-                                "new_anchor": dict(new_ref),
-                                "visible_time": int(visible_time),
-                            },
+                    if should_append_switch(old_anchor=anchor_current_ref, new_anchor=new_ref):
+                        key_switch = (
+                            f"strong_pen:{int(visible_time)}:{new_ref['kind']}:{new_ref['start_time']}:{new_ref['end_time']}:{new_ref['direction']}"
                         )
-                    )
+                        events.append(
+                            FactorEventWrite(
+                                series_id=series_id,
+                                factor_name="anchor",
+                                candle_time=int(visible_time),
+                                kind="anchor.switch",
+                                event_key=key_switch,
+                                payload={
+                                    "switch_time": int(visible_time),
+                                    "reason": "strong_pen",
+                                    "old_anchor": dict(anchor_current_ref) if isinstance(anchor_current_ref, dict) else None,
+                                    "new_anchor": dict(new_ref),
+                                    "visible_time": int(visible_time),
+                                },
+                            )
+                        )
                     anchor_current_ref = new_ref
                     anchor_strength = float(strength)
 

@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from .anchor_semantics import build_anchor_history_from_switches
 from .debug_hub import DebugHub
 from .factor_slices import build_pen_head_candidate
 from .factor_store import FactorStore
@@ -302,10 +303,12 @@ class OverlayOrchestrator:
                 color="rgba(34,197,94,0.8)",
             )
 
-        # Anchor current + reverse (polyline).
+        history_anchors, history_switches = build_anchor_history_from_switches(anchor_switches)
+
+        # Anchor current + reverse + history (polyline).
         current_ref = None
-        if anchor_switches:
-            cur = anchor_switches[-1].get("new_anchor")
+        if history_switches:
+            cur = history_switches[-1].get("new_anchor")
             if isinstance(cur, dict):
                 current_ref = cur
         elif last_confirmed is not None:
@@ -353,6 +356,25 @@ class OverlayOrchestrator:
                 feature="anchor.current",
                 points=anchor_points,
                 color="#f59e0b",
+            )
+
+        for idx, anchor_ref in enumerate(history_anchors):
+            history_points = resolve_points(anchor_ref)
+            if not history_points:
+                continue
+            switch_payload = history_switches[idx]
+            switch_time = int(switch_payload.get("switch_time") or to_time)
+            instruction_id = (
+                f"anchor.history:{switch_time}:{int(anchor_ref.get('start_time') or 0)}:"
+                f"{int(anchor_ref.get('end_time') or 0)}:{int(anchor_ref.get('direction') or 0)}"
+            )
+            add_polyline(
+                instruction_id,
+                visible_time=max(1, switch_time),
+                feature="anchor.history",
+                points=history_points,
+                color="rgba(245,158,11,0.28)",
+                line_width=1,
             )
 
         if isinstance(pen_candidate, dict):
