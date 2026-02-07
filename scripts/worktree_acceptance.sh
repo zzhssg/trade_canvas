@@ -19,6 +19,7 @@ usage() {
   cat <<'EOF'
 Usage:
   bash scripts/worktree_acceptance.sh [--yes] [--push] [--delete-remote] [--main-branch <name>] [--remote <name>] [--no-pull]
+                                   [--plan-doc <path>] [--auto-doc-status] [--run-doc-audit] [--no-plan-gate]
 
 行为说明：
   - 默认 dry-run：只输出 review 信息并做门禁检查，不会执行 merge / 删除 worktree
@@ -26,6 +27,10 @@ Usage:
   - --push：在 merge 后 push main 到远端（默认 origin）
   - --delete-remote：在 merge 后删除远端分支（需要配合 --yes）
   - --no-pull：不更新 main（不 pull / 不 ff 合并远端 main）
+  - --plan-doc：显式指定本次 worktree 对应的 plan 文档路径（`docs/plan/...`）
+  - --auto-doc-status：在 merge 前自动把 plan 状态推进到 已上线/online，并单独提交该文档变更（需要配合 --yes）
+  - --run-doc-audit：在 merge 前运行 `bash docs/scripts/doc_audit.sh`（建议交付时开启；--yes 时默认开启）
+  - --no-plan-gate：显式跳过 plan 门禁（仅低风险/特例；会打印 WARN）
 
 注意：
   - 必须在某个 worktree 内执行
@@ -49,6 +54,10 @@ delete_remote=0
 main_branch="main"
 remote_name="origin"
 no_pull=0
+plan_doc=""
+auto_doc_status=0
+run_doc_audit=0
+no_plan_gate=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +67,10 @@ while [[ $# -gt 0 ]]; do
     --main-branch) main_branch="$2"; shift 2 ;;
     --remote) remote_name="$2"; shift 2 ;;
     --no-pull) no_pull=1; shift ;;
+    --plan-doc) plan_doc="$2"; shift 2 ;;
+    --auto-doc-status) auto_doc_status=1; shift ;;
+    --run-doc-audit) run_doc_audit=1; shift ;;
+    --no-plan-gate) no_plan_gate=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -140,23 +153,130 @@ if ! worktree_clean "${main_worktree_path}"; then
   exit 2
 fi
 
-echo
-log_info "=== Step 1: Review Gate（只读输出）==="
-echo "[review] commits ( ${main_branch}..${cur_branch} )"
-git --no-pager log --oneline --decorate "${main_branch}..${cur_branch}" || true
-echo
-echo "[review] diff --stat ( ${main_branch}...${cur_branch} )"
-git --no-pager diff --stat "${main_branch}...${cur_branch}" || true
-echo
-echo "[review] diff --check ( ${main_branch}...${cur_branch} )"
-diff_check_out="$(git diff --check "${main_branch}...${cur_branch}" || true)"
-if [[ -n "${diff_check_out}" ]]; then
-  echo "${diff_check_out}"
-  log_error "diff --check 发现 whitespace/冲突标记问题；请先修复。"
+if [[ "${auto_doc_status}" -eq 1 && "${yes}" -ne 1 ]]; then
+  log_error "--auto-doc-status 需要配合 --yes（否则会在 dry-run 里产生副作用）。"
   exit 2
-else
-  echo "(clean)"
 fi
+
+# 默认策略：真正执行（--yes）时默认跑 doc_audit，避免“合并后才发现门禁不绿”。
+if [[ "${yes}" -eq 1 && "${run_doc_audit}" -ne 1 ]]; then
+  run_doc_audit=1
+fi
+
+compute_worktree_id() {
+  local p="$1"
+  python3 - "$p" <<'PY'
+import hashlib
+import sys
+print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:8])
+PY
+}
+
+resolve_plan_doc_from_metadata() {
+  local meta_dir="$1"
+  local worktree_id="$2"
+  local meta_path="${meta_dir}/${worktree_id}.json"
+  if [[ ! -f "${meta_path}" ]]; then
+    return 0
+  fi
+  python3 - "${meta_path}" <<'PY'
+import json
+import sys
+path = sys.argv[1]
+try:
+    data = json.load(open(path, "r", encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+val = (data.get("plan_path") or "").strip()
+if val:
+    print(val)
+PY
+}
+
+abs_plan_path() {
+  local p="$1"
+  if [[ "$p" == /* ]]; then
+    echo "$p"
+  else
+    echo "${repo_root}/${p}"
+  fi
+}
+
+is_low_risk_only() {
+  local f
+  local ok=1
+  while IFS= read -r f || [[ -n "$f" ]]; do
+    [[ -z "$f" ]] && continue
+    if [[ "$f" == docs/* ]] || [[ "$f" == tests/* ]] || [[ "$f" == backend/tests/* ]] || [[ "$f" == frontend/e2e/* ]]; then
+      continue
+    fi
+    ok=0
+    break
+  done < <(git diff --name-only "${main_branch}...${cur_branch}" || true)
+  [[ "$ok" -eq 1 ]]
+}
+
+check_plan_status_gate() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+from __future__ import annotations
+
+import sys
+from datetime import date
+
+
+def read_frontmatter(path: str) -> dict[str, str]:
+    with open(path, "r", encoding="utf-8") as f:
+        if f.readline().strip() != "---":
+            raise ValueError("missing YAML front matter (first line must be ---)")
+        out: dict[str, str] = {}
+        for line in f:
+            s = line.rstrip("\n")
+            if s.strip() == "---":
+                return out
+            if ":" not in s:
+                continue
+            k, v = s.split(":", 1)
+            k = k.strip()
+            v = v.strip()
+            if k:
+                out[k] = v
+    raise ValueError("unterminated YAML front matter (missing closing ---)")
+
+
+path = sys.argv[1]
+meta = read_frontmatter(path)
+status = (meta.get("status") or "").strip()
+updated = (meta.get("updated") or "").strip()
+
+allowed = {"done", "已完成", "online", "已上线"}
+if status not in allowed:
+    raise SystemExit(f"[worktree_acceptance] FAIL: {path} status must be done/已完成/online/已上线, got {status!r}")
+
+today = date.today().isoformat()
+if updated != today:
+    raise SystemExit(f"[worktree_acceptance] FAIL: {path} updated must be {today}, got {updated!r}")
+
+print(f"[worktree_acceptance] OK: plan status gate passed ({path})")
+PY
+}
+
+promote_plan_status_and_commit() {
+  local plan_abs="$1"
+  local plan_rel="$2"
+
+  log_info "Updating plan status: ${plan_rel} -> 已上线"
+  bash docs/scripts/doc_set_status.sh 已上线 "${plan_rel}"
+  git add "${plan_rel}"
+
+  if [[ -z "$(git diff --cached --name-only)" ]]; then
+    log_warn "Plan 文件没有变化（可能已是已上线且 updated=今天），跳过 docs(plan) 提交。"
+    return 0
+  fi
+
+  git commit -m "docs(plan): promote to online"
+  log_info "Created atomic commit: docs(plan): promote to online"
+}
 
 echo
 log_info "=== Step 2: 准备 main（checkout + 可选 pull --ff-only）==="
@@ -179,16 +299,85 @@ else
   log_warn "--no-pull: 跳过更新 main。"
 fi
 
+cd "${repo_root}"
+
 echo
-log_info "=== Step 3: Merge Gate ==="
-log_info "即将 merge: ${cur_branch} -> ${main_branch}"
+log_info "=== Step 3: Review Gate（只读输出）==="
+echo "[review] commits ( ${main_branch}..${cur_branch} )"
+git --no-pager log --oneline --decorate "${main_branch}..${cur_branch}" || true
+echo
+echo "[review] diff --stat ( ${main_branch}...${cur_branch} )"
+git --no-pager diff --stat "${main_branch}...${cur_branch}" || true
+echo
+echo "[review] diff --check ( ${main_branch}...${cur_branch} )"
+diff_check_out="$(git diff --check "${main_branch}...${cur_branch}" || true)"
+if [[ -n "${diff_check_out}" ]]; then
+  echo "${diff_check_out}"
+  log_error "diff --check 发现 whitespace/冲突标记问题；请先修复。"
+  exit 2
+else
+  echo "(clean)"
+fi
+
+echo
+log_info "=== Step 4: Plan Gate（中/高风险必须 plan）==="
+if [[ "${no_plan_gate}" -eq 1 ]]; then
+  log_warn "--no-plan-gate: 已显式跳过 plan 门禁（仅低风险/特例）。"
+else
+  if is_low_risk_only; then
+    log_info "Low-risk only changes detected: skipping plan requirement."
+  else
+    # Resolve plan doc path: explicit arg > metadata (.worktree-meta) in main worktree.
+    if [[ -z "${plan_doc}" ]]; then
+      wt_id="$(compute_worktree_id "${repo_root}")"
+      meta_dir="${main_worktree_path}/.worktree-meta"
+      if [[ -d "${meta_dir}" ]]; then
+        plan_doc="$(resolve_plan_doc_from_metadata "${meta_dir}" "${wt_id}" || true)"
+      fi
+    fi
+
+    if [[ -z "${plan_doc}" ]]; then
+      log_error "中/高风险变更必须有计划文档（docs/plan/...）。"
+      log_error "请在 /dev 创建 worktree 时填写 plan_path，或在此脚本中传入：--plan-doc docs/plan/....md"
+      log_error "如确为低风险/特例，可显式加：--no-plan-gate"
+      exit 2
+    fi
+
+    plan_abs="$(abs_plan_path "${plan_doc}")"
+    if [[ ! -f "${plan_abs}" ]]; then
+      log_error "找不到 plan 文档：${plan_doc}（resolved: ${plan_abs}）"
+      exit 2
+    fi
+
+    # If requested, promote plan status and commit on feature branch.
+    if [[ "${yes}" -eq 1 && "${auto_doc_status}" -eq 1 ]]; then
+      promote_plan_status_and_commit "${plan_abs}" "${plan_doc}"
+    fi
+
+    # Always enforce plan status gate for non-low-risk when not skipped.
+    check_plan_status_gate "${plan_abs}"
+  fi
+fi
+
 if [[ "${yes}" -ne 1 ]]; then
+  echo
   log_warn "dry-run 模式：未执行 merge / 删除 worktree（需要真正执行请加 --yes）。"
   exit 0
 fi
 
+if [[ "${run_doc_audit}" -eq 1 && -x "docs/scripts/doc_audit.sh" ]]; then
+  echo
+  log_info "=== Step 5: Docs Audit Gate ==="
+  bash "docs/scripts/doc_audit.sh"
+fi
+
+echo
+log_info "=== Step 6: Merge Gate ==="
+log_info "即将 merge: ${cur_branch} -> ${main_branch}"
+
 merge_msg="Merge branch '${cur_branch}' (worktree acceptance)"
 set +e
+cd "${main_worktree_path}"
 git merge --no-ff "${cur_branch}" -m "${merge_msg}"
 merge_rc=$?
 set -e
@@ -205,7 +394,7 @@ if [[ "${push_main}" -eq 1 ]]; then
 fi
 
 echo
-log_info "=== Step 4: 删除 worktree + 分支 ==="
+log_info "=== Step 7: 删除 worktree + 分支 ==="
 log_info "Removing worktree: ${repo_root}"
 git worktree remove "${repo_root}"
 

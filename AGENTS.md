@@ -10,6 +10,15 @@
 1、在新建文件或对本地代码文件进行操作时，始终使用utf-8编码（如果文件已是utf-8编码方式则无需刻意修改）。
 2、所有的流程始终使用简体中文回复。
 3、前端功能开关使用 Vite 环境变量（例如 `VITE_ENABLE_WORLD_FRAME`）。agent 必须自行在 `frontend/` 的 `.env*` / 启动脚本 / 运行环境中确认其取值，不要把“开没开”这种问题反问用户。
+4、后端/主链路的新能力或高风险变更，默认用 `TRADE_CANVAS_ENABLE_*` 环境变量提供 kill-switch（默认关闭，逐步放开）。如涉及 E2E/验收，脚本/门禁应固定关键开关，保证可复现（避免继承开发者 shell 的隐式环境）。
+
+## 常用 skills 速查表（高频 5 个）
+
+- `tc-planning`：任务拆解与计划（每步可验收/可回滚；必要时落盘 `docs/plan/`）
+- `tc-e2e-gate`：E2E 用户故事门禁（规划/开发期间的主链路门禁）
+- `tc-debug`：调试流程（可复现→定位→根因→最小修复→验证）
+- `tc-acceptance-e2e`：最终交付门禁（E2E + 证据）
+- `验收`：worktree 收尾 SOP（review → merge main → 删除 worktree + 文档状态推进）
 
 ## AI助手核心规则
 
@@ -34,6 +43,9 @@
   - 发现过于复杂的设计、调用
   - 发现不一致的类型定义
   - 进一步搜索代码，看是否更大范围内有类似问题
+- （建议）前置轻量检查：在不改代码的前提下，尽早暴露“根本跑不起来”的问题
+  - Python/后端：`pytest -q --collect-only`
+  - 前端/TS：`cd frontend && npx tsc -b --pretty false --noEmit`
 
 做完以上事项，就可以向我提问了。
 
@@ -61,7 +73,7 @@
 - 确保修改后的代码符合 DRY 原则和良好的架构设计
 
 如果新发现了向我收集的关键决策，在这个阶段你还可以继续问我，直到没有不明确的问题之后，本阶段结束。  
-本阶段不允许自动切换到下一阶段。
+本阶段默认不允许自动切换到下一阶段（低/中风险快通道除外，见《变更风险分级与低风险快通道》）。
 
 #### 阶段三：执行方案
 
@@ -81,9 +93,53 @@
 
 收到用户消息时，一般从 `【分析问题】` 阶段开始，除非用户明确指定阶段的名字。
 
+### 变更风险分级与低风险快通道（信任校准）
+
+目的：让“速度与质量”不对立 —— 低/中风险改动走快通道；高风险改动维持完整三阶段门禁。
+
+#### 风险分级（按触及范围/契约影响/回滚难度）
+
+- **低风险**（可快通道）：
+  - 仅 `docs/` 文案/排版、状态维护（不改契约语义）
+  - 仅测试用例/测试数据调整（不改生产逻辑）
+  - 仅样式/无行为 refactor（不改接口/不改主链路）
+- **中风险**：
+  - 单模块/单目录内的逻辑变更，可能影响行为，但不涉及跨模块契约/Schema
+- **高风险**：
+  - 跨模块联动、契约/Schema/接口变更、核心不变量调整
+  - 会影响 E2E 用户故事输入输出一致性、或回滚成本高的结构性改动
+
+#### 低风险快通道（例外条款）
+
+允许 agent 在同一轮对话里完成 `【制定方案】` → `【执行方案】`，前提：
+
+- 不存在需要用户拍板的关键技术决策点
+- 仍遵守“原子化变更”（避免“顺手改”混入）
+- 必须给出最小验收命令（写死，避免猜测）：
+  - docs：`bash docs/scripts/doc_audit.sh`
+  - frontend TS/样式：`cd frontend && npm run build`
+  - Python/后端/测试：`pytest -q`
+
+高风险：仍必须完整走三阶段工作流；阶段二不自动切到阶段三。
+
+#### 中风险快通道（建议条款）
+
+允许 agent 在同一轮对话里完成 `【制定方案】` → `【执行方案】`，前提（必须全部满足）：
+
+- 单模块/单目录内变更（不跨《多 Agent 并行开发边界》的目录所有权）
+- 不涉及契约/Schema/API 变更（否则按高风险处理）
+- 有现成测试覆盖或门禁可运行（至少能跑起来并在错误位置失败）
+- 仍遵守原子化提交（1 commit = 1 意图，可独立回滚）
+
+最小验收命令（按触及面选其一）：
+- Python/后端：`pytest -q`
+- 前端/TS：`cd frontend && npm run build`
+- 联调/E2E：`bash scripts/e2e_acceptance.sh`（改动影响 FE+BE 主链路时）
+
 ## 真源文档（先看这里）
 
 - 开发协作与架构约束：本文件（`AGENTS.md`）
+- Agent 工作流（入口 / 门禁 / 证据 / 验收 SOP）：`docs/core/agent-workflow.md`
 - Skills 清单与安装方式：`docs/core/skills.md`
 - 项目内 skills 源码：`.codex/skills/`
 
@@ -136,14 +192,6 @@ trade_canvas 是一个面向量化/回测/实盘接入的研究与执行工作�
 - `head`：热数据，可重绘，仅用于 forming 蜡烛展示（首期可不做）。
 - 禁止：在已有产物时全量重算；必须基于已有状态做增量更新（无产物才允许全量重建）。
 
-### MVP（用户故事驱动验收）
-
-首期只做一个端到端闭环用户故事（先 dry-run，不真下单）：
-1) 系统接收一段 `CandleClosed` 序列（先用回放/mock）。
-2) 因子引擎逐根增量计算，落库 event log，并产出 `ledger + overlay`。
-3) 前端图表能展示蜡烛 + overlay（先 mock overlay 也可）。
-4) `freqtrade` 策略通过 adapter 读取 `latest_ledger` 并产生 dry-run 信号。
-5) 若 `candle_id` 不一致，策略必须拒绝出信号（fail-safe）。
 
 ### 目录建议（逐步落地，不一次性全建）
 
@@ -173,17 +221,56 @@ Python / freqtrade：
 - BottomTabs：`frontend/src/parts/BottomTabs.tsx`
 - Chart：`frontend/src/widgets/ChartView.tsx`
 
+## Git 提交规范（Atomic + Conventional Commits）
+
+目标：每个 commit 只做一件事，便于 `git bisect` 定位问题与安全回滚。
+
+### 原子化提交（Atomic Commits）
+
+- 1 个 commit = 1 个问题 / 1 个意图；禁止“顺手改”混入无关变更
+- 允许把测试/文档放在同一 commit：前提是它们**只为这一个变更服务**（不额外夹带整理）
+- 任何会影响主链路契约/行为的改动：必须能被单独 `git revert <sha>` 回退
+
+### Conventional Commits（建议格式）
+
+- `feat(scope): <why>`
+- `fix(scope): <why>`
+- `refactor(scope): <why>`
+- `docs(scope): <why>`
+- `test(scope): <why>`
+
+scope 建议取目录或模块：`frontend` / `backend` / `factor` / `docs` / `e2e` 等。
+message 聚焦“为什么/意图”，细节放 body（可选）。
+
+示例（5~8 条足够）：
+
+- `fix(backend): reject signal when candle_id mismatched`
+- `feat(frontend): add overlay toggle to verify ledger/overlay parity`
+- `docs(core): document candle_id invariant for adapters`
+- `test(e2e): cover timeframe switch without blank screen`
+
+### 拆分 commit 的快速决策树（极简版）
+
+- 如果一个改动无法被单独 `git revert` 回退：拆分
+- 如果一个改动改变了不同验收命令的预期（例如既改后端逻辑又改前端交互）：拆分
+- 如果一个改动跨越多个目录所有权边界（见《多 Agent 并行开发边界》）：优先拆分 + 引入“集成仲裁回合”
+
 ## 默认工作流（严格门禁）
 
 ### 路由层（意图 → 角色 → 必要产出）
 
 当用户没有显式点名 skill/角色时，先做“意图路由”，避免局部最优拖慢全局：
 
-- 规划层·产品总监（方向/取舍）：产出 `目标 + 成功指标 + 非目标 + 风险 + 2–3 个方案对比`。
-- 执行层·产品经理（需求结构化）：产出 `1 条主 E2E 用户故事 + 验收口径 + 边界条件/反例 + 最小数据样例`。
-- 规划层·技术总监（架构评估）：产出 `改动范围 + 模块边界 + 契约变更点 + 2 个方案对比/取舍 + 回滚方案 + 工作量（粗）`。
-- 执行层·程序员（最小实现）：产出 `最小闭环代码 + 必要测试（unit/集成/E2E）+ 证据（命令/输出/产物）`。
-- 整体复盘员（“复盘”触发）：产出 `技术债/风险清单 + 文档/skill 更新建议`。
+- **规划型任务（要做取舍/定边界/定契约）**：
+  - 必须产出：`目标 + 非目标 + 风险 + 回滚 + 2–3 个方案对比`
+  - 必须产出：`1 条主 E2E 用户故事 + 验收口径 + 反例 + 最小数据样例`
+  - 典型触发：`tc-planning` → `tc-e2e-gate`
+- **执行型任务（按既定边界做最小实现）**：
+  - 必须产出：`文件级变更清单 + 怎么验收 + 怎么回滚`
+  - 必须产出：`最小闭环代码 + 必要测试/门禁 + 证据（命令/输出/产物）`
+  - 典型触发：按风险分级走快通道/标准三阶段；跨模块则用 `tc-e2e-gate`
+- **复盘（用户说“复盘”时）**：
+  - 触发：`tc-fupan`（强制 3 个主题输出 + 文档沉淀建议）
 
 ### Definition of Done（严格）
 
@@ -196,6 +283,7 @@ Python / freqtrade：
 - **回归保护必补**：新增/修复任何行为问题时，至少补 1 条“能失败的”回归保护（unit/集成/E2E 任一即可；优先贴近主链路）。
 - **证据必交付**：汇报时必须附上 `命令 + 关键输出 + 产物路径`（例如 `output/` 下的截图/日志/trace）。
 - **文档/契约同步**：改了核心链路/不变量/接口契约，必须同步更新 `docs/core/` 或 `docs/core/contracts/`，并跑 `bash docs/scripts/doc_audit.sh`。
+- **文档影响声明（Doc Impact）**：每个 `feat/fix/refactor` 的交付说明必须包含 `Doc Impact: yes/no`。若为 yes：列出受影响文档路径，并必须跑 `bash docs/scripts/doc_audit.sh` 作为证据。
 - **回滚可行**：每一步要么可用 feature flag/开关禁用，要么能通过 `git revert` 直接回退（不接受“只能手工修复”）。
 
 ### 禁止事项（硬刹车）
@@ -210,13 +298,47 @@ Python / freqtrade：
 
 - **跨模块/行为变更/新增能力**：`tc-planning` → `tc-e2e-gate` →（交付）`tc-agent-browser`
 - **新增/重构“领域能力”但缺少对应 skill**（例如 factor2/回放/replay）：先 `tc-planning` 写清契约/不变量/验收 → 用 `tc-skill-authoring` 创建对应 project-local skill（禁止私自丑实现）。
-- **调试/回归/不稳定**：`tc-debug`
-- **复杂问题的系统化调试/定位根因/设计回归实验**：`systematic-debugging`
+- **调试/回归/不稳定**：先 `tc-debug`；若跨模块/多假设/不稳定，再升级 `systematic-debugging`
 - **需要跑真实浏览器流程**：`tc-agent-browser`
 - **市场 K 线链路（HTTP/WS/ingest/落库）**：`tc-market-kline-fastpath-v2`
 - **新增/修改本项目 skills**：`tc-skill-authoring`
 - **前端体验/交互设计**：`ui-ux-pro-max` 或 `frontend-design`
 - **图表（TradingView lightweight-charts）**：`lightweight-charts`
+
+### 多 Agent 并行开发边界（Worktree + 目录所有权）
+
+目标：并行时靠“模块边界隔离冲突”，冲突时人工仲裁，不靠多人互相改同一片代码。
+
+#### 并行边界（目录所有权）
+
+| 边界目录 | 默认负责人（Agent 角色） | 主要职责 |
+|---|---|---|
+| `frontend/` | UI Agent | 图表/交互/前端类型/FE E2E |
+| `backend/` | API Agent | FastAPI/契约/存储/WS/HTTP |
+| `trade_canvas/` | Kernel Agent | 因子内核/领域逻辑/主链路不变量 |
+| `freqtrade_user_data/` | Freqtrade Adapter Agent | 策略对接、dry-run 信号、适配层 |
+| `tests/` | Test Agent | pytest/集成测试/回归保护 |
+| `docs/` | Docs Agent | contracts/plan/runbook/SoT |
+
+#### 硬规则
+
+- 一个 agent 的一个 worktree：只改自己边界内目录（除非进入“高风险变更”并明确声明要跨边界）
+- 跨边界改动必须由“集成仲裁”统一合并：在交付说明中显式标注这是一次集成回合（避免责任不清）
+
+#### 与现有能力对齐（减少猜测）
+
+- 并行开发默认使用 `tc-worktree-lifecycle` 管理 worktree 生命周期（/dev 或 API；端口分配与元数据可追踪）
+- 合并/验收推荐统一走：`bash scripts/worktree_acceptance.sh`（默认 dry-run；需要真正合并时再加 `--yes`）
+
+#### 集成仲裁回合（交付模板，3-5 行）
+
+当你必须跨多个边界目录联动时，交付说明至少包含：
+
+- Integrator: <人/agent>
+- Touched: `frontend/`, `backend/`, ...
+- Gate: `bash scripts/e2e_acceptance.sh`（+ 是否设置 `E2E_PLAN_DOC`）
+- Evidence: `output/playwright/...` + 关键输出摘要
+- Rollback: `git revert <sha...>` 或开关（`VITE_ENABLE_*` / `TRADE_CANVAS_ENABLE_*`）
 
 ## Skills（触发与使用规则）
 

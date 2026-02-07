@@ -60,10 +60,21 @@ from .schemas import (
 )
 from .market_list import BinanceMarketListService, MinIntervalLimiter
 from .factor_orchestrator import FactorOrchestrator
-from .factor_slices import build_factor_slices
+from .factor_slices_service import FactorSlicesService
 from .factor_store import FactorStore
 from .overlay_orchestrator import OverlayOrchestrator
 from .overlay_store import OverlayStore
+from .replay_package_protocol_v1 import (
+    ReplayBuildRequestV1,
+    ReplayBuildResponseV1,
+    ReplayCoverageStatusResponseV1,
+    ReplayEnsureCoverageRequestV1,
+    ReplayEnsureCoverageResponseV1,
+    ReplayReadOnlyResponseV1,
+    ReplayStatusResponseV1,
+    ReplayWindowResponseV1,
+)
+from .replay_package_service_v1 import ReplayPackageServiceV1
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 from .whitelist import load_market_whitelist
@@ -154,8 +165,15 @@ def create_app() -> FastAPI:
     store = CandleStore(db_path=settings.db_path)
     factor_store = FactorStore(db_path=settings.db_path)
     factor_orchestrator = FactorOrchestrator(candle_store=store, factor_store=factor_store)
+    factor_slices_service = FactorSlicesService(candle_store=store, factor_store=factor_store)
     overlay_store = OverlayStore(db_path=settings.db_path)
     overlay_orchestrator = OverlayOrchestrator(candle_store=store, factor_store=factor_store, overlay_store=overlay_store)
+    replay_service = ReplayPackageServiceV1(
+        candle_store=store,
+        factor_store=factor_store,
+        overlay_store=overlay_store,
+        factor_slices_service=factor_slices_service,
+    )
     debug_hub = DebugHub()
     factor_orchestrator.set_debug_hub(debug_hub)
     overlay_orchestrator.set_debug_hub(debug_hub)
@@ -212,8 +230,10 @@ def create_app() -> FastAPI:
     app.state.hub = hub
     app.state.factor_store = factor_store
     app.state.factor_orchestrator = factor_orchestrator
+    app.state.factor_slices_service = factor_slices_service
     app.state.overlay_store = overlay_store
     app.state.overlay_orchestrator = overlay_orchestrator
+    app.state.replay_service = replay_service
     app.state.whitelist = whitelist
     app.state.market_list = market_list
     app.state.force_limiter = force_limiter
@@ -482,12 +502,8 @@ def create_app() -> FastAPI:
         - pivot: history.major from factor events, head.minor computed on the fly
         - pen: history.confirmed from factor events
         """
-        return build_factor_slices(
-            candle_store=store,
-            factor_store=app.state.factor_store,
-            series_id=series_id,
-            at_time=int(at_time),
-            window_candles=int(window_candles),
+        return app.state.factor_slices_service.get_slices(
+            series_id=series_id, at_time=int(at_time), window_candles=int(window_candles)
         )
 
     @app.get("/api/frame/live", response_model=WorldStateV1)
@@ -502,7 +518,11 @@ def create_app() -> FastAPI:
         store_head = store.head_time(series_id)
         if store_head is None:
             raise HTTPException(status_code=404, detail="no_data")
-        aligned = store.floor_time(series_id, at_time=int(store_head))
+        overlay_head = app.state.overlay_store.head_time(series_id)
+        if overlay_head is None:
+            raise HTTPException(status_code=404, detail="no_overlay")
+        aligned_base = min(int(store_head), int(overlay_head))
+        aligned = store.floor_time(series_id, at_time=int(aligned_base))
         if aligned is None:
             raise HTTPException(status_code=404, detail="no_data")
 
@@ -558,6 +578,104 @@ def create_app() -> FastAPI:
             factor_slices=factor_slices,
             draw_state=draw_state,
         )
+
+    @app.get("/api/replay/read_only", response_model=ReplayReadOnlyResponseV1)
+    def get_replay_read_only(
+        series_id: str = Query(..., min_length=1),
+        to_time: int | None = Query(default=None, ge=0),
+        window_candles: int | None = Query(default=None, ge=1, le=5000),
+        window_size: int | None = Query(default=None, ge=1, le=2000),
+        snapshot_interval: int | None = Query(default=None, ge=1, le=200),
+    ) -> ReplayReadOnlyResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        status, job_id, cache_key, coverage, metadata, hint = service.read_only(
+            series_id=series_id,
+            to_time=to_time,
+            window_candles=window_candles,
+            window_size=window_size,
+            snapshot_interval=snapshot_interval,
+        )
+        return ReplayReadOnlyResponseV1(
+            status=status,
+            job_id=job_id,
+            cache_key=cache_key,
+            coverage=coverage,
+            metadata=metadata,
+            compute_hint=hint,
+        )
+
+    @app.post("/api/replay/build", response_model=ReplayBuildResponseV1)
+    def post_replay_build(payload: ReplayBuildRequestV1) -> ReplayBuildResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        status, job_id, cache_key = service.build(
+            series_id=payload.series_id,
+            to_time=payload.to_time,
+            window_candles=payload.window_candles,
+            window_size=payload.window_size,
+            snapshot_interval=payload.snapshot_interval,
+        )
+        return ReplayBuildResponseV1(status=status, job_id=job_id, cache_key=cache_key)
+
+    @app.get("/api/replay/status", response_model=ReplayStatusResponseV1)
+    def get_replay_status(
+        job_id: str = Query(..., min_length=1),
+        include_preload: int = Query(0, ge=0, le=1),
+        include_history: int = Query(0, ge=0, le=1),
+    ) -> ReplayStatusResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        payload = service.status(
+            job_id=job_id,
+            include_preload=bool(include_preload),
+            include_history=bool(include_history),
+        )
+        return ReplayStatusResponseV1.model_validate(payload)
+
+    @app.get("/api/replay/window", response_model=ReplayWindowResponseV1)
+    def get_replay_window(
+        job_id: str = Query(..., min_length=1),
+        target_idx: int = Query(..., ge=0),
+    ) -> ReplayWindowResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        window = service.window(job_id=job_id, target_idx=int(target_idx))
+        head_snapshots, history_deltas = service.window_extras(job_id=job_id, window=window)
+        return ReplayWindowResponseV1(
+            job_id=str(job_id),
+            window=window,
+            factor_head_snapshots=head_snapshots,
+            history_deltas=history_deltas,
+        )
+
+    @app.post("/api/replay/ensure_coverage", response_model=ReplayEnsureCoverageResponseV1)
+    def post_replay_ensure_coverage(payload: ReplayEnsureCoverageRequestV1) -> ReplayEnsureCoverageResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        status, job_id = service.ensure_coverage(
+            series_id=payload.series_id,
+            target_candles=payload.target_candles,
+            to_time=payload.to_time,
+            factor_orchestrator=app.state.factor_orchestrator,
+            overlay_orchestrator=app.state.overlay_orchestrator,
+        )
+        return ReplayEnsureCoverageResponseV1(status=status, job_id=job_id)
+
+    @app.get("/api/replay/coverage_status", response_model=ReplayCoverageStatusResponseV1)
+    def get_replay_coverage_status(job_id: str = Query(..., min_length=1)) -> ReplayCoverageStatusResponseV1:
+        service = app.state.replay_service
+        if not service.enabled():
+            raise HTTPException(status_code=404, detail="not_found")
+        payload = service.coverage_status(job_id=job_id)
+        if payload.get("status") == "error" and payload.get("error") == "not_found":
+            raise HTTPException(status_code=404, detail="not_found")
+        return ReplayCoverageStatusResponseV1.model_validate(payload)
 
     @app.get("/api/delta/poll", response_model=WorldDeltaPollResponseV1)
     def poll_world_delta(

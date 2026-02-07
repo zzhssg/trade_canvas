@@ -212,6 +212,46 @@ class OverlayStore:
             )
         return out
 
+    def get_versions_between_times(
+        self,
+        *,
+        series_id: str,
+        start_visible_time: int,
+        end_visible_time: int,
+        limit: int = 200000,
+    ) -> list[OverlayInstructionVersionRow]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT version_id, series_id, instruction_id, kind, visible_time, def_json
+                FROM overlay_instruction_versions
+                WHERE series_id = ? AND visible_time >= ? AND visible_time <= ?
+                ORDER BY visible_time ASC, version_id ASC
+                LIMIT ?
+                """,
+                (series_id, int(start_visible_time), int(end_visible_time), int(limit)),
+            ).fetchall()
+        out: list[OverlayInstructionVersionRow] = []
+        for r in rows:
+            payload: Any = {}
+            try:
+                payload = json.loads(r["def_json"])
+            except Exception:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            out.append(
+                OverlayInstructionVersionRow(
+                    version_id=int(r["version_id"]),
+                    series_id=str(r["series_id"]),
+                    instruction_id=str(r["instruction_id"]),
+                    kind=str(r["kind"]),
+                    visible_time=int(r["visible_time"]),
+                    payload=payload,
+                )
+            )
+        return out
+
     def get_latest_def_for_instruction(
         self,
         *,

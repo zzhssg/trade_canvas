@@ -40,10 +40,12 @@ updated: 2026-02-07
 ## 目录索引
 
 - Market（HTTP + SSE）：`docs/core/api/v1/http_market.md`
+- Dev（HTTP / Worktree / Ports）：`docs/core/api/v1/http_dev.md`
 - Plot（HTTP）：`docs/core/api/v1/http_plot.md`
 - Overlay（HTTP）：`docs/core/api/v1/http_overlay.md`
 - Draw（HTTP）：`docs/core/api/v1/http_draw.md`
 - Factor（HTTP）：`docs/core/api/v1/http_factor.md`
+- Replay（HTTP）：`docs/core/api/v1/http_replay.md`
 - World（HTTP）：`docs/core/api/v1/http_world.md`
 - Backtest（HTTP）：`docs/core/api/v1/http_backtest.md`
 - Dev（HTTP）：`docs/core/api/v1/http_dev.md`

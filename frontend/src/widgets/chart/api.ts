@@ -5,6 +5,14 @@ import type {
   DrawDeltaV1,
   GetCandlesResponse,
   GetFactorSlicesResponseV1,
+  ReplayBuildRequestV1,
+  ReplayBuildResponseV1,
+  ReplayCoverageStatusResponseV1,
+  ReplayEnsureCoverageRequestV1,
+  ReplayEnsureCoverageResponseV1,
+  ReplayReadOnlyResponseV1,
+  ReplayStatusResponseV1,
+  ReplayWindowResponseV1,
   WorldDeltaPollResponseV1
 } from "./types";
 import type { WorldStateV1 } from "./types";
@@ -124,4 +132,77 @@ export async function pollWorldDelta(params: {
   const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as WorldDeltaPollResponseV1;
+}
+
+export async function fetchReplayReadOnly(params: {
+  seriesId: string;
+  toTime?: number;
+  windowCandles?: number;
+  windowSize?: number;
+  snapshotInterval?: number;
+}): Promise<ReplayReadOnlyResponseV1> {
+  const url = new URL(apiUrl("/api/replay/read_only"), window.location.origin);
+  url.searchParams.set("series_id", params.seriesId);
+  if (params.toTime !== undefined) url.searchParams.set("to_time", String(params.toTime));
+  if (params.windowCandles !== undefined) url.searchParams.set("window_candles", String(params.windowCandles));
+  if (params.windowSize !== undefined) url.searchParams.set("window_size", String(params.windowSize));
+  if (params.snapshotInterval !== undefined) url.searchParams.set("snapshot_interval", String(params.snapshotInterval));
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as ReplayReadOnlyResponseV1;
+}
+
+export async function fetchReplayEnsureCoverage(
+  payload: ReplayEnsureCoverageRequestV1
+): Promise<ReplayEnsureCoverageResponseV1> {
+  const url = apiUrl("/api/replay/ensure_coverage");
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as ReplayEnsureCoverageResponseV1;
+}
+
+export async function fetchReplayCoverageStatus(params: { jobId: string }): Promise<ReplayCoverageStatusResponseV1> {
+  const url = new URL(apiUrl("/api/replay/coverage_status"), window.location.origin);
+  url.searchParams.set("job_id", params.jobId);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as ReplayCoverageStatusResponseV1;
+}
+
+export async function fetchReplayBuild(payload: ReplayBuildRequestV1): Promise<ReplayBuildResponseV1> {
+  const url = apiUrl("/api/replay/build");
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as ReplayBuildResponseV1;
+}
+
+export async function fetchReplayStatus(params: {
+  jobId: string;
+  includePreload?: boolean;
+  includeHistory?: boolean;
+}): Promise<ReplayStatusResponseV1> {
+  const url = new URL(apiUrl("/api/replay/status"), window.location.origin);
+  url.searchParams.set("job_id", params.jobId);
+  if (params.includePreload) url.searchParams.set("include_preload", "1");
+  if (params.includeHistory) url.searchParams.set("include_history", "1");
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as ReplayStatusResponseV1;
+}
+
+export async function fetchReplayWindow(params: { jobId: string; targetIdx: number }): Promise<ReplayWindowResponseV1> {
+  const url = new URL(apiUrl("/api/replay/window"), window.location.origin);
+  url.searchParams.set("job_id", params.jobId);
+  url.searchParams.set("target_idx", String(params.targetIdx));
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as ReplayWindowResponseV1;
 }

@@ -18,7 +18,15 @@ frontend/.eslintcache
 frontend/*.tsbuildinfo
 backend/data/
 *.sqlite3
-.codex/
+# Codex project-local config
+# - Keep most of .codex/ ignored (may contain machine-specific state)
+# - Track project-local skills as repo truth: .codex/skills/**
+.codex/*
+!.codex/skills/
+!.codex/skills/**
+# Re-ignore common junk that may exist under unignored folders.
+.codex/skills/.DS_Store
+.codex/skills/**/.DS_Store
 output/
 freqtrade_user_data/data/
 freqtrade_user_data/backtest_results/

@@ -105,6 +105,16 @@ class FactorStore:
                 return None
             return int(row["head_time"])
 
+    def last_event_id(self, series_id: str) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT MAX(id) AS v FROM factor_events WHERE series_id = ?",
+                (series_id,),
+            ).fetchone()
+            if row is None or row["v"] is None:
+                return 0
+            return int(row["v"])
+
     def insert_events_in_conn(self, conn: sqlite3.Connection, *, events: list[FactorEventWrite]) -> None:
         if not events:
             return
