@@ -2,7 +2,7 @@
 title: Dev（Worktree / Ports）HTTP API v1
 status: draft
 created: 2026-02-05
-updated: 2026-02-05
+updated: 2026-02-07
 ---
 
 # Dev（Worktree / Ports）HTTP API v1
@@ -17,7 +17,7 @@ Base URL（本地默认）：
 ## GET /api/dev/worktrees
 
 ```bash
-curl -fsS http://127.0.0.1:8000/api/dev/worktrees
+curl --noproxy '*' -fsS http://127.0.0.1:8000/api/dev/worktrees
 ```
 
 ```json
@@ -58,7 +58,7 @@ curl -fsS http://127.0.0.1:8000/api/dev/worktrees
 ## GET /api/dev/worktrees/{worktree_id}
 
 ```bash
-curl -fsS http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4
+curl --noproxy '*' -fsS http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4
 ```
 
 ```json
@@ -104,7 +104,7 @@ curl -fsS http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4
 ## GET /api/dev/ports/allocate
 
 ```bash
-curl -fsS http://127.0.0.1:8000/api/dev/ports/allocate
+curl --noproxy '*' -fsS http://127.0.0.1:8000/api/dev/ports/allocate
 ```
 
 ```json
@@ -122,9 +122,7 @@ curl -fsS http://127.0.0.1:8000/api/dev/ports/allocate
 ## POST /api/dev/worktrees
 
 ```bash
-curl -fsS -X POST http://127.0.0.1:8000/api/dev/worktrees \
-  -H "Content-Type: application/json" \
-  -d @- <<'JSON'
+curl --noproxy '*' -fsS -X POST http://127.0.0.1:8000/api/dev/worktrees   -H "Content-Type: application/json"   -d @- <<'JSON'
 {
   "branch": "feature/my-feature",
   "description": "实现 XXX 功能，包括 A、B、C 三个模块",
@@ -178,9 +176,7 @@ JSON
 ## PATCH /api/dev/worktrees/{worktree_id}/metadata
 
 ```bash
-curl -fsS -X PATCH http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4/metadata \
-  -H "Content-Type: application/json" \
-  -d @- <<'JSON'
+curl --noproxy '*' -fsS -X PATCH http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4/metadata   -H "Content-Type: application/json"   -d @- <<'JSON'
 {
   "description": "实现 XXX 功能（补充：含验收与回滚口径）",
   "plan_path": "docs/plan/2026-02-05-my-feature.md"
@@ -220,9 +216,7 @@ JSON
 ## POST /api/dev/worktrees/{worktree_id}/start
 
 ```bash
-curl -fsS -X POST http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4/start \
-  -H "Content-Type: application/json" \
-  -d @- <<'JSON'
+curl --noproxy '*' -fsS -X POST http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4/start   -H "Content-Type: application/json"   -d @- <<'JSON'
 {
   "backend_port": 8001,
   "frontend_port": 5174
@@ -267,7 +261,7 @@ JSON
 ## POST /api/dev/worktrees/{worktree_id}/stop
 
 ```bash
-curl -fsS -X POST http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4/stop
+curl --noproxy '*' -fsS -X POST http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4/stop
 ```
 
 ```json
@@ -285,9 +279,7 @@ curl -fsS -X POST http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4/stop
 ## DELETE /api/dev/worktrees/{worktree_id}
 
 ```bash
-curl -fsS -X DELETE http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4 \
-  -H "Content-Type: application/json" \
-  -d @- <<'JSON'
+curl --noproxy '*' -fsS -X DELETE http://127.0.0.1:8000/api/dev/worktrees/a1b2c3d4   -H "Content-Type: application/json"   -d @- <<'JSON'
 {
   "force": false
 }

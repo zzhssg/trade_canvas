@@ -73,6 +73,22 @@ class FactorSlicesService:
         factors: list[str] = []
         candle_id = f"{series_id}:{int(aligned)}"
 
+        pen_head_row = self.factor_store.get_head_at_or_before(
+            series_id=series_id,
+            factor_name="pen",
+            candle_time=int(aligned),
+        )
+        zhongshu_head_row = self.factor_store.get_head_at_or_before(
+            series_id=series_id,
+            factor_name="zhongshu",
+            candle_time=int(aligned),
+        )
+        anchor_head_row = self.factor_store.get_head_at_or_before(
+            series_id=series_id,
+            factor_name="anchor",
+            candle_time=int(aligned),
+        )
+
         if piv_major:
             factors.append("pivot")
             snapshots["pivot"] = FactorSliceV1(
@@ -87,48 +103,51 @@ class FactorSlicesService:
             )
 
         if pen_confirmed:
-            # Candidate pen (head-only): from last confirmed pen end_time to the most extreme point
-            # in the reverse direction within the current tail window.
             pen_head: dict = {}
-            try:
-                candles = self.candle_store.get_closed(series_id, since=int(start_time), limit=int(window_candles) + 5)
-                candles = [c for c in candles if int(c.candle_time) <= int(aligned)]
-            except Exception:
-                candles = []
+            if pen_head_row is not None:
+                pen_head = dict(pen_head_row.head or {})
+            else:
+                # Candidate pen (head-only): from last confirmed pen end_time to the most extreme point
+                # in the reverse direction within the current tail window.
+                try:
+                    candles = self.candle_store.get_closed(series_id, since=int(start_time), limit=int(window_candles) + 5)
+                    candles = [c for c in candles if int(c.candle_time) <= int(aligned)]
+                except Exception:
+                    candles = []
 
-            last = pen_confirmed[-1]
-            try:
-                last_end_time = int(last.get("end_time") or 0)
-                last_end_price = float(last.get("end_price") or 0.0)
-                last_dir = int(last.get("direction") or 0)
-            except Exception:
-                last_end_time = 0
-                last_end_price = 0.0
-                last_dir = 0
+                last = pen_confirmed[-1]
+                try:
+                    last_end_time = int(last.get("end_time") or 0)
+                    last_end_price = float(last.get("end_price") or 0.0)
+                    last_dir = int(last.get("direction") or 0)
+                except Exception:
+                    last_end_time = 0
+                    last_end_price = 0.0
+                    last_dir = 0
 
-            if candles and last_end_time > 0 and last_dir in (-1, 1):
-                tail = [c for c in candles if int(c.candle_time) > int(last_end_time) and int(c.candle_time) <= int(aligned)]
-                if tail:
-                    if last_dir == 1:
-                        # Last confirmed pen was up; candidate is down to min(low).
-                        best = min(tail, key=lambda c: float(c.low))
-                        pen_head["candidate"] = {
-                            "start_time": int(last_end_time),
-                            "end_time": int(best.candle_time),
-                            "start_price": float(last_end_price),
-                            "end_price": float(best.low),
-                            "direction": -1,
-                        }
-                    else:
-                        # Last confirmed pen was down; candidate is up to max(high).
-                        best = max(tail, key=lambda c: float(c.high))
-                        pen_head["candidate"] = {
-                            "start_time": int(last_end_time),
-                            "end_time": int(best.candle_time),
-                            "start_price": float(last_end_price),
-                            "end_price": float(best.high),
-                            "direction": 1,
-                        }
+                if candles and last_end_time > 0 and last_dir in (-1, 1):
+                    tail = [c for c in candles if int(c.candle_time) > int(last_end_time) and int(c.candle_time) <= int(aligned)]
+                    if tail:
+                        if last_dir == 1:
+                            # Last confirmed pen was up; candidate is down to min(low).
+                            best = min(tail, key=lambda c: float(c.low))
+                            pen_head["candidate"] = {
+                                "start_time": int(last_end_time),
+                                "end_time": int(best.candle_time),
+                                "start_price": float(last_end_price),
+                                "end_price": float(best.low),
+                                "direction": -1,
+                            }
+                        else:
+                            # Last confirmed pen was down; candidate is up to max(high).
+                            best = max(tail, key=lambda c: float(c.high))
+                            pen_head["candidate"] = {
+                                "start_time": int(last_end_time),
+                                "end_time": int(best.candle_time),
+                                "start_price": float(last_end_price),
+                                "end_price": float(best.high),
+                                "direction": 1,
+                            }
 
             factors.append("pen")
             snapshots["pen"] = FactorSliceV1(
@@ -144,7 +163,9 @@ class FactorSlicesService:
 
         # Zhongshu head.alive is derived from confirmed pens at t (head-only); dead is append-only history slice.
         zhongshu_head: dict = {}
-        if pen_confirmed:
+        if zhongshu_head_row is not None:
+            zhongshu_head = dict(zhongshu_head_row.head or {})
+        elif pen_confirmed:
             try:
                 from .zhongshu import build_alive_zhongshu_from_confirmed_pens
 
@@ -182,35 +203,40 @@ class FactorSlicesService:
         # - head.current_anchor_ref: the latest stable anchor (confirmed) if available
         # - head.reverse_anchor_ref: optional (candidate pen derived from pen head)
         if pen_confirmed or anchor_switches:
-            current_anchor_ref = None
-            if anchor_switches:
-                cur = anchor_switches[-1].get("new_anchor")
-                if isinstance(cur, dict):
-                    current_anchor_ref = cur
-            elif pen_confirmed:
-                last = pen_confirmed[-1]
-                current_anchor_ref = {
-                    "kind": "confirmed",
-                    "start_time": int(last.get("start_time") or 0),
-                    "end_time": int(last.get("end_time") or 0),
-                    "direction": int(last.get("direction") or 0),
-                }
-
-            reverse_anchor_ref = None
-            try:
-                pen_head_candidate = (snapshots.get("pen").head or {}).get("candidate") if "pen" in snapshots else None
-            except Exception:
-                pen_head_candidate = None
-            if isinstance(pen_head_candidate, dict):
-                try:
-                    reverse_anchor_ref = {
-                        "kind": "candidate",
-                        "start_time": int(pen_head_candidate.get("start_time") or 0),
-                        "end_time": int(pen_head_candidate.get("end_time") or 0),
-                        "direction": int(pen_head_candidate.get("direction") or 0),
+            if anchor_head_row is not None:
+                anchor_head = dict(anchor_head_row.head or {})
+                current_anchor_ref = anchor_head.get("current_anchor_ref")
+                reverse_anchor_ref = anchor_head.get("reverse_anchor_ref")
+            else:
+                current_anchor_ref = None
+                if anchor_switches:
+                    cur = anchor_switches[-1].get("new_anchor")
+                    if isinstance(cur, dict):
+                        current_anchor_ref = cur
+                elif pen_confirmed:
+                    last = pen_confirmed[-1]
+                    current_anchor_ref = {
+                        "kind": "confirmed",
+                        "start_time": int(last.get("start_time") or 0),
+                        "end_time": int(last.get("end_time") or 0),
+                        "direction": int(last.get("direction") or 0),
                     }
+
+                reverse_anchor_ref = None
+                try:
+                    pen_head_candidate = (snapshots.get("pen").head or {}).get("candidate") if "pen" in snapshots else None
                 except Exception:
-                    reverse_anchor_ref = None
+                    pen_head_candidate = None
+                if isinstance(pen_head_candidate, dict):
+                    try:
+                        reverse_anchor_ref = {
+                            "kind": "candidate",
+                            "start_time": int(pen_head_candidate.get("start_time") or 0),
+                            "end_time": int(pen_head_candidate.get("end_time") or 0),
+                            "direction": int(pen_head_candidate.get("direction") or 0),
+                        }
+                    except Exception:
+                        reverse_anchor_ref = None
 
             factors.append("anchor")
             snapshots["anchor"] = FactorSliceV1(

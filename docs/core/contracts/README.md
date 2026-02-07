@@ -9,6 +9,7 @@
 
 - 因子类数据结构：`docs/core/contracts/factor_v1.md`
 - 因子拓扑与调度：`docs/core/contracts/factor_graph_v1.md`
+- 因子开发 SDK：`docs/core/contracts/factor_sdk_v1.md`
 - 因子真源账本（冷热）：`docs/core/contracts/factor_ledger_v1.md`
 - 二级增量账本（delta）：`docs/core/contracts/delta_ledger_v1.md`
 - 市场币种列表：`docs/core/contracts/market_list_v1.md`
