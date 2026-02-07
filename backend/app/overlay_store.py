@@ -102,6 +102,15 @@ class OverlayStore:
                 return 0
             return int(row["v"])
 
+    def reset_series_in_conn(self, conn: sqlite3.Connection, *, series_id: str) -> None:
+        conn.execute("DELETE FROM overlay_instruction_versions WHERE series_id = ?", (series_id,))
+        conn.execute("DELETE FROM overlay_series_state WHERE series_id = ?", (series_id,))
+
+    def reset_series(self, *, series_id: str) -> None:
+        with self.connect() as conn:
+            self.reset_series_in_conn(conn, series_id=series_id)
+            conn.commit()
+
     def insert_instruction_version_in_conn(
         self,
         conn: sqlite3.Connection,

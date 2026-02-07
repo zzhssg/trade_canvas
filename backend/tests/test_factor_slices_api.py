@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -74,6 +75,51 @@ class FactorSlicesApiTests(unittest.TestCase):
         self.assertEqual(snap["meta"]["factor_name"], "pivot")
         majors = snap["history"]["major"]
         self.assertTrue(any(m.get("pivot_time") == 180 and m.get("direction") == "resistance" for m in majors))
+
+    def test_factor_slices_returns_409_when_logic_hash_stale(self) -> None:
+        base = 60
+        prices = [1, 2, 5, 2, 1]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.execute(
+                "UPDATE factor_series_state SET logic_hash = ? WHERE series_id = ?",
+                ("stale_hash_for_test", self.series_id),
+            )
+            conn.commit()
+
+        res = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
+        self.assertEqual(res.status_code, 409, res.text)
+        self.assertIn("stale_factor_logic_hash", res.text)
+
+    def test_factor_rebuild_repairs_stale_logic_hash(self) -> None:
+        base = 60
+        prices = [1, 2, 5, 2, 1]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.execute(
+                "UPDATE factor_series_state SET logic_hash = ? WHERE series_id = ?",
+                ("stale_hash_for_rebuild", self.series_id),
+            )
+            conn.commit()
+
+        stale = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
+        self.assertEqual(stale.status_code, 409, stale.text)
+
+        rebuilt = self.client.post("/api/factor/rebuild", json={"series_id": self.series_id, "include_overlay": False})
+        self.assertEqual(rebuilt.status_code, 200, rebuilt.text)
+        body = rebuilt.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["series_id"], self.series_id)
+        self.assertGreater(len(body["factor_logic_hash"]), 8)
+
+        ok = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
+        self.assertEqual(ok.status_code, 200, ok.text)
 
 
 if __name__ == "__main__":
