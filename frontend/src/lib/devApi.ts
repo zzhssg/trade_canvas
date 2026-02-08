@@ -2,7 +2,7 @@
  * Dev Panel API client for worktree management.
  */
 
-const API_BASE = "";
+import { apiJson, apiUrl } from "./api";
 
 export interface ServiceState {
   running: boolean;
@@ -79,13 +79,13 @@ export interface PortAllocationResponse {
 }
 
 export async function listWorktrees(): Promise<WorktreeListResponse> {
-  const res = await fetch(`${API_BASE}/api/dev/worktrees`);
+  const res = await fetch(apiUrl("/api/dev/worktrees"));
   if (!res.ok) throw new Error(`Failed to list worktrees: ${res.status}`);
   return res.json();
 }
 
 export async function getWorktree(worktreeId: string): Promise<WorktreeInfo> {
-  const res = await fetch(`${API_BASE}/api/dev/worktrees/${worktreeId}`);
+  const res = await fetch(apiUrl(`/api/dev/worktrees/${worktreeId}`));
   if (!res.ok) throw new Error(`Failed to get worktree: ${res.status}`);
   return res.json();
 }
@@ -93,32 +93,26 @@ export async function getWorktree(worktreeId: string): Promise<WorktreeInfo> {
 export async function createWorktree(
   req: CreateWorktreeRequest
 ): Promise<CreateWorktreeResponse> {
-  const res = await fetch(`${API_BASE}/api/dev/worktrees`, {
+  return apiJson<CreateWorktreeResponse>("/api/dev/worktrees", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
-  if (!res.ok) throw new Error(`Failed to create worktree: ${res.status}`);
-  return res.json();
 }
 
 export async function startServices(
   worktreeId: string,
   req: StartServicesRequest = {}
 ): Promise<StartServicesResponse> {
-  const res = await fetch(`${API_BASE}/api/dev/worktrees/${worktreeId}/start`, {
+  return apiJson<StartServicesResponse>(`/api/dev/worktrees/${worktreeId}/start`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
-  if (!res.ok) throw new Error(`Failed to start services: ${res.status}`);
-  return res.json();
 }
 
 export async function stopServices(
   worktreeId: string
 ): Promise<StopServicesResponse> {
-  const res = await fetch(`${API_BASE}/api/dev/worktrees/${worktreeId}/stop`, {
+  const res = await fetch(apiUrl(`/api/dev/worktrees/${worktreeId}/stop`), {
     method: "POST",
   });
   if (!res.ok) throw new Error(`Failed to stop services: ${res.status}`);
@@ -129,17 +123,14 @@ export async function deleteWorktree(
   worktreeId: string,
   force = false
 ): Promise<DeleteWorktreeResponse> {
-  const res = await fetch(`${API_BASE}/api/dev/worktrees/${worktreeId}`, {
+  return apiJson<DeleteWorktreeResponse>(`/api/dev/worktrees/${worktreeId}`, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ force }),
   });
-  if (!res.ok) throw new Error(`Failed to delete worktree: ${res.status}`);
-  return res.json();
 }
 
 export async function allocatePorts(): Promise<PortAllocationResponse> {
-  const res = await fetch(`${API_BASE}/api/dev/ports/allocate`);
+  const res = await fetch(apiUrl("/api/dev/ports/allocate"));
   if (!res.ok) throw new Error(`Failed to allocate ports: ${res.status}`);
   return res.json();
 }
