@@ -114,6 +114,51 @@ class CandleStore:
                 return None
             return row["head_time"]
 
+    def first_time(self, series_id: str) -> int | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT MIN(candle_time) AS first_time FROM candles WHERE series_id = ?",
+                (series_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return row["first_time"]
+
+    def count_closed_between_times(self, series_id: str, *, start_time: int, end_time: int) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(1) AS cnt
+                FROM candles
+                WHERE series_id = ? AND candle_time >= ? AND candle_time <= ?
+                """,
+                (series_id, int(start_time), int(end_time)),
+            ).fetchone()
+            if row is None or row["cnt"] is None:
+                return 0
+            return int(row["cnt"])
+
+    def trim_series_to_latest_n_in_conn(self, conn: sqlite3.Connection, *, series_id: str, keep: int) -> int:
+        keep_n = max(1, int(keep))
+        row = conn.execute(
+            """
+            SELECT candle_time
+            FROM candles
+            WHERE series_id = ?
+            ORDER BY candle_time DESC
+            LIMIT 1 OFFSET ?
+            """,
+            (series_id, int(keep_n - 1)),
+        ).fetchone()
+        if row is None:
+            return 0
+        cutoff = int(row["candle_time"])
+        cur = conn.execute(
+            "DELETE FROM candles WHERE series_id = ? AND candle_time < ?",
+            (series_id, int(cutoff)),
+        )
+        return int(cur.rowcount or 0)
+
     def floor_time(self, series_id: str, *, at_time: int) -> int | None:
         """
         Return the greatest candle_time <= at_time (Unix seconds) for the series.

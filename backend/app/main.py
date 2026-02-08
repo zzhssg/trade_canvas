@@ -305,6 +305,7 @@ def create_app() -> FastAPI:
             )
 
         steps: list[dict] = []
+        factor_rebuilt = {"value": False}
 
         def _persist_and_sidecars() -> None:
             t_step = time.perf_counter()
@@ -319,9 +320,10 @@ def create_app() -> FastAPI:
 
             try:
                 t_step = time.perf_counter()
-                app.state.factor_orchestrator.ingest_closed(
+                factor_result = app.state.factor_orchestrator.ingest_closed(
                     series_id=req.series_id, up_to_candle_time=req.candle.candle_time
                 )
+                factor_rebuilt["value"] = bool(getattr(factor_result, "rebuilt", False))
                 steps.append(
                     {
                         "name": "factor.ingest_closed",
@@ -340,6 +342,8 @@ def create_app() -> FastAPI:
 
             try:
                 t_step = time.perf_counter()
+                if factor_rebuilt["value"]:
+                    app.state.overlay_orchestrator.reset_series(series_id=req.series_id)
                 app.state.overlay_orchestrator.ingest_closed(
                     series_id=req.series_id, up_to_candle_time=req.candle.candle_time
                 )
@@ -361,6 +365,13 @@ def create_app() -> FastAPI:
 
         await run_blocking(_persist_and_sidecars)
         await hub.publish_closed(series_id=req.series_id, candle=req.candle)
+        if factor_rebuilt["value"]:
+            await hub.publish_system(
+                series_id=req.series_id,
+                event="factor.rebuild",
+                message="因子口径更新，已自动完成历史重算",
+                data={"series_id": req.series_id},
+            )
 
         if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
             app.state.debug_hub.emit(

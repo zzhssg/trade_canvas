@@ -82,6 +82,10 @@ class OverlayStore:
             (series_id, int(head_time), int(time.time() * 1000)),
         )
 
+    def clear_series_in_conn(self, conn: sqlite3.Connection, *, series_id: str) -> None:
+        conn.execute("DELETE FROM overlay_instruction_versions WHERE series_id = ?", (series_id,))
+        conn.execute("DELETE FROM overlay_series_state WHERE series_id = ?", (series_id,))
+
     def head_time(self, series_id: str) -> int | None:
         with self.connect() as conn:
             row = conn.execute(

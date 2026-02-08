@@ -79,6 +79,8 @@ export function ChartView() {
   const [lastWsCandleTime, setLastWsCandleTime] = useState<number | null>(null);
   const appliedRef = useRef<{ len: number; lastTime: number | null }>({ len: 0, lastTime: null });
   const [error, setError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const { exchange, market, symbol, timeframe, activeChartTool, setActiveChartTool } = useUiStore();
   const replayMode = useReplayStore((s) => s.mode);
   const replayPlaying = useReplayStore((s) => s.playing);
@@ -108,6 +110,23 @@ export function ChartView() {
   const visibleFeaturesRef = useRef(visibleFeatures);
   const parentBySubKey = useMemo(() => getFactorParentsBySubKey(FACTOR_CATALOG), []);
   const lineSeriesByKeyRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+    if (toastTimerRef.current != null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastMessage(null);
+      toastTimerRef.current = null;
+    }, 3200);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current != null) {
+        window.clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = null;
+      }
+    };
+  }, []);
   const entryMarkersRef = useRef<Array<SeriesMarker<Time>>>([]);
   const pivotMarkersRef = useRef<Array<SeriesMarker<Time>>>([]);
   const anchorSwitchMarkersRef = useRef<Array<SeriesMarker<Time>>>([]);
@@ -2112,6 +2131,21 @@ export function ChartView() {
             return;
           }
 
+          if (msg.type === "system") {
+            if (msg.event === "factor.rebuild") {
+              showToast(msg.message || "因子已自动重算");
+              logDebugEvent({
+                pipe: "read",
+                event: "read.ws.system.factor_rebuild",
+                series_id: seriesId,
+                level: "warn",
+                message: msg.message || "factor rebuild",
+                data: msg.data
+              });
+            }
+            return;
+          }
+
           if (msg.type === "candle_forming") {
             const next = toChartCandle(msg.candle);
             candlesRef.current = mergeCandleWindow(candlesRef.current, next, INITIAL_TAIL_LIMIT);
@@ -2552,6 +2586,12 @@ export function ChartView() {
       ) : candles.length === 0 ? (
         <div className="pointer-events-none absolute left-2 top-2 rounded border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-white/70">
           Loading candles…
+        </div>
+      ) : null}
+
+      {toastMessage ? (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-40 -translate-x-1/2 rounded-md border border-amber-300/35 bg-amber-500/15 px-3 py-1.5 text-[12px] text-amber-100 shadow-[0_6px_24px_rgba(0,0,0,0.35)]">
+          {toastMessage}
         </div>
       ) : null}
     </div>

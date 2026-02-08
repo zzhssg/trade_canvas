@@ -234,3 +234,22 @@ class CandleHub:
                 )
             except Exception:
                 await self.remove_ws(ws)
+
+    async def publish_system(self, *, series_id: str, event: str, message: str, data: dict | None = None) -> None:
+        async with self._lock:
+            targets = []
+            for ws, subs in self._subs_by_ws.items():
+                if series_id in subs:
+                    targets.append(ws)
+        payload = {
+            "type": "system",
+            "series_id": series_id,
+            "event": str(event),
+            "message": str(message),
+            "data": dict(data or {}),
+        }
+        for ws in targets:
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                await self.remove_ws(ws)

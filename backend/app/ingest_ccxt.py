@@ -155,28 +155,42 @@ async def run_whitelist_ingest_loop(
                     # SQLite writes and factor/overlay computation are sync and may take seconds for large batches.
                     up_to_time = int(to_write[-1].candle_time)
 
-                    def _persist_and_compute() -> int:
+                    def _persist_and_compute() -> tuple[int, bool]:
                         t0 = perf_counter()
+                        rebuilt = False
                         with store.connect() as conn:
                             store.upsert_many_closed_in_conn(conn, series_id, to_write)
                             conn.commit()
 
                         if factor_orchestrator is not None:
                             try:
-                                factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
+                                res = factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
+                                rebuilt = bool(getattr(res, "rebuilt", False))
                             except Exception:
                                 pass
                         if overlay_orchestrator is not None:
                             try:
+                                if rebuilt:
+                                    overlay_orchestrator.reset_series(series_id=series_id)
                                 overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
                             except Exception:
                                 pass
-                        return int((perf_counter() - t0) * 1000)
+                        return int((perf_counter() - t0) * 1000), rebuilt
 
-                    db_ms = await run_blocking(_persist_and_compute)
+                    db_ms, rebuilt = await run_blocking(_persist_and_compute)
 
                     t1 = time.perf_counter()
                     await hub.publish_closed_batch(series_id=series_id, candles=to_write)
+                    if rebuilt:
+                        try:
+                            await hub.publish_system(
+                                series_id=series_id,
+                                event="factor.rebuild",
+                                message="因子口径更新，已自动完成历史重算",
+                                data={"series_id": series_id},
+                            )
+                        except Exception:
+                            pass
                     publish_ms = int((time.perf_counter() - t1) * 1000)
 
                     logger.info(

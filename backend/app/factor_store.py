@@ -47,6 +47,13 @@ class FactorHeadSnapshotRow:
 
 
 @dataclass(frozen=True)
+class FactorSeriesFingerprintRow:
+    series_id: str
+    fingerprint: str
+    updated_at_ms: int
+
+
+@dataclass(frozen=True)
 class FactorStore:
     db_path: Path
 
@@ -100,6 +107,15 @@ class FactorStore:
             """
         )
         conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS factor_series_fingerprint (
+              series_id TEXT PRIMARY KEY,
+              fingerprint TEXT NOT NULL,
+              updated_at_ms INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_factor_events_series_time ON factor_events(series_id, candle_time);"
         )
         conn.execute(
@@ -132,6 +148,37 @@ class FactorStore:
             if row is None:
                 return None
             return int(row["head_time"])
+
+    def get_series_fingerprint(self, series_id: str) -> FactorSeriesFingerprintRow | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT series_id, fingerprint, updated_at_ms FROM factor_series_fingerprint WHERE series_id = ?",
+                (series_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return FactorSeriesFingerprintRow(
+                series_id=str(row["series_id"]),
+                fingerprint=str(row["fingerprint"]),
+                updated_at_ms=int(row["updated_at_ms"]),
+            )
+
+    def upsert_series_fingerprint_in_conn(self, conn: sqlite3.Connection, *, series_id: str, fingerprint: str) -> None:
+        conn.execute(
+            """
+            INSERT INTO factor_series_fingerprint(series_id, fingerprint, updated_at_ms)
+            VALUES (?, ?, ?)
+            ON CONFLICT(series_id) DO UPDATE SET
+              fingerprint=excluded.fingerprint,
+              updated_at_ms=excluded.updated_at_ms
+            """,
+            (series_id, str(fingerprint), int(time.time() * 1000)),
+        )
+
+    def clear_series_in_conn(self, conn: sqlite3.Connection, *, series_id: str) -> None:
+        conn.execute("DELETE FROM factor_events WHERE series_id = ?", (series_id,))
+        conn.execute("DELETE FROM factor_head_snapshots WHERE series_id = ?", (series_id,))
+        conn.execute("DELETE FROM factor_series_state WHERE series_id = ?", (series_id,))
 
     def last_event_id(self, series_id: str) -> int:
         with self.connect() as conn:

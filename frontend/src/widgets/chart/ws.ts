@@ -13,12 +13,21 @@ type MarketWsError = {
   message?: string;
 };
 
+type MarketWsSystem = {
+  type: "system";
+  series_id?: string;
+  event?: string;
+  message?: string;
+  data?: Record<string, unknown>;
+};
+
 export type MarketWsMessage =
   | { type: "candle_forming"; candle: CandleClosed }
   | { type: "candle_closed"; candle: CandleClosed }
   | { type: "candles_batch"; candles: CandleClosed[] }
   | MarketWsGap
-  | MarketWsError;
+  | MarketWsError
+  | MarketWsSystem;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
@@ -80,6 +89,16 @@ export function parseMarketWsMessage(payload: string): MarketWsMessage | null {
       type: "error",
       code: typeof raw.code === "string" ? raw.code : undefined,
       message: typeof raw.message === "string" ? raw.message : undefined
+    };
+  }
+
+  if (type === "system") {
+    return {
+      type: "system",
+      series_id: typeof raw.series_id === "string" ? raw.series_id : undefined,
+      event: typeof raw.event === "string" ? raw.event : undefined,
+      message: typeof raw.message === "string" ? raw.message : undefined,
+      data: isRecord(raw.data) ? raw.data : undefined
     };
   }
 

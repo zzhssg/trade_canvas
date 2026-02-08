@@ -2,7 +2,7 @@
 title: Backend 运行手册（market kline sync API）
 status: draft
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-08
 ---
 
 # Backend 运行手册（market kline sync API）
@@ -61,6 +61,20 @@ curl --noproxy '*' -sS -X POST "http://127.0.0.1:8000/api/market/ingest/candle_c
   -H 'content-type: application/json' \
   -d '{"series_id":"binance:futures:BTC/USDT:1m","candle":{"candle_time":100,"open":1,"high":2,"low":0.5,"close":1.5,"volume":10}}'
 ```
+
+## 因子指纹自动重算（默认开启）
+
+用于避免“代码口径已变，但历史 factor 事件仍是旧口径”的数据漂移。
+
+行为：
+- 后端在 factor ingest 时计算当前逻辑指纹（核心代码哈希 + 关键参数）。
+- 当检测到同一 `series_id` 指纹变化时，自动删除旧数据并仅保留最近 2000 根 K 线（可由 `TRADE_CANVAS_FACTOR_REBUILD_KEEP_CANDLES` 覆盖），再基于这批“新数据”重算 factor/overlay。
+- 重算完成后通过市场 WS 推送一条系统消息（`type=system,event=factor.rebuild`），前端显示 toast 提示即可。
+
+可选开关：
+- `TRADE_CANVAS_ENABLE_FACTOR_FINGERPRINT_REBUILD`：默认 `1`，可临时设为 `0` 关闭自动重算。
+- `TRADE_CANVAS_FACTOR_REBUILD_KEEP_CANDLES`：默认 `2000`，重算前保留的最新 K 线数量。
+- `TRADE_CANVAS_FACTOR_LOGIC_VERSION`：可选版本闸，用于人工触发一次口径升级重算。
 
 ## 读取（HTTP 增量）
 

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .anchor_semantics import should_append_switch
+from . import pen as pen_module
+from . import zhongshu as zhongshu_module
 from .debug_hub import DebugHub
 from .factor_graph import FactorGraph, FactorSpec
 from .factor_slices import build_pen_head_candidate, build_pen_head_preview
@@ -320,6 +325,12 @@ class FactorSettings:
     lookback_candles: int = 20000
 
 
+@dataclass(frozen=True)
+class FactorIngestResult:
+    rebuilt: bool = False
+    fingerprint: str | None = None
+
+
 class FactorOrchestrator:
     """
     v1 factor orchestrator (incremental):
@@ -349,6 +360,37 @@ class FactorOrchestrator:
     def set_debug_hub(self, hub: DebugHub | None) -> None:
         self._debug_hub = hub
 
+    def _fingerprint_rebuild_enabled(self) -> bool:
+        raw = os.environ.get("TRADE_CANVAS_ENABLE_FACTOR_FINGERPRINT_REBUILD", "1")
+        return _truthy_flag(raw)
+
+    def _file_sha256(self, path: Path) -> str:
+        try:
+            data = path.read_bytes()
+        except Exception:
+            return "missing"
+        return hashlib.sha256(data).hexdigest()
+
+    def _build_series_fingerprint(self, *, series_id: str, settings: FactorSettings) -> str:
+        files = {
+            "factor_orchestrator.py": self._file_sha256(Path(__file__)),
+            "pen.py": self._file_sha256(Path(getattr(pen_module, "__file__", ""))),
+            "zhongshu.py": self._file_sha256(Path(getattr(zhongshu_module, "__file__", ""))),
+        }
+        payload = {
+            "series_id": str(series_id),
+            "graph": list(self._graph.topo_order),
+            "settings": {
+                "pivot_window_major": int(settings.pivot_window_major),
+                "pivot_window_minor": int(settings.pivot_window_minor),
+                "lookback_candles": int(settings.lookback_candles),
+            },
+            "files": files,
+            "logic_version_override": str(os.environ.get("TRADE_CANVAS_FACTOR_LOGIC_VERSION") or ""),
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
     def enabled(self) -> bool:
         raw = os.environ.get("TRADE_CANVAS_ENABLE_FACTOR_INGEST", "1")
         return _truthy_flag(raw)
@@ -377,42 +419,97 @@ class FactorOrchestrator:
                 lookback = self._settings.lookback_candles
         return FactorSettings(pivot_window_major=int(major), pivot_window_minor=int(minor), lookback_candles=int(lookback))
 
-    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None:
+    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> FactorIngestResult:
         t0 = time.perf_counter()
         if not self.enabled():
-            return
+            return FactorIngestResult()
 
         up_to = int(up_to_candle_time or 0)
         if up_to <= 0:
-            return
+            return FactorIngestResult()
 
         s = self._load_settings()
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         max_window = max(int(s.pivot_window_major), int(s.pivot_window_minor))
+        auto_rebuild = self._fingerprint_rebuild_enabled()
+        current_fingerprint = self._build_series_fingerprint(series_id=series_id, settings=s)
+        force_rebuild_from_earliest = False
+
+        if auto_rebuild:
+            current = self._factor_store.get_series_fingerprint(series_id)
+            if current is None or str(current.fingerprint) != str(current_fingerprint):
+                keep_raw = (os.environ.get("TRADE_CANVAS_FACTOR_REBUILD_KEEP_CANDLES") or "").strip()
+                try:
+                    keep_candles = max(100, int(keep_raw)) if keep_raw else 2000
+                except ValueError:
+                    keep_candles = 2000
+                trimmed_rows = 0
+                with self._candle_store.connect() as conn:
+                    trimmed_rows = self._candle_store.trim_series_to_latest_n_in_conn(
+                        conn,
+                        series_id=series_id,
+                        keep=int(keep_candles),
+                    )
+                    conn.commit()
+                with self._factor_store.connect() as conn:
+                    self._factor_store.clear_series_in_conn(conn, series_id=series_id)
+                    self._factor_store.upsert_series_fingerprint_in_conn(
+                        conn,
+                        series_id=series_id,
+                        fingerprint=current_fingerprint,
+                    )
+                    conn.commit()
+                force_rebuild_from_earliest = True
+                if self._debug_hub is not None:
+                    self._debug_hub.emit(
+                        pipe="write",
+                        event="factor.fingerprint.rebuild",
+                        message="fingerprint mismatch, cleared factor data and rebuilding from latest 2000 candles",
+                        series_id=series_id,
+                        data={
+                            "series_id": str(series_id),
+                            "fingerprint": str(current_fingerprint),
+                            "keep_candles": int(keep_candles),
+                            "trimmed_rows": int(trimmed_rows),
+                        },
+                    )
 
         head_time = self._factor_store.head_time(series_id) or 0
         if up_to <= int(head_time):
-            return
+            return FactorIngestResult(rebuilt=bool(force_rebuild_from_earliest), fingerprint=current_fingerprint)
 
         lookback_candles = int(s.lookback_candles) + int(max_window) * 2 + 5
-        start_time = max(0, int(up_to) - int(lookback_candles) * int(tf_s))
-        if head_time > 0:
-            start_time = max(0, min(int(start_time), int(head_time) - int(max_window) * 2 * int(tf_s)))
+        if force_rebuild_from_earliest:
+            earliest = self._candle_store.first_time(series_id)
+            if earliest is None:
+                return FactorIngestResult(rebuilt=True, fingerprint=current_fingerprint)
+            start_time = int(earliest)
+            total = self._candle_store.count_closed_between_times(
+                series_id,
+                start_time=int(start_time),
+                end_time=int(up_to),
+            )
+            read_limit = max(int(total) + 10, int(lookback_candles) + 10)
+        else:
+            start_time = max(0, int(up_to) - int(lookback_candles) * int(tf_s))
+            if head_time > 0:
+                start_time = max(0, min(int(start_time), int(head_time) - int(max_window) * 2 * int(tf_s)))
+            read_limit = int(lookback_candles) + 10
 
         candles = self._candle_store.get_closed_between_times(
             series_id,
             start_time=int(start_time),
             end_time=int(up_to),
-            limit=int(lookback_candles) + 10,
+            limit=int(read_limit),
         )
         if not candles:
-            return
+            return FactorIngestResult(rebuilt=bool(force_rebuild_from_earliest), fingerprint=current_fingerprint)
 
         candle_times = [int(c.candle_time) for c in candles]
         time_to_idx = {int(t): int(i) for i, t in enumerate(candle_times)}
         process_times = [t for t in candle_times if int(t) > int(head_time) and int(t) <= int(up_to)]
         if not process_times:
-            return
+            return FactorIngestResult(rebuilt=bool(force_rebuild_from_earliest), fingerprint=current_fingerprint)
 
         # Build incremental state from recent history.
         state_start = max(0, int(head_time) - int(lookback_candles) * int(tf_s))
@@ -762,6 +859,12 @@ class FactorOrchestrator:
                     head=anchor_head,
                 )
             self._factor_store.upsert_head_time_in_conn(conn, series_id=series_id, head_time=int(up_to))
+            if auto_rebuild:
+                self._factor_store.upsert_series_fingerprint_in_conn(
+                    conn,
+                    series_id=series_id,
+                    fingerprint=current_fingerprint,
+                )
             conn.commit()
             wrote = int(conn.total_changes) - before_changes
 
@@ -779,3 +882,4 @@ class FactorOrchestrator:
                     "duration_ms": int((time.perf_counter() - t0) * 1000),
                 },
             )
+        return FactorIngestResult(rebuilt=bool(force_rebuild_from_earliest), fingerprint=current_fingerprint)

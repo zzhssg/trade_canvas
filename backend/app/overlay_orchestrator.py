@@ -55,6 +55,11 @@ class OverlayOrchestrator:
         raw = os.environ.get("TRADE_CANVAS_ENABLE_OVERLAY_INGEST", "1")
         return _truthy_flag(raw)
 
+    def reset_series(self, *, series_id: str) -> None:
+        with self._overlay_store.connect() as conn:
+            self._overlay_store.clear_series_in_conn(conn, series_id=series_id)
+            conn.commit()
+
     def _load_window_candles(self) -> int:
         raw = (os.environ.get("TRADE_CANVAS_OVERLAY_WINDOW_CANDLES") or "").strip()
         if not raw:

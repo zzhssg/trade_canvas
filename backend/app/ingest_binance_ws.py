@@ -193,8 +193,9 @@ async def run_binance_ws_ingest_loop(
 
         # IMPORTANT: keep the asyncio event loop responsive.
         # SQLite writes and factor/overlay computation are sync and may take seconds.
-        def _persist_and_compute() -> int:
+        def _persist_and_compute() -> tuple[int, list[str]]:
             t0 = perf_counter()
+            rebuilt_series: set[str] = set()
             with store.connect() as conn:
                 store.upsert_many_closed_in_conn(conn, series_id, deduped)
                 for derived_series_id, derived in derived_batches.items():
@@ -203,21 +204,27 @@ async def run_binance_ws_ingest_loop(
 
             if factor_orchestrator is not None:
                 try:
-                    factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
+                    res = factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
+                    if getattr(res, "rebuilt", False):
+                        rebuilt_series.add(series_id)
                 except Exception:
                     pass
                 for derived_series_id, derived in derived_batches.items():
                     if not derived:
                         continue
                     try:
-                        factor_orchestrator.ingest_closed(
+                        res = factor_orchestrator.ingest_closed(
                             series_id=derived_series_id,
                             up_to_candle_time=int(derived[-1].candle_time),
                         )
+                        if getattr(res, "rebuilt", False):
+                            rebuilt_series.add(derived_series_id)
                     except Exception:
                         pass
             if overlay_orchestrator is not None:
                 try:
+                    if series_id in rebuilt_series:
+                        overlay_orchestrator.reset_series(series_id=series_id)
                     overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
                 except Exception:
                     pass
@@ -225,21 +232,33 @@ async def run_binance_ws_ingest_loop(
                     if not derived:
                         continue
                     try:
+                        if derived_series_id in rebuilt_series:
+                            overlay_orchestrator.reset_series(series_id=derived_series_id)
                         overlay_orchestrator.ingest_closed(
                             series_id=derived_series_id,
                             up_to_candle_time=int(derived[-1].candle_time),
                         )
                     except Exception:
                         pass
-            return int((perf_counter() - t0) * 1000)
+            return int((perf_counter() - t0) * 1000), sorted(rebuilt_series)
 
-        db_ms = await run_blocking(_persist_and_compute)
+        db_ms, rebuilt_series = await run_blocking(_persist_and_compute)
 
         t1 = time.perf_counter()
         await hub.publish_closed_batch(series_id=series_id, candles=deduped)
         for derived_series_id, derived in derived_batches.items():
             try:
                 await hub.publish_closed_batch(series_id=derived_series_id, candles=derived)
+            except Exception:
+                pass
+        for sid in rebuilt_series:
+            try:
+                await hub.publish_system(
+                    series_id=sid,
+                    event="factor.rebuild",
+                    message="因子口径更新，已自动完成历史重算",
+                    data={"series_id": sid},
+                )
             except Exception:
                 pass
         publish_ms = int((time.perf_counter() - t1) * 1000)
