@@ -2,7 +2,7 @@
 title: World Delta Contract v1（统一世界增量差分）
 status: draft
 created: 2026-02-03
-updated: 2026-02-03
+updated: 2026-02-07
 ---
 
 # World Delta Contract v1（统一世界增量差分）
@@ -50,13 +50,15 @@ type WorldDeltaRecordV1 = {
   // 绘图增量（catalog patch + active ids + series points delta）
   draw_delta: any
 
-  // 可选：因子增量（若前端需要“侧栏增量”；否则可只提供 draw_delta）
-  factor_delta?: {
-    // v1 先允许为事件流或为空；终局建议由 delta ledger 同源化
-    events?: any[]
-  }
+  // v1 兼容投影：当前代码直接返回对齐点的 factor_slices（而非 factor_delta 事件流）
+  factor_slices?: any
 }
 ```
+
+说明（2026-02-07 实现口径）：
+- 当前 `GET /api/delta/poll` 是兼容投影：增量 cursor 映射到 draw 的 `version_id`。
+- 当前实现每次 poll 最多返回 1 条 record（当 cursor 未推进时返回空数组）。
+- 终局目标仍是 `delta_ledger_v1` 同源化后提供标准 `factor_delta` 事件语义。
 
 ---
 
@@ -66,8 +68,8 @@ type WorldDeltaRecordV1 = {
 
 - 输入：`after_id`（上次消费到的最后 id；空/0 表示从头或从 checkpoint）
 - 输出：按 id 递增的 `WorldDeltaRecordV1[]` + `next_cursor`
+- 兼容实现补充：当前最多返回 1 条（`records.length in {0,1}`）
 
 ### 3.2 `get_window(t0..t1)`（replay）
 
 - 输出：覆盖 `[t0..t1]` 的 delta 序列（可选 checkpoint）
-

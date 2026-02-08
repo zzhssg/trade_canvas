@@ -2,7 +2,7 @@
 title: Replay Frame Contract v1（回放帧：因子切片 + 绘图指令）
 status: draft
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-07
 ---
 
 # Replay Frame Contract v1（回放帧：因子切片 + 绘图指令）
@@ -112,6 +112,10 @@ type ReplayFrameV1 = {
 }
 ```
 
+实现备注（2026-02-07）：
+- 当前后端对外读口是 `WorldStateV1`（`GET /api/frame/live` 与 `GET /api/frame/at_time`），其中字段名为 `draw_state`。
+- 语义上 `draw_state` 即 replay frame 所需的 draw 侧对齐视图；后续若单独暴露 `ReplayFrameV1`，可保持字段语义等价并做命名收敛。
+
 ---
 
 ## 5) 最小化增删（k 线播放的工程约束）
@@ -131,4 +135,3 @@ type ReplayFrameV1 = {
 1) **对齐门禁**：`ReplayFrameV1.time.candle_id == factor_slices.candle_id == draw_delta.to_candle_id`，否则返回 `ledger_out_of_sync`。
 2) **可复现**：相同 fixtures 输入，固定 `t` 取帧的结果一致（至少 `(candle_id, factors, active_ids, next_cursor.version_id)` 一致）。
 3) **幂等**：同 cursor 的 `draw_delta` 可重复 apply，不产生重复图元。
-

@@ -2,7 +2,7 @@
 title: World State Contract v1（统一世界状态：因子切片 + 绘图状态）
 status: draft
 created: 2026-02-03
-updated: 2026-02-03
+updated: 2026-02-07
 ---
 
 # World State Contract v1（统一世界状态：因子切片 + 绘图状态）
@@ -74,4 +74,4 @@ type WorldStateV1 = {
 
 说明：
 - `WorldStateV1` 强调“统一输出形状”，不强制后端内部存储实现（可由 ledger/delta ledger 或投影组合得到）。
-
+- 与 `ReplayFrameV1` 的字段映射：`WorldStateV1.draw_state` 语义等价于 `ReplayFrameV1.draw_delta`（当前对外 API 使用 `draw_state` 命名）。
