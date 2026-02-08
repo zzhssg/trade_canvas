@@ -42,7 +42,7 @@ export const FACTOR_CATALOG: FactorSpec[] = [
     default_visible: true,
     sub_features: [
       { key: "zhongshu.alive", label: "Alive", default_visible: true },
-      { key: "zhongshu.dead", label: "Dead", default_visible: false }
+      { key: "zhongshu.dead", label: "Dead", default_visible: true }
     ]
   },
   {
