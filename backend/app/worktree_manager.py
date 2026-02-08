@@ -107,6 +107,27 @@ class WorktreeManager:
         if not index_path.exists():
             self._write_index({"version": 1, "allocations": {}, "active_services": {}})
 
+    def _resolve_main_worktree_root(self) -> Path:
+        """Resolve the canonical main worktree path from git common dir."""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-common-dir"],
+                cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return self.repo_root
+            raw = result.stdout.strip()
+            if not raw:
+                return self.repo_root
+            common_dir = Path(raw)
+            if not common_dir.is_absolute():
+                common_dir = (self.repo_root / common_dir).resolve()
+            return common_dir.parent.resolve()
+        except Exception:
+            return self.repo_root
+
     def _read_index(self) -> dict[str, Any]:
         """Read the index file."""
         index_path = self.metadata_dir / "index.json"
@@ -151,6 +172,7 @@ class WorktreeManager:
 
     def list_worktrees(self) -> list[WorktreeInfo]:
         """List all worktrees with metadata and service status."""
+        main_worktree_root = self._resolve_main_worktree_root()
         result = subprocess.run(
             ["git", "worktree", "list", "--porcelain"],
             cwd=self.repo_root,
@@ -167,7 +189,7 @@ class WorktreeManager:
         for wt in parsed:
             path = wt.get("path", "")
             wt_id = _worktree_id(path)
-            is_main = Path(path).resolve() == self.repo_root
+            is_main = Path(path).resolve() == main_worktree_root
 
             # Get metadata
             metadata = self._read_metadata(wt_id)
@@ -283,7 +305,7 @@ class WorktreeManager:
                 self._write_metadata(worktree_id, wt.metadata)
 
         # Start backend
-        backend_pid = self._start_backend(wt.path, backend_port)
+        backend_pid = self._start_backend(wt.path, backend_port, frontend_port)
 
         # Start frontend
         frontend_pid = self._start_frontend(wt.path, frontend_port, backend_port)
@@ -314,7 +336,7 @@ class WorktreeManager:
             ),
         )
 
-    def _start_backend(self, worktree_path: str, port: int) -> int:
+    def _start_backend(self, worktree_path: str, port: int, frontend_port: int) -> int:
         """Start backend service."""
         wt_path = Path(worktree_path)
         script_path = wt_path / "scripts" / "dev_backend.sh"
@@ -328,6 +350,19 @@ class WorktreeManager:
         env = os.environ.copy()
         env["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
         env["TRADE_CANVAS_ENABLE_ONDEMAND_INGEST"] = "1"
+        cors_origins_raw = env.get(
+            "TRADE_CANVAS_CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173",
+        )
+        origins = [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
+        dynamic_origins = [
+            f"http://localhost:{frontend_port}",
+            f"http://127.0.0.1:{frontend_port}",
+        ]
+        for origin in dynamic_origins:
+            if origin not in origins:
+                origins.append(origin)
+        env["TRADE_CANVAS_CORS_ORIGINS"] = ",".join(origins)
 
         proc = subprocess.Popen(
             ["bash", str(script_path), "--port", str(port), "--no-access-log"],
