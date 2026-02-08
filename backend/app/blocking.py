@@ -20,6 +20,30 @@ _started = False
 _start_lock = threading.Lock()
 
 
+def _dispatch_future(
+    *,
+    loop: asyncio.AbstractEventLoop,
+    fut: asyncio.Future,
+    value: Any = None,
+    error: BaseException | None = None,
+) -> None:
+    if fut.cancelled() or fut.done() or loop.is_closed():
+        return
+
+    def _apply() -> None:
+        if fut.cancelled() or fut.done():
+            return
+        if error is not None:
+            fut.set_exception(error)
+        else:
+            fut.set_result(value)
+
+    try:
+        loop.call_soon_threadsafe(_apply)
+    except RuntimeError:
+        return
+
+
 def _worker() -> None:
     while True:
         job = _q.get()
@@ -29,9 +53,9 @@ def _worker() -> None:
             try:
                 out = job.fn()
             except BaseException as e:
-                job.loop.call_soon_threadsafe(job.fut.set_exception, e)
+                _dispatch_future(loop=job.loop, fut=job.fut, error=e)
             else:
-                job.loop.call_soon_threadsafe(job.fut.set_result, out)
+                _dispatch_future(loop=job.loop, fut=job.fut, value=out)
         finally:
             _q.task_done()
 
@@ -75,4 +99,3 @@ async def run_blocking(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> 
 
     _q.put(_Job(loop=loop, fut=fut, fn=call))
     return await fut
-

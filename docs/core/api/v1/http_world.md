@@ -31,6 +31,7 @@ curl --noproxy '*' -sS \
 ### 语义
 
 - live frame 是“当前最新对齐的世界状态”投影：由 `factor/slices + draw/delta` 组合而成。
+- 字段命名对齐说明：当前 HTTP 返回字段为 `draw_state`（`WorldStateV1`），其语义等价于 `ReplayFrameV1` 里的 `draw_delta`。
 - fail-safe：若 `factor_slices.candle_id` 与 `draw_state.to_candle_id` 不一致，返回 `409 ledger_out_of_sync`，禁止生成漂移 frame。
 
 ## GET /api/frame/at_time
