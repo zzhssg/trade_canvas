@@ -2,7 +2,7 @@
 title: World Delta Contract v1（统一世界增量差分）
 status: draft
 created: 2026-02-03
-updated: 2026-02-03
+updated: 2026-02-07
 ---
 
 # World Delta Contract v1（统一世界增量差分）
@@ -58,6 +58,9 @@ type WorldDeltaRecordV1 = {
 }
 ```
 
+补充约束（anchor）：
+- 若 `factor_slices` 携带 `anchor.history`，则 `anchors/switches` 必须同 cursor 口径可重复消费，并保持 1:1 对齐。
+
 ---
 
 ## 3) Read API 语义（示意）
@@ -70,4 +73,3 @@ type WorldDeltaRecordV1 = {
 ### 3.2 `get_window(t0..t1)`（replay）
 
 - 输出：覆盖 `[t0..t1]` 的 delta 序列（可选 checkpoint）
-

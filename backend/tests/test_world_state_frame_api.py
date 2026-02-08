@@ -21,7 +21,6 @@ class WorldStateFrameApiTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MINOR"] = "1"
         os.environ["TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES"] = "5000"
         os.environ["TRADE_CANVAS_OVERLAY_WINDOW_CANDLES"] = "2000"
-        os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
         self.client = TestClient(create_app())
         self.series_id = "binance:futures:BTC/USDT:1m"
 
@@ -35,7 +34,6 @@ class WorldStateFrameApiTests(unittest.TestCase):
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
             "TRADE_CANVAS_OVERLAY_WINDOW_CANDLES",
-            "TRADE_CANVAS_ENABLE_DEBUG_API",
         ):
             os.environ.pop(k, None)
 

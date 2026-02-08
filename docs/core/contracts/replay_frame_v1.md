@@ -2,7 +2,7 @@
 title: Replay Frame Contract v1（回放帧：因子切片 + 绘图指令）
 status: draft
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-07
 ---
 
 # Replay Frame Contract v1（回放帧：因子切片 + 绘图指令）
@@ -47,6 +47,9 @@ type ReplayTimeV1 = {
   candle_id: string      // "{series_id}:{aligned_time}"
 }
 ```
+
+补充约束（anchor）：
+- `factor_slices.snapshots.anchor.history.anchors` 与 `history.switches` 必须在 `t` 时刻满足 1:1 对齐，避免“末态倒推历史”。
 
 约束：
 - `aligned_time` 必须存在；否则返回 `no_data`（该 series 尚无任何闭合 K）。
@@ -131,4 +134,3 @@ type ReplayFrameV1 = {
 1) **对齐门禁**：`ReplayFrameV1.time.candle_id == factor_slices.candle_id == draw_delta.to_candle_id`，否则返回 `ledger_out_of_sync`。
 2) **可复现**：相同 fixtures 输入，固定 `t` 取帧的结果一致（至少 `(candle_id, factors, active_ids, next_cursor.version_id)` 一致）。
 3) **幂等**：同 cursor 的 `draw_delta` 可重复 apply，不产生重复图元。
-

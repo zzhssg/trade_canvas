@@ -2,7 +2,7 @@
 title: Factor Contract v1（因子类数据结构）
 status: draft
 created: 2026-02-02
-updated: 2026-02-07
+updated: 2026-02-02
 ---
 
 # Factor Contract v1（因子类数据结构）
@@ -161,10 +161,3 @@ type PivotSliceV1 = FactorSliceV1 & {
 - `history` 通过“末态倒推”重算导致未来函数（`seed(2000)+slice(1000)` 与 `seed(1000)+slice(1000)` 不一致）。
 - `deps_snapshot` 被下游原地改写导致上游数据污染（必须 copy-on-write）。
 
-## 7. Logic Hash 失效门禁（v1 新增）
-
-- `factor_series_state.logic_hash` 必须记录“当前因子计算逻辑 + 关键参数”的稳定指纹。
-- 读路径（`/api/factor/slices`、`/api/frame/*`、`/api/delta/poll`）在 `factor_head` 存在时必须校验：
-  - 若 `logic_hash` 缺失：返回 `409 stale_factor_logic_hash:missing`
-  - 若 `logic_hash` 不匹配：返回 `409 stale_factor_logic_hash:mismatch:*`
-- 禁止“静默继续读旧数据”，避免代码已变更但 UI/策略仍消费过期 ledger。

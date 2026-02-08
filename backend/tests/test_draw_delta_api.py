@@ -73,6 +73,18 @@ class DrawDeltaApiTests(unittest.TestCase):
                     out.append(d)
             return out
 
+        def pick_polyline_defs(feature: str) -> list[dict]:
+            out: list[dict] = []
+            for item in draw.get("instruction_catalog_patch") or []:
+                if not isinstance(item, dict) or item.get("kind") != "polyline":
+                    continue
+                d = item.get("definition")
+                if not isinstance(d, dict):
+                    continue
+                if d.get("feature") == feature:
+                    out.append(d)
+            return out
+
         majors = pick_marker_defs("pivot.major")
         minors = pick_marker_defs("pivot.minor")
         self.assertTrue(majors, "expected at least one pivot.major marker in patch")
@@ -84,6 +96,20 @@ class DrawDeltaApiTests(unittest.TestCase):
         # Regression: keep `text` field but should be blank.
         self.assertIn("text", majors[0])
         self.assertEqual(str(majors[0].get("text")), "")
+
+        pens = pick_polyline_defs("pen.confirmed")
+        self.assertTrue(pens, "expected pen.confirmed polyline")
+        self.assertEqual(str(pens[0].get("color")), "#ffffff")
+        self.assertEqual(str(pens[0].get("lineStyle") or "solid"), "solid")
+
+        extending = pick_polyline_defs("pen.extending")
+        candidate = pick_polyline_defs("pen.candidate")
+        self.assertTrue(extending, "expected pen.extending polyline")
+        self.assertTrue(candidate, "expected pen.candidate polyline")
+        self.assertEqual(str(extending[0].get("color")), "#ffffff")
+        self.assertEqual(str(candidate[0].get("color")), "#ffffff")
+        self.assertEqual(str(extending[0].get("lineStyle")), "dashed")
+        self.assertEqual(str(candidate[0].get("lineStyle")), "dashed")
 
         next_version = int(draw["next_cursor"]["version_id"])
         self.assertGreater(next_version, 0)

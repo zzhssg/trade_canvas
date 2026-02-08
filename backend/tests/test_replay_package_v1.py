@@ -80,13 +80,6 @@ class ReplayPackageApiTests(unittest.TestCase):
         self.assertEqual(res.status_code, 404, res.text)
         os.environ["TRADE_CANVAS_ENABLE_REPLAY_V1"] = "1"
 
-    def test_replay_prepare_requires_flag(self) -> None:
-        self._ingest(60, 1.0)
-        os.environ["TRADE_CANVAS_ENABLE_REPLAY_V1"] = "0"
-        res = self.client.post("/api/replay/prepare", json={"series_id": self.series_id, "to_time": 60, "window_candles": 2000})
-        self.assertEqual(res.status_code, 404, res.text)
-        os.environ["TRADE_CANVAS_ENABLE_REPLAY_V1"] = "1"
-
     def test_replay_build_and_window_flow(self) -> None:
         base = 60
         prices = list(range(1, 111))

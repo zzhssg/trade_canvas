@@ -127,6 +127,5 @@ curl --noproxy '*' -sS -X POST \
 
 ### 语义
 
-- 受开关保护：`TRADE_CANVAS_ENABLE_REPLAY_V1=1` 时可用；关闭时返回 `404 not_found`。
 - replay prepare 会确保 factor/overlay ledger 已补算并落库到 `aligned_time`，否则返回 409。
 - `aligned_time` 为回放加载的对齐时间（close candle）。

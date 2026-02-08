@@ -66,15 +66,10 @@ class FactorStore:
             CREATE TABLE IF NOT EXISTS factor_series_state (
               series_id TEXT PRIMARY KEY,
               head_time INTEGER NOT NULL,
-              logic_hash TEXT,
               updated_at_ms INTEGER NOT NULL
             )
             """
         )
-        cols = conn.execute("PRAGMA table_info(factor_series_state)").fetchall()
-        col_names = {str(r["name"]) for r in cols}
-        if "logic_hash" not in col_names:
-            conn.execute("ALTER TABLE factor_series_state ADD COLUMN logic_hash TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS factor_events (
@@ -116,24 +111,16 @@ class FactorStore:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_factor_head_series_time ON factor_head_snapshots(series_id, candle_time);")
         conn.commit()
 
-    def upsert_head_time_in_conn(
-        self,
-        conn: sqlite3.Connection,
-        *,
-        series_id: str,
-        head_time: int,
-        logic_hash: str | None = None,
-    ) -> None:
+    def upsert_head_time_in_conn(self, conn: sqlite3.Connection, *, series_id: str, head_time: int) -> None:
         conn.execute(
             """
-            INSERT INTO factor_series_state(series_id, head_time, logic_hash, updated_at_ms)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO factor_series_state(series_id, head_time, updated_at_ms)
+            VALUES (?, ?, ?)
             ON CONFLICT(series_id) DO UPDATE SET
               head_time=MAX(head_time, excluded.head_time),
-              logic_hash=COALESCE(excluded.logic_hash, factor_series_state.logic_hash),
               updated_at_ms=excluded.updated_at_ms
             """,
-            (series_id, int(head_time), logic_hash, int(time.time() * 1000)),
+            (series_id, int(head_time), int(time.time() * 1000)),
         )
 
     def head_time(self, series_id: str) -> int | None:
@@ -145,30 +132,6 @@ class FactorStore:
             if row is None:
                 return None
             return int(row["head_time"])
-
-    def series_logic_hash(self, series_id: str) -> str | None:
-        with self.connect() as conn:
-            row = conn.execute(
-                "SELECT logic_hash FROM factor_series_state WHERE series_id = ?",
-                (series_id,),
-            ).fetchone()
-            if row is None:
-                return None
-            v = row["logic_hash"]
-            if v is None:
-                return None
-            s = str(v).strip()
-            return s if s else None
-
-    def reset_series_in_conn(self, conn: sqlite3.Connection, *, series_id: str) -> None:
-        conn.execute("DELETE FROM factor_events WHERE series_id = ?", (series_id,))
-        conn.execute("DELETE FROM factor_head_snapshots WHERE series_id = ?", (series_id,))
-        conn.execute("DELETE FROM factor_series_state WHERE series_id = ?", (series_id,))
-
-    def reset_series(self, *, series_id: str) -> None:
-        with self.connect() as conn:
-            self.reset_series_in_conn(conn, series_id=series_id)
-            conn.commit()
 
     def last_event_id(self, series_id: str) -> int:
         with self.connect() as conn:

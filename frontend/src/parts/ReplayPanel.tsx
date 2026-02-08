@@ -49,11 +49,6 @@ export function ReplayPanel() {
   const sliderMax = Math.max(0, total - 1);
   const candleId = currentCandleId ?? frame?.time?.candle_id ?? "—";
   const atTime = currentAtTime ?? focusTime ?? frame?.time?.aligned_time ?? null;
-  const handleSeek = (value: string) => {
-    const next = Number(value);
-    if (!Number.isFinite(next)) return;
-    setIndex(next);
-  };
 
   return (
     <div className="flex flex-col gap-3 text-[11px] text-white/70">
@@ -150,8 +145,7 @@ export function ReplayPanel() {
           min={0}
           max={sliderMax}
           value={Math.min(index, sliderMax)}
-          onChange={(e) => handleSeek(e.target.value)}
-          onInput={(e) => handleSeek((e.target as HTMLInputElement).value)}
+          onChange={(e) => setIndex(Number(e.target.value))}
           disabled={disabled}
         />
       </div>

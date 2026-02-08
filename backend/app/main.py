@@ -41,8 +41,6 @@ from .schemas import (
     DevWorktreeListResponse,
     DevWorktreeMetadata,
     DrawDeltaV1,
-    FactorRebuildRequestV1,
-    FactorRebuildResponseV1,
     GetCandlesResponse,
     GetFactorSlicesResponseV1,
     IngestCandleClosedRequest,
@@ -119,11 +117,6 @@ async def run_backtest_async(**kwargs):
 
 def _require_backtest_trades() -> bool:
     return (os.environ.get("TRADE_CANVAS_BACKTEST_REQUIRE_TRADES") or "").strip() == "1"
-
-
-def _factor_rebuild_enabled() -> bool:
-    raw = (os.environ.get("TRADE_CANVAS_ENABLE_FACTOR_REBUILD") or "").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
 
 
 def _extract_total_trades_from_backtest_zip(*, zip_path: Path, strategy_name: str) -> int:
@@ -517,23 +510,6 @@ def create_app() -> FastAPI:
             next_cursor=next_cursor,
         )
 
-    def ensure_factor_logic_valid(series_id: str) -> None:
-        factor_head = app.state.factor_store.head_time(series_id)
-        if factor_head is None:
-            return
-        stored_hash = app.state.factor_store.series_logic_hash(series_id)
-        current_hash = app.state.factor_orchestrator.logic_hash()
-        if not stored_hash:
-            raise HTTPException(
-                status_code=409,
-                detail="stale_factor_logic_hash:missing",
-            )
-        if str(stored_hash) != str(current_hash):
-            raise HTTPException(
-                status_code=409,
-                detail=f"stale_factor_logic_hash:mismatch:{stored_hash[:12]}:{current_hash[:12]}",
-            )
-
     @app.get("/api/factor/slices", response_model=GetFactorSlicesResponseV1)
     def get_factor_slices(
         series_id: str = Query(..., min_length=1),
@@ -547,44 +523,8 @@ def create_app() -> FastAPI:
         - pivot: history.major from factor events, head.minor computed on the fly
         - pen: history.confirmed from factor events
         """
-        ensure_factor_logic_valid(series_id)
         return app.state.factor_slices_service.get_slices(
             series_id=series_id, at_time=int(at_time), window_candles=int(window_candles)
-        )
-
-    @app.post("/api/factor/rebuild", response_model=FactorRebuildResponseV1)
-    def rebuild_factor_data(req: FactorRebuildRequestV1) -> FactorRebuildResponseV1:
-        if not _factor_rebuild_enabled():
-            raise HTTPException(status_code=404, detail="not_found")
-        series_id = str(req.series_id)
-        include_overlay = bool(req.include_overlay)
-        store_head = store.head_time(series_id)
-        if store_head is None:
-            raise HTTPException(status_code=404, detail="no_data")
-        aligned = store.floor_time(series_id, at_time=int(store_head))
-        if aligned is None:
-            raise HTTPException(status_code=404, detail="no_data")
-
-        app.state.factor_store.reset_series(series_id=series_id)
-        app.state.factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
-        if include_overlay:
-            app.state.overlay_store.reset_series(series_id=series_id)
-            app.state.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
-
-        factor_head = app.state.factor_store.head_time(series_id)
-        if factor_head is None or int(factor_head) < int(aligned):
-            raise HTTPException(status_code=409, detail="rebuild_failed:factor")
-        if include_overlay:
-            overlay_head = app.state.overlay_store.head_time(series_id)
-            if overlay_head is None or int(overlay_head) < int(aligned):
-                raise HTTPException(status_code=409, detail="rebuild_failed:overlay")
-
-        return FactorRebuildResponseV1(
-            ok=True,
-            series_id=series_id,
-            rebuilt_to_time=int(aligned),
-            factor_logic_hash=str(app.state.factor_orchestrator.logic_hash()),
-            include_overlay=include_overlay,
         )
 
     @app.post("/api/replay/prepare", response_model=ReplayPrepareResponseV1)
@@ -594,9 +534,6 @@ def create_app() -> FastAPI:
         - Ensures factor/overlay ledgers are computed up to aligned time.
         - Returns aligned_time for replay loading.
         """
-        service = app.state.replay_service
-        if not service.enabled():
-            raise HTTPException(status_code=404, detail="not_found")
         series_id = req.series_id
         store_head = store.head_time(series_id)
         if store_head is None:
@@ -627,7 +564,6 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=409, detail="ledger_out_of_sync:factor")
         if overlay_head is None or int(overlay_head) < int(aligned):
             raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
-        ensure_factor_logic_valid(series_id)
 
         if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
             app.state.debug_hub.emit(
@@ -675,7 +611,6 @@ def create_app() -> FastAPI:
         aligned = store.floor_time(series_id, at_time=int(aligned_base))
         if aligned is None:
             raise HTTPException(status_code=404, detail="no_data")
-        ensure_factor_logic_valid(series_id)
 
         factor_slices = get_factor_slices(series_id=series_id, at_time=int(aligned), window_candles=window_candles)
         draw_state = get_draw_delta(series_id=series_id, cursor_version_id=0, window_candles=window_candles, at_time=int(aligned))
@@ -709,7 +644,6 @@ def create_app() -> FastAPI:
         aligned = store.floor_time(series_id, at_time=int(at_time))
         if aligned is None:
             raise HTTPException(status_code=404, detail="no_data")
-        ensure_factor_logic_valid(series_id)
 
         factor_slices = get_factor_slices(series_id=series_id, at_time=int(aligned), window_candles=window_candles)
         draw_state = get_draw_delta(series_id=series_id, cursor_version_id=0, window_candles=window_candles, at_time=int(aligned))
@@ -719,10 +653,10 @@ def create_app() -> FastAPI:
         if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
             app.state.debug_hub.emit(
                 pipe="read",
-                event="read.http.world_frame_at_time",
+                event="read.http.world_frame_live",
                 series_id=series_id,
-                message="get world frame at_time",
-                data={"at_time": int(at_time), "aligned_time": int(aligned), "candle_id": str(candle_id)},
+                message="get world frame live",
+                data={"at_time": int(store_head), "aligned_time": int(aligned), "candle_id": str(candle_id)},
             )
         return WorldStateV1(
             series_id=series_id,
@@ -841,7 +775,6 @@ def create_app() -> FastAPI:
         - Uses draw/delta cursor as the minimal incremental source (compat projection).
         - Emits at most 1 record per poll (if cursor advances); otherwise returns empty records.
         """
-        ensure_factor_logic_valid(series_id)
         _ = int(limit)  # reserved for future multi-record batching (delta ledger)
         draw = get_draw_delta(series_id=series_id, cursor_version_id=int(after_id), window_candles=window_candles, at_time=None)
         next_id = int(draw.next_cursor.version_id or 0)
