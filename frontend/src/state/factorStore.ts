@@ -39,8 +39,15 @@ export const useFactorStore = create<FactorState>()(
     }),
     {
       name: "trade-canvas-factors",
-      version: 1
+      version: 2,
+      migrate: (persistedState: unknown, version) => {
+        const state = (persistedState as { visibleFeatures?: Record<string, boolean> } | undefined) ?? {};
+        const visibleFeatures = { ...(state.visibleFeatures ?? {}) };
+        if (version < 2) {
+          visibleFeatures["zhongshu.dead"] = true;
+        }
+        return { ...state, visibleFeatures };
+      }
     }
   )
 );
-
