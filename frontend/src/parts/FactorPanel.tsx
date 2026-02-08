@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { FACTOR_CATALOG, type FactorSpec } from "../services/factorCatalog";
 import { useFactorStore } from "../state/factorStore";
@@ -53,11 +53,27 @@ function FactorChip({
   onToggleSub: (key: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
   const checked = visibleFeatures[factor.key] ?? factor.default_visible ?? true;
   const hasSubs = (factor.sub_features ?? []).length > 0;
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+      closeTimerRef.current = null;
+    }, 140);
+  };
+
+  useEffect(() => () => clearCloseTimer(), []);
 
   return (
-    <div className="relative" onMouseLeave={() => setOpen(false)}>
+    <div className="relative" onMouseEnter={clearCloseTimer} onMouseLeave={scheduleClose}>
       <button
         type="button"
         onClick={() => onToggle(factor.key)}
@@ -74,7 +90,10 @@ function FactorChip({
       </button>
 
       {open && hasSubs ? (
-        <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded-xl border border-white/10 bg-[#0d1422]/95 p-2 shadow-xl shadow-black/30 backdrop-blur">
+        <div
+          className="absolute left-0 top-[calc(100%-1px)] z-50 min-w-[180px] rounded-xl border border-white/10 bg-[#0d1422]/95 p-2 shadow-xl shadow-black/30 backdrop-blur"
+          onMouseEnter={clearCloseTimer}
+        >
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">Sub Features</div>
           <div className="flex flex-col gap-1">
             {factor.sub_features.map((sf) => {
