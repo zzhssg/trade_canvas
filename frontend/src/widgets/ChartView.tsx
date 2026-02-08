@@ -56,7 +56,7 @@ import { parseMarketWsMessage } from "./chart/ws";
 import { useReplayPackage } from "./chart/useReplayPackage";
 
 const INITIAL_TAIL_LIMIT = 2000;
-const ENABLE_REPLAY_V1 = import.meta.env.VITE_ENABLE_REPLAY_V1 === "1";
+const ENABLE_REPLAY_V1 = String(import.meta.env.VITE_ENABLE_REPLAY_V1 ?? "1") === "1";
 const ENABLE_PEN_SEGMENT_COLOR = import.meta.env.VITE_ENABLE_PEN_SEGMENT_COLOR === "1";
 // Default to enabled (unless explicitly disabled) to avoid "delta + slices" double-fetch loops in live mode.
 const ENABLE_WORLD_FRAME = String(import.meta.env.VITE_ENABLE_WORLD_FRAME ?? "1") === "1";

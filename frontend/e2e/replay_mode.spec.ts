@@ -4,10 +4,9 @@ import { expect, test } from "@playwright/test";
 const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
 const apiBase =
   process.env.E2E_API_BASE_URL ?? process.env.VITE_API_BASE ?? process.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
-const REPLAY_SYMBOL = "TCREPLAY/USDT";
 
 function seriesId() {
-  return `binance:futures:${REPLAY_SYMBOL}:5m`;
+  return "binance:futures:BTC/USDT:5m";
 }
 
 async function ingestClosedCandle(request: APIRequestContext, candle_time: number, price: number) {
@@ -28,7 +27,7 @@ async function ingestClosedCandle(request: APIRequestContext, candle_time: numbe
 }
 
 test("replay mode prepares data and plays", async ({ page, request }) => {
-  await page.addInitScript((symbol) => {
+  await page.addInitScript(() => {
     localStorage.clear();
     localStorage.setItem(
       "trade-canvas-ui",
@@ -37,7 +36,7 @@ test("replay mode prepares data and plays", async ({ page, request }) => {
         state: {
           exchange: "binance",
           market: "futures",
-          symbol,
+          symbol: "BTC/USDT",
           timeframe: "5m",
           sidebarCollapsed: false,
           sidebarWidth: 280,
@@ -47,7 +46,7 @@ test("replay mode prepares data and plays", async ({ page, request }) => {
         }
       })
     );
-  }, REPLAY_SYMBOL);
+  });
 
   const base = 300;
   const total = 40;

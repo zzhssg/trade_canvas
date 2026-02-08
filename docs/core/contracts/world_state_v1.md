@@ -2,7 +2,7 @@
 title: World State Contract v1（统一世界状态：因子切片 + 绘图状态）
 status: draft
 created: 2026-02-03
-updated: 2026-02-03
+updated: 2026-02-07
 ---
 
 # World State Contract v1（统一世界状态：因子切片 + 绘图状态）
@@ -72,6 +72,8 @@ type WorldStateV1 = {
 }
 ```
 
+补充约束（anchor）：
+- 当 `factor_slices.snapshots.anchor` 存在时，`history.anchors` 与 `history.switches` 必须是同一可见性过滤结果，并满足 1:1 对齐。
+
 说明：
 - `WorldStateV1` 强调“统一输出形状”，不强制后端内部存储实现（可由 ledger/delta ledger 或投影组合得到）。
-
