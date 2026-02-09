@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from typing import Any
 
@@ -349,6 +350,20 @@ class AnchorProcessor:
             "direction": int(pen.get("direction") or 0),
         }
 
+    @staticmethod
+    def _last_confirmed_pen_before_or_at(
+        *,
+        confirmed_pens: list[dict[str, Any]],
+        switch_time: int,
+    ) -> dict[str, Any] | None:
+        if not confirmed_pens:
+            return None
+        visible_times = [int(p.get("visible_time") or 0) for p in confirmed_pens]
+        idx = bisect_right(visible_times, int(switch_time)) - 1
+        if idx < 0:
+            return None
+        return confirmed_pens[int(idx)]
+
     def maybe_pick_stronger_pen(
         self,
         *,
@@ -399,8 +414,10 @@ class AnchorProcessor:
                 elif kind == "candidate":
                     switch_time = int(last_switch.get("switch_time") or 0)
                     if switch_time > 0:
-                        pen_at_time = [p for p in confirmed_pens if int(p.get("visible_time") or 0) <= switch_time]
-                        last_pen = pen_at_time[-1] if pen_at_time else None
+                        last_pen = self._last_confirmed_pen_before_or_at(
+                            confirmed_pens=confirmed_pens,
+                            switch_time=int(switch_time),
+                        )
                         candidate = build_pen_head_candidate(
                             candles=candles,
                             last_confirmed=last_pen,

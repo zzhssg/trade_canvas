@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TextIO
 
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 
@@ -18,7 +18,9 @@ from .config import load_settings
 from .debug_hub import DebugHub
 from .dev_routes import register_dev_routes
 from .factor_routes import register_factor_routes
+from .factor_read_freshness import ensure_factor_fresh_for_read
 from .market_ws_routes import handle_market_ws
+from .overlay_package_routes import register_overlay_package_routes
 from .replay_routes import register_replay_routes
 from .world_routes import register_world_routes
 from .ingest_supervisor import IngestSupervisor
@@ -40,14 +42,6 @@ from .factor_orchestrator import FactorOrchestrator
 from .factor_slices_service import FactorSlicesService
 from .factor_store import FactorStore
 from .overlay_orchestrator import OverlayOrchestrator
-from .overlay_replay_protocol_v1 import (
-    ReplayOverlayPackageBuildRequestV1,
-    ReplayOverlayPackageBuildResponseV1,
-    ReplayOverlayPackageReadOnlyRequestV1,
-    ReplayOverlayPackageReadOnlyResponseV1,
-    ReplayOverlayPackageStatusResponseV1,
-    ReplayOverlayPackageWindowResponseV1,
-)
 from .overlay_store import OverlayStore
 from .replay_package_service_v1 import ReplayPackageServiceV1
 from .overlay_package_service_v1 import OverlayReplayPackageServiceV1
@@ -246,18 +240,13 @@ def create_app() -> FastAPI:
     register_replay_routes(app)
     register_world_routes(app)
 
-    def ensure_factor_fresh_for_read(*, series_id: str, up_to_time: int | None) -> bool:
-        if up_to_time is None:
-            return False
-        to_time = int(up_to_time)
-        if to_time <= 0:
-            return False
-        result = app.state.factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=to_time)
-        return bool(getattr(result, "rebuilt", False))
-
     def read_factor_slices(*, series_id: str, at_time: int, window_candles: int) -> GetFactorSlicesResponseV1:
         aligned = store.floor_time(series_id, at_time=int(at_time))
-        _ = ensure_factor_fresh_for_read(series_id=series_id, up_to_time=aligned)
+        _ = ensure_factor_fresh_for_read(
+            factor_orchestrator=app.state.factor_orchestrator,
+            series_id=series_id,
+            up_to_time=aligned,
+        )
         return app.state.factor_slices_service.get_slices(
             series_id=series_id,
             at_time=int(at_time),
@@ -464,7 +453,11 @@ def create_app() -> FastAPI:
             )
 
         if int(cursor_version_id) == 0:
-            _ = ensure_factor_fresh_for_read(series_id=series_id, up_to_time=int(to_time))
+            _ = ensure_factor_fresh_for_read(
+                factor_orchestrator=app.state.factor_orchestrator,
+                series_id=series_id,
+                up_to_time=int(to_time),
+            )
 
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         cutoff_time = max(0, int(to_time) - int(window_candles) * int(tf_s))

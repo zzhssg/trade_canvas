@@ -121,6 +121,19 @@ class FactorRegistryTests(unittest.TestCase):
         self.assertEqual(s_cur["kind"], "candidate")
         self.assertEqual(s_strength, 15.0)
 
+    def test_anchor_processor_last_confirmed_pen_before_or_at(self) -> None:
+        proc = AnchorProcessor()
+        confirmed = [
+            {"start_time": 60, "end_time": 120, "direction": 1, "visible_time": 140},
+            {"start_time": 120, "end_time": 180, "direction": -1, "visible_time": 260},
+            {"start_time": 180, "end_time": 240, "direction": 1, "visible_time": 380},
+        ]
+        pick = proc._last_confirmed_pen_before_or_at(confirmed_pens=confirmed, switch_time=300)
+        self.assertIsNotNone(pick)
+        self.assertEqual(int(pick["start_time"]), 120)
+        self.assertEqual(int(pick["visible_time"]), 260)
+        self.assertIsNone(proc._last_confirmed_pen_before_or_at(confirmed_pens=confirmed, switch_time=100))
+
 
 if __name__ == "__main__":
     unittest.main()

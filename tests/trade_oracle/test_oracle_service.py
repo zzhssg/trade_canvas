@@ -50,7 +50,11 @@ def test_analyze_current_builds_report():
     assert payload["bias"] in {"bullish", "bearish", "neutral"}
     assert "factor_scores" in payload and len(payload["factor_scores"]) == 3
     assert "BTC 八字走势分析报告" in report
+    assert "流年/流月/流日分层归因" in report
+    assert "历史分段回测" in report
     assert payload["evidence"]["candles"]["count"] == 120
+    assert "layer_attribution" in payload["evidence"]
+    assert "layer_backtest" in payload["evidence"]
 
 
 def test_analyze_current_without_backtest():
