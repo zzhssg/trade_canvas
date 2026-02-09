@@ -95,17 +95,16 @@
       }
       .card-head {
         display: grid;
-        grid-template-columns: minmax(260px, 1.5fr) minmax(220px, 1.1fr) minmax(260px, 1.2fr) auto;
+        grid-template-columns: minmax(260px, 1.5fr) minmax(220px, 1.1fr) minmax(260px, 1.2fr);
         gap: 12px;
         align-items: center;
       }
       .card-body {
-        display: none;
+        display: grid;
         border-top: 1px solid #284165;
         padding-top: 10px;
         gap: 10px;
       }
-      .card.expanded .card-body { display: grid; }
       .detail-grid {
         display: grid;
         grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(260px, 1.3fr);
@@ -173,9 +172,8 @@
       }
       .muted { color: var(--text-muted); font-size: 12px; line-height: 1.45; }
       .muted.path-tip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
       .quick-actions button { min-height: 32px; padding: 6px 10px; font-size: 11px; }
-      .card-toggle { min-height: 32px; padding: 6px 10px; font-size: 11px; }
       .svc-grid { display: grid; gap: 10px; }
       .svc-row {
         display: flex;
@@ -260,7 +258,6 @@
       }
       @media (max-width: 1500px) {
         .card-head { grid-template-columns: minmax(240px, 1.4fr) minmax(220px, 1fr) minmax(240px, 1fr); }
-        .card-toggle { justify-self: start; }
       }
       @media (max-width: 1260px) {
         .card-head { grid-template-columns: 1fr; gap: 10px; }
@@ -280,8 +277,6 @@
       </div>
       <div class="header-actions">
         <input id="search" class="search-input" type="search" placeholder="搜索项目 / 分支 / 路径" />
-        <button id="expand-all" class="ghost">展开全部</button>
-        <button id="collapse-all" class="ghost">收起全部</button>
         <button id="refresh" class="secondary">刷新</button>
       </div>
     </header>
@@ -293,7 +288,7 @@
       <div class="col"><h2>已上线 <span class="col-count" id="count-online">0</span></h2><div id="online" class="list"></div></div>
     </section>
     <script>
-      const UI_STATE = { search: "", expanded: new Set() };
+      const UI_STATE = { search: "" };
       const BUCKET_KEYS = ["draft", "in_progress", "pending_acceptance", "online"];
 
       function showError(msg) {
@@ -379,12 +374,6 @@
         return pill;
       }
 
-      function syncCardExpanded(card, expanded) {
-        const toggleBtn = card.querySelector(".card-toggle");
-        card.classList.toggle("expanded", expanded);
-        toggleBtn.textContent = expanded ? "收起" : "详情";
-      }
-
       function applySearchAndCounts() {
         const query = UI_STATE.search.trim().toLowerCase();
         for (const key of BUCKET_KEYS) {
@@ -411,17 +400,6 @@
           } else if (empty) {
             empty.style.display = "none";
           }
-        }
-      }
-
-      function setAllExpanded(expanded) {
-        const cards = document.querySelectorAll(".card");
-        for (const card of cards) {
-          const wid = card.dataset.worktreeId || "";
-          if (!wid) continue;
-          if (expanded) UI_STATE.expanded.add(wid);
-          else UI_STATE.expanded.delete(wid);
-          syncCardExpanded(card, expanded);
         }
       }
 
@@ -491,7 +469,6 @@
             </div>
             <div class="service-brief"></div>
             <div class="quick-actions"></div>
-            <button class="ghost card-toggle" type="button">详情</button>
           </div>
           <div class="card-body">
             <div class="detail-grid">
@@ -561,22 +538,6 @@
           }
         }
 
-        const toggleBtn = card.querySelector(".card-toggle");
-        toggleBtn.onclick = (event) => {
-          event.stopPropagation();
-          const wid = project.worktree_id;
-          const expanded = !card.classList.contains("expanded");
-          if (expanded) UI_STATE.expanded.add(wid);
-          else UI_STATE.expanded.delete(wid);
-          syncCardExpanded(card, expanded);
-        };
-
-        const head = card.querySelector(".card-head");
-        head.addEventListener("click", (event) => {
-          if (event.target.closest("button")) return;
-          toggleBtn.click();
-        });
-
         const planValue = card.querySelector(".detail-plan .field-value");
         planValue.textContent = planPathDisplay;
         planValue.title = planPathLabel;
@@ -608,7 +569,6 @@
           actionsInline.appendChild(note);
         }
 
-        syncCardExpanded(card, UI_STATE.expanded.has(project.worktree_id));
         return card;
       }
 
@@ -637,8 +597,6 @@
         UI_STATE.search = event.target.value || "";
         applySearchAndCounts();
       });
-      document.getElementById("expand-all").addEventListener("click", () => setAllExpanded(true));
-      document.getElementById("collapse-all").addEventListener("click", () => setAllExpanded(false));
       document.getElementById("refresh").addEventListener("click", load);
       load();
     </script>
