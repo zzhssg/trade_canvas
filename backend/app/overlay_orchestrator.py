@@ -213,6 +213,7 @@ class OverlayOrchestrator:
         pen_confirmed.sort(key=lambda d: (int(d.get("visible_time") or 0), int(d.get("start_time") or 0)))
         pen_lookup: dict[tuple[int, int, int], dict[str, Any]] = {}
         pen_latest_by_start_dir: dict[tuple[int, int], dict[str, Any]] = {}
+        pen_latest_by_start: dict[int, dict[str, Any]] = {}
         for p in pen_confirmed:
             start_time = int(p.get("start_time") or 0)
             end_time = int(p.get("end_time") or 0)
@@ -223,6 +224,9 @@ class OverlayOrchestrator:
             prev = pen_latest_by_start_dir.get(pointer_key)
             if prev is None or int(prev.get("end_time") or 0) <= end_time:
                 pen_latest_by_start_dir[pointer_key] = p
+            prev_start = pen_latest_by_start.get(start_time)
+            if prev_start is None or int(prev_start.get("end_time") or 0) <= end_time:
+                pen_latest_by_start[start_time] = p
 
         candles = self._candle_store.get_closed_between_times(
             series_id,
@@ -240,7 +244,11 @@ class OverlayOrchestrator:
 
         if pen_confirmed:
             try:
-                alive = build_alive_zhongshu_from_confirmed_pens(pen_confirmed, up_to_visible_time=int(to_time))
+                alive = build_alive_zhongshu_from_confirmed_pens(
+                    pen_confirmed,
+                    up_to_visible_time=int(to_time),
+                    candles=candles,
+                )
             except Exception:
                 alive = None
         else:
@@ -277,6 +285,25 @@ class OverlayOrchestrator:
                 return "rgba(22,163,74,0.72)" if entry_direction >= 0 else "rgba(220,38,38,0.72)"
             return "rgba(74,222,128,0.58)" if entry_direction >= 0 else "rgba(248,113,113,0.58)"
 
+        def resolve_dead_entry_direction(zs: dict[str, Any]) -> int:
+            try:
+                raw = int(zs.get("entry_direction") or 0)
+            except Exception:
+                raw = 0
+            if raw in {-1, 1}:
+                return int(raw)
+            start_time = int(zs.get("start_time") or 0)
+            if start_time > 0:
+                matched = pen_latest_by_start.get(start_time)
+                if isinstance(matched, dict):
+                    try:
+                        d = int(matched.get("direction") or 0)
+                    except Exception:
+                        d = 0
+                    if d in {-1, 1}:
+                        return int(d)
+            return 1
+
         # Zhongshu dead boxes (rendered as top/bottom lines).
         for zs in zhongshu_dead:
             start_time = int(zs.get("start_time") or 0)
@@ -284,7 +311,7 @@ class OverlayOrchestrator:
             zg = float(zs.get("zg") or 0.0)
             zd = float(zs.get("zd") or 0.0)
             visible_time = int(zs.get("visible_time") or 0)
-            entry_direction = int(zs.get("entry_direction") or -1)
+            entry_direction = resolve_dead_entry_direction(zs)
             if start_time <= 0 or end_time <= 0 or visible_time <= 0:
                 continue
             if end_time < cutoff_time or start_time > to_time:

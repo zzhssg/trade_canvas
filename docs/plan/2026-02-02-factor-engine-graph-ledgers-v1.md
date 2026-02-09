@@ -1,9 +1,9 @@
 ---
 title: 因子引擎 v1（拓扑依赖 + 冷热真源账本 + delta 二级账本）
-status: 草稿
+status: deprecated
 owner:
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-09
 ---
 
 ## 背景

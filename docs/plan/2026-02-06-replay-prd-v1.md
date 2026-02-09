@@ -1,9 +1,9 @@
 ---
 title: PRD · Replay 复盘模式 v1（包补齐 + 定点查询 + 播放差值更新）
-status: 草稿
+status: done
 owner:
 created: 2026-02-06
-updated: 2026-02-06
+updated: 2026-02-09
 ---
 
 ## 背景

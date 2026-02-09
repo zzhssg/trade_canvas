@@ -1,9 +1,9 @@
 ---
 title: 市场 K 线：一次加载历史 + WS 推送 forming（未收线跳动）
-status: 草稿
+status: done
 owner: rick
 created: 2026-02-02
-updated: 2026-02-08
+updated: 2026-02-09
 ---
 
 ## 背景

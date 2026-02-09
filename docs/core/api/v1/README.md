@@ -2,7 +2,7 @@
 title: API v1（endpoint 清单 + 示例）
 status: draft
 created: 2026-02-03
-updated: 2026-02-07
+updated: 2026-02-09
 ---
 
 # API v1（endpoint 清单 + 示例）
@@ -41,8 +41,6 @@ updated: 2026-02-07
 
 - Market（HTTP + SSE）：`docs/core/api/v1/http_market.md`
 - Dev（HTTP / Worktree / Ports）：`docs/core/api/v1/http_dev.md`
-- Plot（HTTP）：`docs/core/api/v1/http_plot.md`
-- Overlay（HTTP）：`docs/core/api/v1/http_overlay.md`
 - Draw（HTTP）：`docs/core/api/v1/http_draw.md`
 - Factor（HTTP）：`docs/core/api/v1/http_factor.md`
 - Replay（HTTP）：`docs/core/api/v1/http_replay.md`

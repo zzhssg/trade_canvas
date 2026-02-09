@@ -171,6 +171,14 @@ export function PositionTool({
     };
   }, [chartRef, containerRef, scheduleUpdate]);
 
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver(() => scheduleUpdate());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [containerRef, scheduleUpdate]);
+
   const firstCandleTime = candleTimesSec[0];
   const lastCandleTime = candleTimesSec[candleTimesSec.length - 1];
   useEffect(() => {
@@ -536,4 +544,3 @@ export function PositionTool({
     </div>
   );
 }
-

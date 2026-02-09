@@ -2,7 +2,7 @@
 title: Factor Graph Contract v1（因子拓扑与调度）
 status: draft
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-09
 ---
 
 # Factor Graph Contract v1（因子拓扑与调度）
@@ -13,6 +13,7 @@ updated: 2026-02-02
 - 因子数据外壳与冷热语义：`docs/core/contracts/factor_v1.md`
 - 策略消费边界（fail-safe 对齐）：`docs/core/contracts/strategy_v1.md`
 - K 线主键/坐标：`docs/core/market-kline-sync.md`
+- 当前实现总览：`docs/core/factor-modular-architecture.md`
 
 ## 1. 名词
 
@@ -71,3 +72,15 @@ updated: 2026-02-02
 2) 确定性：同一份输入 `CandleClosed` 序列跑两次（新 DB），输出 `latest_ledger.candle_id` 与关键事件条数一致。
 3) 依赖一致性：下游（例如 `pen`）的输出必须引用上游（例如 `pivot`）在同一 `at_time` 的快照；若 `deps_snapshot` 缺失或 `at_time` 不一致，必须 fail-safe（拒绝出信号/拒绝写 delta）。
 
+## 5. 运行时绑定（2026-02）
+
+当前后端实现对应关系：
+- 注册中心：`backend/app/factor_registry.py`
+- 处理器集合：`backend/app/factor_processors.py`
+- DAG 构建：`backend/app/factor_graph.py`
+- 调度入口：`backend/app/factor_orchestrator.py`
+
+要求：
+- 因子拓扑必须由 registry 的 `specs()` 生成，不允许在 orchestrator 重复手写一份依赖图。
+- 新增 factor 时，`ProcessorSpec` 与 DAG 结果必须在测试中可验证（例如 topo_order 包含新增节点且顺序稳定）。
+- 与拓扑对应的读路径事件映射应集中声明（例如 `build_default_slice_bucket_specs()`），避免写路径新增后读路径漏接入。

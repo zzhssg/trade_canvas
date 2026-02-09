@@ -5,6 +5,7 @@
 ## 入口
 - 开发协作说明（agent）：`AGENTS.md`
 - Agent 工作流（入口 / 门禁 / 证据 / 验收 SOP）：`docs/core/agent-workflow.md`
+- Factor 模块化架构：`docs/core/factor-modular-architecture.md`
 - 市场 K 线同步：`docs/core/market-kline-sync.md`
 - backtest（freqtrade bridge）：`docs/core/backtest.md`
 - API 文档 v1（endpoints + 示例）：`docs/core/api/v1/README.md`

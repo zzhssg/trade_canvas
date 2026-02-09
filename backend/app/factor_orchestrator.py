@@ -6,23 +6,19 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from .anchor_semantics import should_append_switch
 from . import pen as pen_module
 from . import zhongshu as zhongshu_module
 from .debug_hub import DebugHub
 from .factor_graph import FactorGraph, FactorSpec
+from .factor_processors import AnchorProcessor, PenProcessor, PivotProcessor, ZhongshuProcessor, build_default_factor_processors
+from .factor_registry import FactorRegistry
 from .factor_slices import build_pen_head_candidate, build_pen_head_preview
 from .factor_store import FactorEventWrite, FactorStore
-from .pen import ConfirmedPen, PivotMajorPoint
+from .pen import PivotMajorPoint
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
-from .zhongshu import (
-    build_alive_zhongshu_from_confirmed_pens,
-    replay_zhongshu_state,
-    update_zhongshu_state,
-)
 
 
 def _truthy_flag(v: str | None) -> bool:
@@ -37,22 +33,6 @@ def _is_more_extreme(prev: PivotMajorPoint, cur: PivotMajorPoint) -> bool:
     if cur.direction == "resistance":
         return float(cur.pivot_price) > float(prev.pivot_price)
     return float(cur.pivot_price) < float(prev.pivot_price)
-
-
-def _pen_strength(pen: dict) -> float:
-    try:
-        return abs(float(pen.get("end_price") or 0.0) - float(pen.get("start_price") or 0.0))
-    except Exception:
-        return -1.0
-
-
-def _pen_ref_from_pen(pen: dict, *, kind: str) -> dict:
-    return {
-        "kind": kind,
-        "start_time": int(pen.get("start_time") or 0),
-        "end_time": int(pen.get("end_time") or 0),
-        "direction": int(pen.get("direction") or 0),
-    }
 
 
 def _rebuild_effective_pivots(pivots: list[dict]) -> list[PivotMajorPoint]:
@@ -86,144 +66,6 @@ def _rebuild_effective_pivots(pivots: list[dict]) -> list[PivotMajorPoint]:
     return effective
 
 
-def _append_pivot_and_confirm(effective: list[PivotMajorPoint], new_pivot: PivotMajorPoint) -> list[ConfirmedPen]:
-    if not effective:
-        effective.append(new_pivot)
-        return []
-
-    last = effective[-1]
-    if new_pivot.direction == last.direction:
-        if _is_more_extreme(last, new_pivot):
-            effective[-1] = new_pivot
-        return []
-
-    effective.append(new_pivot)
-    if len(effective) < 3:
-        return []
-
-    p0 = effective[-3]
-    p1 = effective[-2]
-    confirmer = effective[-1]
-    direction = 1 if float(p1.pivot_price) > float(p0.pivot_price) else -1
-    return [
-        ConfirmedPen(
-            start_time=int(p0.pivot_time),
-            end_time=int(p1.pivot_time),
-            start_price=float(p0.pivot_price),
-            end_price=float(p1.pivot_price),
-            direction=int(direction),
-            visible_time=int(confirmer.visible_time),
-            start_idx=p0.pivot_idx,
-            end_idx=p1.pivot_idx,
-        )
-    ]
-
-
-def _compute_major_candidates(
-    *,
-    candles: list[Any],
-    time_to_idx: dict[int, int],
-    pivot_time: int,
-    visible_time: int,
-    window: int,
-) -> list[PivotMajorPoint]:
-    idx = time_to_idx.get(int(pivot_time))
-    if idx is None:
-        return []
-    w = int(window)
-    if idx - w < 0 or idx + w >= len(candles):
-        return []
-    if int(candles[idx + w].candle_time) != int(visible_time):
-        return []
-
-    target_high = float(candles[idx].high)
-    is_max_left = all(float(candles[i].high) < target_high for i in range(idx - w, idx))
-    is_max_right = all(float(candles[i].high) <= target_high for i in range(idx + 1, idx + w + 1))
-
-    target_low = float(candles[idx].low)
-    is_min_left = all(float(candles[i].low) > target_low for i in range(idx - w, idx))
-    is_min_right = all(float(candles[i].low) >= target_low for i in range(idx + 1, idx + w + 1))
-
-    out: list[PivotMajorPoint] = []
-    if is_max_left and is_max_right:
-        out.append(
-            PivotMajorPoint(
-                pivot_time=int(pivot_time),
-                pivot_price=float(target_high),
-                direction="resistance",
-                visible_time=int(visible_time),
-                pivot_idx=int(idx),
-            )
-        )
-    if is_min_left and is_min_right:
-        out.append(
-            PivotMajorPoint(
-                pivot_time=int(pivot_time),
-                pivot_price=float(target_low),
-                direction="support",
-                visible_time=int(visible_time),
-                pivot_idx=int(idx),
-            )
-        )
-    return out
-
-
-def _compute_minor_candidates(
-    *,
-    candles: list[Any],
-    time_to_idx: dict[int, int],
-    pivot_time: int,
-    visible_time: int,
-    window: int,
-    segment_start_idx: int | None,
-) -> list[PivotMajorPoint]:
-    if segment_start_idx is None:
-        return []
-    idx = time_to_idx.get(int(pivot_time))
-    if idx is None:
-        return []
-    w = int(window)
-    if idx - w < 0 or idx + w >= len(candles):
-        return []
-    if idx - w < int(segment_start_idx):
-        return []
-    if int(candles[idx + w].candle_time) != int(visible_time):
-        return []
-
-    highs = [float(candles[i].high) for i in range(idx - w, idx + w + 1)]
-    lows = [float(candles[i].low) for i in range(idx - w, idx + w + 1)]
-    max_high = max(highs) if highs else None
-    min_low = min(lows) if lows else None
-    if max_high is None or min_low is None:
-        return []
-
-    center_high = float(candles[idx].high)
-    center_low = float(candles[idx].low)
-
-    out: list[PivotMajorPoint] = []
-    if center_high >= float(max_high):
-        out.append(
-            PivotMajorPoint(
-                pivot_time=int(pivot_time),
-                pivot_price=float(center_high),
-                direction="resistance",
-                visible_time=int(visible_time),
-                pivot_idx=int(idx),
-            )
-        )
-    if center_low <= float(min_low):
-        out.append(
-            PivotMajorPoint(
-                pivot_time=int(pivot_time),
-                pivot_price=float(center_low),
-                direction="support",
-                visible_time=int(visible_time),
-                pivot_idx=int(idx),
-            )
-        )
-    return out
-
-
 @dataclass(frozen=True)
 class FactorSettings:
     pivot_window_major: int = 50
@@ -254,14 +96,12 @@ class FactorOrchestrator:
         self._factor_store = factor_store
         self._settings = settings or FactorSettings()
         self._debug_hub: DebugHub | None = None
-        self._graph = FactorGraph(
-            [
-                FactorSpec("pivot", ()),
-                FactorSpec("pen", ("pivot",)),
-                FactorSpec("zhongshu", ("pen",)),
-                FactorSpec("anchor", ("pen", "zhongshu")),
-            ]
-        )
+        self._registry = FactorRegistry(build_default_factor_processors())
+        self._pivot_processor = cast(PivotProcessor, self._registry.require("pivot"))
+        self._pen_processor = cast(PenProcessor, self._registry.require("pen"))
+        self._zhongshu_processor = cast(ZhongshuProcessor, self._registry.require("zhongshu"))
+        self._anchor_processor = cast(AnchorProcessor, self._registry.require("anchor"))
+        self._graph = FactorGraph([FactorSpec(factor_name=s.factor_name, depends_on=s.depends_on) for s in self._registry.specs()])
 
     def set_debug_hub(self, hub: DebugHub | None) -> None:
         self._debug_hub = hub
@@ -280,6 +120,7 @@ class FactorOrchestrator:
     def _build_series_fingerprint(self, *, series_id: str, settings: FactorSettings) -> str:
         files = {
             "factor_orchestrator.py": self._file_sha256(Path(__file__)),
+            "factor_processors.py": self._file_sha256(Path(__file__).with_name("factor_processors.py")),
             "pen.py": self._file_sha256(Path(getattr(pen_module, "__file__", ""))),
             "zhongshu.py": self._file_sha256(Path(getattr(zhongshu_module, "__file__", ""))),
         }
@@ -444,7 +285,12 @@ class FactorOrchestrator:
 
         effective_pivots = _rebuild_effective_pivots(pivot_events)
         confirmed_pens: list[dict] = list(pen_events)
-        zhongshu_state = replay_zhongshu_state(confirmed_pens)
+        candles_up_to_head = [c for c in candles if int(c.candle_time) <= int(head_time)]
+        zhongshu_state = self._zhongshu_processor.build_state(
+            confirmed_pens=confirmed_pens,
+            candles_up_to_head=candles_up_to_head,
+            head_time=int(head_time),
+        )
 
         last_major_idx: int | None = None
         if effective_pivots:
@@ -454,49 +300,20 @@ class FactorOrchestrator:
             else:
                 last_major_idx = time_to_idx.get(int(last.pivot_time))
 
-        anchor_current_ref: dict | None = None
-        anchor_strength: float | None = None
-        if anchor_switches:
-            last_switch = anchor_switches[-1]
-            cur = last_switch.get("new_anchor")
-            if isinstance(cur, dict):
-                anchor_current_ref = cur
-                kind = str(cur.get("kind") or "")
-                if kind == "confirmed":
-                    match = next(
-                        (
-                            p
-                            for p in reversed(confirmed_pens)
-                            if int(p.get("start_time") or 0) == int(cur.get("start_time") or 0)
-                            and int(p.get("end_time") or 0) == int(cur.get("end_time") or 0)
-                            and int(p.get("direction") or 0) == int(cur.get("direction") or 0)
-                        ),
-                        None,
-                    )
-                    if match is not None:
-                        anchor_strength = _pen_strength(match)
-                elif kind == "candidate":
-                    switch_time = int(last_switch.get("switch_time") or 0)
-                    if switch_time > 0:
-                        pen_at_time = [p for p in confirmed_pens if int(p.get("visible_time") or 0) <= switch_time]
-                        last_pen = pen_at_time[-1] if pen_at_time else None
-                        candidate = build_pen_head_candidate(candles=candles, last_confirmed=last_pen, aligned_time=int(switch_time))
-                        if candidate is not None:
-                            anchor_strength = _pen_strength(candidate)
-
-        if anchor_current_ref is None and confirmed_pens:
-            last = confirmed_pens[-1]
-            anchor_current_ref = _pen_ref_from_pen(last, kind="confirmed")
-            anchor_strength = _pen_strength(last)
+        anchor_current_ref, anchor_strength = self._anchor_processor.restore_anchor_state(
+            anchor_switches=anchor_switches,
+            confirmed_pens=confirmed_pens,
+            candles=candles,
+        )
 
         events: list[FactorEventWrite] = []
-        _ = self._graph.topo_order
 
         for visible_time in process_times:
-            best_strong_pen_ref: dict[str, Any] | None = None
+            best_strong_pen_ref: dict[str, int | str] | None = None
             best_strong_pen_strength: float | None = None
+            baseline_anchor_strength = float(anchor_strength) if anchor_strength is not None else None
             pivot_time_major = int(visible_time) - int(s.pivot_window_major) * int(tf_s)
-            major_candidates = _compute_major_candidates(
+            major_candidates = self._pivot_processor.compute_major_candidates(
                 candles=candles,
                 time_to_idx=time_to_idx,
                 pivot_time=int(pivot_time_major),
@@ -506,111 +323,51 @@ class FactorOrchestrator:
             major_candidates.sort(key=lambda p: (int(p.pivot_time), str(p.direction)))
 
             for p in major_candidates:
-                key = f"major:{int(p.pivot_time)}:{str(p.direction)}:{int(s.pivot_window_major)}"
                 events.append(
-                    FactorEventWrite(
+                    self._pivot_processor.build_major_event(
                         series_id=series_id,
-                        factor_name="pivot",
-                        candle_time=int(p.visible_time),
-                        kind="pivot.major",
-                        event_key=key,
-                        payload={
-                            "pivot_time": int(p.pivot_time),
-                            "pivot_price": float(p.pivot_price),
-                            "direction": str(p.direction),
-                            "visible_time": int(p.visible_time),
-                            "window": int(s.pivot_window_major),
-                            "pivot_idx": int(p.pivot_idx) if p.pivot_idx is not None else None,
-                        },
+                        pivot=p,
+                        window=int(s.pivot_window_major),
                     )
                 )
 
                 last_major_idx = int(p.pivot_idx) if p.pivot_idx is not None else last_major_idx
 
-                confirmed = _append_pivot_and_confirm(effective_pivots, p)
+                confirmed = self._pen_processor.append_pivot_and_confirm(effective_pivots, p)
                 for pen in confirmed:
-                    key_pen = f"confirmed:{int(pen.start_time)}:{int(pen.end_time)}:{int(pen.direction)}"
-                    pen_payload = {
-                        "start_time": int(pen.start_time),
-                        "end_time": int(pen.end_time),
-                        "start_price": float(pen.start_price),
-                        "end_price": float(pen.end_price),
-                        "direction": int(pen.direction),
-                        "visible_time": int(pen.visible_time),
-                        "start_idx": pen.start_idx,
-                        "end_idx": pen.end_idx,
-                    }
-                    events.append(
-                        FactorEventWrite(
-                            series_id=series_id,
-                            factor_name="pen",
-                            candle_time=int(pen.visible_time),
-                            kind="pen.confirmed",
-                            event_key=key_pen,
-                            payload=pen_payload,
-                        )
-                    )
+                    pen_event = self._pen_processor.build_confirmed_event(series_id=series_id, pen=pen)
+                    pen_payload = dict(pen_event.payload)
+                    events.append(pen_event)
                     confirmed_pens.append(pen_payload)
 
-                    dead_event, formed_entry = update_zhongshu_state(zhongshu_state, pen_payload)
+                    dead_event, formed_entry = self._zhongshu_processor.update_state_from_pen(
+                        state=zhongshu_state,
+                        series_id=series_id,
+                        pen_payload=pen_payload,
+                    )
                     if dead_event is not None:
-                        key_dead = (
-                            f"dead:{int(dead_event.start_time)}:{int(dead_event.formed_time)}:{int(dead_event.death_time)}:"
-                            f"{float(dead_event.zg):.8f}:{float(dead_event.zd):.8f}"
-                        )
-                        events.append(
-                            FactorEventWrite(
-                                series_id=series_id,
-                                factor_name="zhongshu",
-                                candle_time=int(dead_event.visible_time),
-                                kind="zhongshu.dead",
-                                event_key=key_dead,
-                                payload={
-                                    "start_time": int(dead_event.start_time),
-                                    "end_time": int(dead_event.end_time),
-                                    "zg": float(dead_event.zg),
-                                    "zd": float(dead_event.zd),
-                                    "entry_direction": int(dead_event.entry_direction),
-                                    "formed_time": int(dead_event.formed_time),
-                                    "death_time": int(dead_event.death_time),
-                                    "visible_time": int(dead_event.visible_time),
-                                },
-                            )
-                        )
+                        events.append(dead_event)
 
                     if formed_entry is not None:
-                        new_ref = _pen_ref_from_pen(formed_entry, kind="confirmed")
-                        if should_append_switch(old_anchor=anchor_current_ref, new_anchor=new_ref):
-                            key_switch = (
-                                f"zhongshu_entry:{int(visible_time)}:{new_ref['start_time']}:{new_ref['end_time']}:{new_ref['direction']}"
-                            )
-                            events.append(
-                                FactorEventWrite(
-                                    series_id=series_id,
-                                    factor_name="anchor",
-                                    candle_time=int(visible_time),
-                                    kind="anchor.switch",
-                                    event_key=key_switch,
-                                    payload={
-                                        "switch_time": int(visible_time),
-                                        "reason": "zhongshu_entry",
-                                        "old_anchor": dict(anchor_current_ref) if isinstance(anchor_current_ref, dict) else None,
-                                        "new_anchor": dict(new_ref),
-                                        "visible_time": int(visible_time),
-                                    },
-                                )
-                            )
-                        anchor_current_ref = new_ref
-                        anchor_strength = _pen_strength(formed_entry)
+                        switch_event, anchor_current_ref, anchor_strength = self._anchor_processor.apply_zhongshu_entry_switch(
+                            series_id=series_id,
+                            formed_entry=formed_entry,
+                            switch_time=int(visible_time),
+                            old_anchor=anchor_current_ref,
+                        )
+                        if switch_event is not None:
+                            events.append(switch_event)
 
                     # strong_pen candidate on confirmed pen (defer event emission until this visible_time is fully processed).
-                    strength = _pen_strength(pen_payload)
-                    if anchor_strength is None or strength > float(anchor_strength or -1.0):
-                        if best_strong_pen_strength is None or strength > float(best_strong_pen_strength):
-                            best_strong_pen_ref = _pen_ref_from_pen(pen_payload, kind="confirmed")
-                            best_strong_pen_strength = float(strength)
+                    best_strong_pen_ref, best_strong_pen_strength = self._anchor_processor.maybe_pick_stronger_pen(
+                        candidate_pen=pen_payload,
+                        kind="confirmed",
+                        baseline_anchor_strength=baseline_anchor_strength,
+                        current_best_ref=best_strong_pen_ref,
+                        current_best_strength=best_strong_pen_strength,
+                    )
             pivot_time_minor = int(visible_time) - int(s.pivot_window_minor) * int(tf_s)
-            minor_candidates = _compute_minor_candidates(
+            minor_candidates = self._pivot_processor.compute_minor_candidates(
                 candles=candles,
                 time_to_idx=time_to_idx,
                 pivot_time=int(pivot_time_minor),
@@ -620,60 +377,55 @@ class FactorOrchestrator:
             )
             minor_candidates.sort(key=lambda p: (int(p.pivot_time), str(p.direction)))
             for m in minor_candidates:
-                key = f"minor:{int(m.pivot_time)}:{str(m.direction)}:{int(s.pivot_window_minor)}"
                 events.append(
-                    FactorEventWrite(
+                    self._pivot_processor.build_minor_event(
                         series_id=series_id,
-                        factor_name="pivot",
-                        candle_time=int(m.visible_time),
-                        kind="pivot.minor",
-                        event_key=key,
-                        payload={
-                            "pivot_time": int(m.pivot_time),
-                            "pivot_price": float(m.pivot_price),
-                            "direction": str(m.direction),
-                            "visible_time": int(m.visible_time),
-                            "window": int(s.pivot_window_minor),
-                            "pivot_idx": int(m.pivot_idx) if m.pivot_idx is not None else None,
-                        },
+                        pivot=m,
+                        window=int(s.pivot_window_minor),
                     )
                 )
+
+            idx_now = time_to_idx.get(int(visible_time))
+            if idx_now is not None:
+                c = candles[int(idx_now)]
+                formed_entry_on_candle = self._zhongshu_processor.update_state_from_closed_candle(
+                    state=zhongshu_state,
+                    candle_time=int(c.candle_time),
+                    high=float(c.high),
+                    low=float(c.low),
+                )
+                if formed_entry_on_candle is not None:
+                    switch_event, anchor_current_ref, anchor_strength = self._anchor_processor.apply_zhongshu_entry_switch(
+                        series_id=series_id,
+                        formed_entry=formed_entry_on_candle,
+                        switch_time=int(visible_time),
+                        old_anchor=anchor_current_ref,
+                    )
+                    if switch_event is not None:
+                        events.append(switch_event)
 
             # strong_pen candidate on candidate pen (head), merged with confirmed candidates by max strength.
             last_pen = confirmed_pens[-1] if confirmed_pens else None
             candidate = build_pen_head_candidate(candles=candles, last_confirmed=last_pen, aligned_time=int(visible_time))
             if candidate is not None:
-                strength = _pen_strength(candidate)
-                if anchor_strength is None or strength > float(anchor_strength or -1.0):
-                    if best_strong_pen_strength is None or strength > float(best_strong_pen_strength):
-                        best_strong_pen_ref = _pen_ref_from_pen(candidate, kind="candidate")
-                        best_strong_pen_strength = float(strength)
+                best_strong_pen_ref, best_strong_pen_strength = self._anchor_processor.maybe_pick_stronger_pen(
+                    candidate_pen=candidate,
+                    kind="candidate",
+                    baseline_anchor_strength=baseline_anchor_strength,
+                    current_best_ref=best_strong_pen_ref,
+                    current_best_strength=best_strong_pen_strength,
+                )
 
             if best_strong_pen_ref is not None and best_strong_pen_strength is not None:
-                if should_append_switch(old_anchor=anchor_current_ref, new_anchor=best_strong_pen_ref):
-                    key_switch = (
-                        f"strong_pen:{int(visible_time)}:{best_strong_pen_ref['kind']}:"
-                        f"{best_strong_pen_ref['start_time']}:{best_strong_pen_ref['end_time']}:"
-                        f"{best_strong_pen_ref['direction']}"
-                    )
-                    events.append(
-                        FactorEventWrite(
-                            series_id=series_id,
-                            factor_name="anchor",
-                            candle_time=int(visible_time),
-                            kind="anchor.switch",
-                            event_key=key_switch,
-                            payload={
-                                "switch_time": int(visible_time),
-                                "reason": "strong_pen",
-                                "old_anchor": dict(anchor_current_ref) if isinstance(anchor_current_ref, dict) else None,
-                                "new_anchor": dict(best_strong_pen_ref),
-                                "visible_time": int(visible_time),
-                            },
-                        )
-                    )
-                anchor_current_ref = best_strong_pen_ref
-                anchor_strength = float(best_strong_pen_strength)
+                switch_event, anchor_current_ref, anchor_strength = self._anchor_processor.apply_strong_pen_switch(
+                    series_id=series_id,
+                    switch_time=int(visible_time),
+                    old_anchor=anchor_current_ref,
+                    new_anchor=best_strong_pen_ref,
+                    new_anchor_strength=float(best_strong_pen_strength),
+                )
+                if switch_event is not None:
+                    events.append(switch_event)
 
         # Head snapshots (append-only via seq).
         pen_head: dict[str, Any] = {}
@@ -693,22 +445,12 @@ class FactorOrchestrator:
                 if isinstance(v, dict):
                     pen_head[key] = v
 
-        zhongshu_head: dict[str, Any] = {}
-        if confirmed_pens:
-            alive = build_alive_zhongshu_from_confirmed_pens(confirmed_pens, up_to_visible_time=int(up_to))
-            if alive is not None and int(alive.visible_time) == int(up_to):
-                zhongshu_head["alive"] = [
-                    {
-                        "start_time": int(alive.start_time),
-                        "end_time": int(alive.end_time),
-                        "zg": float(alive.zg),
-                        "zd": float(alive.zd),
-                        "entry_direction": int(alive.entry_direction),
-                        "formed_time": int(alive.formed_time),
-                        "death_time": None,
-                        "visible_time": int(alive.visible_time),
-                    }
-                ]
+        zhongshu_head = self._zhongshu_processor.build_alive_head(
+            state=zhongshu_state,
+            confirmed_pens=confirmed_pens,
+            up_to_visible_time=int(up_to),
+            candles=candles,
+        )
 
         anchor_head: dict[str, Any] = {}
         if confirmed_pens or anchor_current_ref is not None:

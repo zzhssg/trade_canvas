@@ -257,20 +257,7 @@ message 聚焦“为什么/意图”，细节放 body（可选）。
 
 ## 默认工作流（严格门禁）
 
-### 路由层（意图 → 角色 → 必要产出）
-
-当用户没有显式点名 skill/角色时，先做“意图路由”，避免局部最优拖慢全局：
-
-- **规划型任务（要做取舍/定边界/定契约）**：
-  - 必须产出：`目标 + 非目标 + 风险 + 回滚 + 2–3 个方案对比`
-  - 必须产出：`1 条主 E2E 用户故事 + 验收口径 + 反例 + 最小数据样例`
-  - 典型触发：`tc-planning` → `tc-e2e-gate`
-- **执行型任务（按既定边界做最小实现）**：
-  - 必须产出：`文件级变更清单 + 怎么验收 + 怎么回滚`
-  - 必须产出：`最小闭环代码 + 必要测试/门禁 + 证据（命令/输出/产物）`
-  - 典型触发：按风险分级走快通道/标准三阶段；跨模块则用 `tc-e2e-gate`
-- **复盘（用户说“复盘”时）**：
-  - 触发：`tc-fupan`（强制 3 个主题输出 + 文档沉淀建议）
+详细路由流程图与两档循环（Fast loop / Delivery loop）见 `docs/core/agent-workflow.md`。
 
 ### Definition of Done（严格）
 
@@ -294,16 +281,14 @@ message 聚焦“为什么/意图”，细节放 body（可选）。
 
 ### 场景 → skills（默认触发）
 
-下面场景默认必须启用对应 skills（除非用户明确说“不用/先不跑”）：
+常用 skills 见文件顶部速查表。完整场景映射见 `docs/core/skills.md`。
 
-- **跨模块/行为变更/新增能力**：`tc-planning` → `tc-e2e-gate` →（交付）`tc-agent-browser`
-- **新增/重构“领域能力”但缺少对应 skill**（例如 factor2/回放/replay）：先 `tc-planning` 写清契约/不变量/验收 → 用 `tc-skill-authoring` 创建对应 project-local skill（禁止私自丑实现）。
-- **调试/回归/不稳定**：先 `tc-debug`；若跨模块/多假设/不稳定，再升级 `systematic-debugging`
-- **需要跑真实浏览器流程**：`tc-agent-browser`
-- **市场 K 线链路（HTTP/WS/ingest/落库）**：`tc-market-kline-fastpath-v2`
-- **新增/修改本项目 skills**：`tc-skill-authoring`
-- **前端体验/交互设计**：`ui-ux-pro-max` 或 `frontend-design`
-- **图表（TradingView lightweight-charts）**：`lightweight-charts`
+核心规则：
+
+- **显式点名**或**任务匹配** skill 描述时，该 skill 本轮必须触发
+- 跨模块/行为变更：`tc-planning` → `tc-e2e-gate`
+- 调试/回归：`tc-debug`（跨模块升级 `systematic-debugging`）
+- 市场 K 线链路：`tc-market-kline-fastpath-v2`
 
 ### 多 Agent 并行开发边界（Worktree + 目录所有权）
 
@@ -342,22 +327,13 @@ message 聚焦“为什么/意图”，细节放 body（可选）。
 
 ## Skills（触发与使用规则）
 
-### 什么是 skill
+skill 是一份本地流程约定，存放在 `.codex/skills/<skill-name>/SKILL.md`。安装方式见 `docs/core/skills.md`。
 
-skill 是一份本地流程约定，存放在 `SKILL.md` 中（通常在 `.codex/skills/<skill-name>/SKILL.md`）。被“触发”后，agent 必须按该 `SKILL.md` 的流程推进（包括需要跑的命令/验收/证据）。
+触发规则：
 
-> 说明：Codex 默认从 `$CODEX_HOME/skills/` 加载。若要让 Codex “可发现”本项目的 `.codex/skills/`，请按 `docs/core/skills.md` 执行安装脚本（例如 `bash scripts/install_project_skills.sh`）。
+- **显式点名**：用户写 skill 名称（例如 `tc-debug`），本轮必须触发
+- **任务匹配**：请求明显匹配某个 skill 描述时，本轮必须触发
+- **多技能**：选"最小覆盖集合"，说明使用顺序
+- **不跨回合继承**：除非用户再次提到
 
-### Trigger rules（何时必须触发）
-
-- **显式点名**：用户在对话中用 `$SkillName` 或直接写 skill 名称（例如 `tc-debug`），该 skill 本轮必须触发。
-- **任务匹配**：用户未点名，但请求明显匹配某个 skill 的 description（例如 E2E/验收/浏览器自动化/调试/规划等），该 skill 本轮必须触发。
-- **多技能**：若多个 skill 同时匹配，选择“最小覆盖集合”，并说明使用顺序。
-- **不跨回合继承**：除非用户在新一轮再次提到，否则不要沿用上一轮触发的 skills。
-- **缺失/不可读**：若点名的 skill 不存在/路径不可读，需要明确说明，并用最接近的流程 fallback 继续。
-
-### How to use（渐进式加载）
-
-1) 决定要用某个 skill 后，先打开对应 `SKILL.md`，只读到足以执行当前请求为止。  
-2) 若 `SKILL.md` 指向 `assets/`、`references/`、`scripts/`，优先用现成脚本/模板，避免重复造轮子。  
-3) 尽量“少猜选择器/少猜接口”：用可观测证据（命令输出、trace、截图、日志、断言）推进。
+使用方式：先打开 `SKILL.md`，只读到足以执行当前请求为止；优先用现成脚本/模板。

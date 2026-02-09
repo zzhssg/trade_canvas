@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -30,6 +32,7 @@ class FactorSlicesApiTests(unittest.TestCase):
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
+            "TRADE_CANVAS_FACTOR_LOGIC_VERSION",
         ):
             os.environ.pop(k, None)
 
@@ -74,6 +77,50 @@ class FactorSlicesApiTests(unittest.TestCase):
         self.assertEqual(snap["meta"]["factor_name"], "pivot")
         majors = snap["history"]["major"]
         self.assertTrue(any(m.get("pivot_time") == 180 and m.get("direction") == "resistance" for m in majors))
+
+    def test_factor_slices_read_path_rebuilds_when_fingerprint_mismatched(self) -> None:
+        base = 60
+        prices = [1, 2, 3, 4, 5, 6]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO factor_events(series_id, factor_name, candle_time, kind, event_key, payload_json, created_at_ms)
+                VALUES (?, 'zhongshu', ?, 'zhongshu.dead', ?, ?, 0)
+                """,
+                (
+                    self.series_id,
+                    int(times[-1]),
+                    "test:stale-zhongshu",
+                    json.dumps(
+                        {
+                            "start_time": 60,
+                            "end_time": 120,
+                            "zg": 5.0,
+                            "zd": 4.0,
+                            "entry_direction": 1,
+                            "formed_time": 180,
+                            "death_time": 240,
+                            "visible_time": int(times[-1]),
+                        },
+                        ensure_ascii=False,
+                    ),
+                ),
+            )
+            conn.commit()
+
+        before = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
+        self.assertEqual(before.status_code, 200, before.text)
+        self.assertIn("zhongshu", before.json()["factors"])
+
+        os.environ["TRADE_CANVAS_FACTOR_LOGIC_VERSION"] = "force-rebuild-for-read-path"
+        after = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
+        self.assertEqual(after.status_code, 200, after.text)
+        self.assertNotIn("zhongshu", after.json()["factors"])
+        os.environ.pop("TRADE_CANVAS_FACTOR_LOGIC_VERSION", None)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 title: Replay Frame Contract v1（回放帧：因子切片 + 绘图指令）
 status: draft
 created: 2026-02-02
-updated: 2026-02-07
+updated: 2026-02-09
 ---
 
 # Replay Frame Contract v1（回放帧：因子切片 + 绘图指令）
@@ -115,9 +115,8 @@ type ReplayFrameV1 = {
 }
 ```
 
-实现备注（2026-02-07）：
-- 当前后端对外读口是 `WorldStateV1`（`GET /api/frame/live` 与 `GET /api/frame/at_time`），其中字段名为 `draw_state`。
-- 语义上 `draw_state` 即 replay frame 所需的 draw 侧对齐视图；后续若单独暴露 `ReplayFrameV1`，可保持字段语义等价并做命名收敛。
+实现备注（2026-02-09）：
+- 当前后端对外读口是 `WorldStateV1`（`GET /api/frame/live` 与 `GET /api/frame/at_time`），字段名已统一为 `draw_delta`。
 
 ---
 

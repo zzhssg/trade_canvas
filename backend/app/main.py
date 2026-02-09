@@ -87,19 +87,24 @@ from .replay_package_protocol_v1 import (
 from .replay_package_service_v1 import ReplayPackageServiceV1
 from .overlay_package_service_v1 import OverlayReplayPackageServiceV1
 from .market_backfill import backfill_market_gap_best_effort
+from .market_data import (
+    CatchupReadRequest,
+    DefaultMarketDataOrchestrator,
+    HubWsDeliveryService,
+    StoreBackfillService,
+    StoreCandleReadService,
+    StoreFreshnessService,
+    WsSubscriptionCoordinator,
+    WsCatchupRequest,
+    WsEmitRequest,
+    build_derived_initial_backfill_handler,
+    build_gap_backfill_handler,
+)
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 from .whitelist import load_market_whitelist
 from .ws_hub import CandleHub
 from .worktree_manager import WorktreeManager
-from .series_id import parse_series_id
-from .derived_timeframes import (
-    derived_base_timeframe,
-    derived_enabled,
-    is_derived_series_id,
-    rollup_closed_candles,
-    to_base_series_id,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -199,32 +204,27 @@ def create_app() -> FastAPI:
     factor_orchestrator.set_debug_hub(debug_hub)
     overlay_orchestrator.set_debug_hub(debug_hub)
     hub = CandleHub()
-
-    async def gap_backfill_handler(series_id: str, expected_next_time: int, actual_time: int):
-        if os.environ.get("TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL") != "1":
-            return []
-        filled = await run_blocking(
-            backfill_market_gap_best_effort,
-            store=store,
-            series_id=series_id,
-            expected_next_time=int(expected_next_time),
-            actual_time=int(actual_time),
+    reader_service = StoreCandleReadService(store=store)
+    backfill_service = StoreBackfillService(
+        store=store,
+        gap_backfill_fn=lambda **kwargs: backfill_market_gap_best_effort(**kwargs),
+    )
+    hub.set_gap_backfill_handler(
+        build_gap_backfill_handler(
+            reader=reader_service,
+            backfill=backfill_service,
         )
-        if int(filled) <= 0:
-            return []
-        tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
-        end_time = int(actual_time) - int(tf_s)
-        if end_time < int(expected_next_time):
-            return []
-        return await run_blocking(
-            store.get_closed_between_times,
-            series_id,
-            start_time=int(expected_next_time),
-            end_time=int(end_time),
-            limit=5000,
-        )
-
-    hub.set_gap_backfill_handler(gap_backfill_handler)
+    )
+    derived_initial_backfill = build_derived_initial_backfill_handler(
+        store=store,
+        factor_orchestrator=factor_orchestrator,
+        overlay_orchestrator=overlay_orchestrator,
+    )
+    market_data = DefaultMarketDataOrchestrator(
+        reader=reader_service,
+        freshness=StoreFreshnessService(store=store),
+        ws_delivery=HubWsDeliveryService(hub=hub),
+    )
     whitelist = load_market_whitelist(settings.whitelist_path)
     market_list = BinanceMarketListService()
     force_limiter = MinIntervalLimiter(min_interval_s=2.0)
@@ -246,6 +246,11 @@ def create_app() -> FastAPI:
         whitelist_series_ids=whitelist.series_ids,
         ondemand_idle_ttl_s=idle_ttl_s,
         whitelist_ingest_enabled=whitelist_ingest_enabled,
+    )
+    ws_subscriptions = WsSubscriptionCoordinator(
+        hub=hub,
+        ondemand_subscribe=supervisor.subscribe,
+        ondemand_unsubscribe=supervisor.unsubscribe,
     )
 
     @asynccontextmanager
@@ -277,6 +282,7 @@ def create_app() -> FastAPI:
 
     app.state.store = store
     app.state.hub = hub
+    app.state.market_data = market_data
     app.state.factor_store = factor_store
     app.state.factor_orchestrator = factor_orchestrator
     app.state.factor_slices_service = factor_slices_service
@@ -294,14 +300,26 @@ def create_app() -> FastAPI:
     worktree_manager = WorktreeManager(repo_root=project_root)
     app.state.worktree_manager = worktree_manager
 
+    def ensure_factor_fresh_for_read(*, series_id: str, up_to_time: int | None) -> bool:
+        if up_to_time is None:
+            return False
+        to_time = int(up_to_time)
+        if to_time <= 0:
+            return False
+        result = app.state.factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=to_time)
+        return bool(getattr(result, "rebuilt", False))
+
     @app.get("/api/market/candles", response_model=GetCandlesResponse)
     def get_market_candles(
         series_id: str = Query(..., min_length=1),
         since: SinceQuery = None,
         limit: LimitQuery = 500,
     ) -> GetCandlesResponse:
-        candles = store.get_closed(series_id, since=since, limit=limit)
-        head_time = store.head_time(series_id)
+        read_result = app.state.market_data.read_candles(
+            CatchupReadRequest(series_id=series_id, since=since, limit=limit)
+        )
+        candles = read_result.candles
+        head_time = app.state.market_data.freshness(series_id=series_id).head_time
         if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1" and candles:
             last_time = int(candles[-1].candle_time)
             app.state.debug_hub.emit(
@@ -459,7 +477,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
             to_time = int(aligned)
         else:
-            to_time = overlay_head if overlay_head is not None else store_head
+            # Live path should default to the latest closed candle.
+            # Overlay lag is healed below (cursor=0 path) by deterministic rebuild checks.
+            to_time = store_head if store_head is not None else overlay_head
         to_candle_id = f"{series_id}:{to_time}" if to_time is not None else None
 
         if to_time is None:
@@ -473,12 +493,17 @@ def create_app() -> FastAPI:
                 next_cursor=DrawCursorV1(version_id=int(cursor_version_id), point_time=None),
             )
 
+        if int(cursor_version_id) == 0:
+            _ = ensure_factor_fresh_for_read(series_id=series_id, up_to_time=int(to_time))
+
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         cutoff_time = max(0, int(to_time) - int(window_candles) * int(tf_s))
 
         latest_defs = app.state.overlay_store.get_latest_defs_up_to_time(series_id=series_id, up_to_time=int(to_time))
         if int(cursor_version_id) == 0:
             expected_start = 0
+            expected_has_zhongshu = False
+            expected_zhongshu_ids: set[str] = set()
             try:
                 slices = app.state.factor_slices_service.get_slices(
                     series_id=series_id,
@@ -490,9 +515,41 @@ def create_app() -> FastAPI:
                 current_ref = anchor_head.get("current_anchor_ref") if isinstance(anchor_head, dict) else None
                 if isinstance(current_ref, dict):
                     expected_start = int(current_ref.get("start_time") or 0)
+                zhongshu_snapshot = (slices.snapshots or {}).get("zhongshu")
+                if zhongshu_snapshot is not None:
+                    zhongshu_history = (zhongshu_snapshot.history or {}) if isinstance(zhongshu_snapshot.history, dict) else {}
+                    zhongshu_head = (zhongshu_snapshot.head or {}) if isinstance(zhongshu_snapshot.head, dict) else {}
+                    dead_items = zhongshu_history.get("dead")
+                    alive_items = zhongshu_head.get("alive")
+                    if isinstance(dead_items, list):
+                        for item in dead_items:
+                            if not isinstance(item, dict):
+                                continue
+                            try:
+                                start_time = int(item.get("start_time") or 0)
+                                end_time = int(item.get("end_time") or 0)
+                                zg = float(item.get("zg") or 0.0)
+                                zd = float(item.get("zd") or 0.0)
+                            except Exception:
+                                continue
+                            if start_time <= 0 or end_time <= 0:
+                                continue
+                            base_id = f"zhongshu.dead:{start_time}:{end_time}:{zg:.6f}:{zd:.6f}"
+                            expected_zhongshu_ids.add(f"{base_id}:top")
+                            expected_zhongshu_ids.add(f"{base_id}:bottom")
+                    if isinstance(alive_items, list) and alive_items:
+                        expected_zhongshu_ids.add("zhongshu.alive:top")
+                        expected_zhongshu_ids.add("zhongshu.alive:bottom")
+                    expected_has_zhongshu = bool(
+                        (isinstance(dead_items, list) and len(dead_items) > 0)
+                        or (isinstance(alive_items, list) and len(alive_items) > 0)
+                    )
             except Exception:
                 expected_start = 0
+                expected_has_zhongshu = False
+                expected_zhongshu_ids = set()
 
+            should_rebuild_overlay = False
             if expected_start > 0:
                 current_def = next((d for d in latest_defs if d.kind == "polyline" and d.instruction_id == "anchor.current"), None)
                 rendered_start = 0
@@ -506,11 +563,21 @@ def create_app() -> FastAPI:
                             except Exception:
                                 rendered_start = 0
                 if int(rendered_start) != int(expected_start):
-                    app.state.overlay_orchestrator.reset_series(series_id=series_id)
-                    app.state.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time))
-                    latest_defs = app.state.overlay_store.get_latest_defs_up_to_time(
-                        series_id=series_id, up_to_time=int(to_time)
-                    )
+                    should_rebuild_overlay = True
+
+            rendered_has_zhongshu = any(str(d.instruction_id).startswith("zhongshu.") for d in latest_defs)
+            if bool(rendered_has_zhongshu) != bool(expected_has_zhongshu):
+                should_rebuild_overlay = True
+            rendered_zhongshu_ids = {str(d.instruction_id) for d in latest_defs if str(d.instruction_id).startswith("zhongshu.")}
+            if rendered_zhongshu_ids != expected_zhongshu_ids:
+                should_rebuild_overlay = True
+
+            if should_rebuild_overlay:
+                app.state.overlay_orchestrator.reset_series(series_id=series_id)
+                app.state.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time))
+                latest_defs = app.state.overlay_store.get_latest_defs_up_to_time(
+                    series_id=series_id, up_to_time=int(to_time)
+                )
         active_ids: list[str] = []
         for d in latest_defs:
             if d.kind == "marker":
@@ -591,15 +658,12 @@ def create_app() -> FastAPI:
         window_candles: LimitQuery = 2000,
     ) -> GetFactorSlicesResponseV1:
         """
-        v0 debug endpoint to inspect which factor snapshots are available at time t.
-
-        Note: v0 supports:
-        - pivot: history.major from factor events, head.minor computed on the fly
-        - pen: history.confirmed from factor events
+        Read-side factor slices at aligned time t.
+        Returns history/head snapshots produced by the current modular factor pipeline.
         """
-        return app.state.factor_slices_service.get_slices(
-            series_id=series_id, at_time=int(at_time), window_candles=int(window_candles)
-        )
+        aligned = store.floor_time(series_id, at_time=int(at_time))
+        _ = ensure_factor_fresh_for_read(series_id=series_id, up_to_time=aligned)
+        return app.state.factor_slices_service.get_slices(series_id=series_id, at_time=int(at_time), window_candles=int(window_candles))
 
     @app.post("/api/replay/prepare", response_model=ReplayPrepareResponseV1)
     def prepare_replay(req: ReplayPrepareRequestV1) -> ReplayPrepareResponseV1:
@@ -624,10 +688,16 @@ def create_app() -> FastAPI:
         factor_head = app.state.factor_store.head_time(series_id)
         overlay_head = app.state.overlay_store.head_time(series_id)
 
+        factor_rebuilt = False
         if factor_head is None or int(factor_head) < int(aligned):
-            app.state.factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
+            factor_result = app.state.factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
+            factor_rebuilt = bool(getattr(factor_result, "rebuilt", False))
             factor_head = app.state.factor_store.head_time(series_id)
             computed = True
+
+        if factor_rebuilt:
+            app.state.overlay_orchestrator.reset_series(series_id=series_id)
+            overlay_head = None
 
         if overlay_head is None or int(overlay_head) < int(aligned):
             app.state.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
@@ -1320,7 +1390,6 @@ def create_app() -> FastAPI:
     @app.websocket("/ws/market")
     async def ws_market(ws: WebSocket) -> None:
         await ws.accept()
-        subscribed_series: list[str] = []
         try:
             while True:
                 msg = await ws.receive_json()
@@ -1341,123 +1410,63 @@ def create_app() -> FastAPI:
                         )
                         continue
 
-                    if os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1":
-                        ok = await ws.app.state.ingest_supervisor.subscribe(series_id)
-                        if not ok:
-                            await ws.send_json(
-                                {
-                                    "type": "error",
-                                    "code": "capacity",
-                                    "message": "ondemand_ingest_capacity",
-                                    "series_id": series_id,
-                                }
-                            )
-                            continue
-
-                    # Best-effort backfill: if a derived series is requested and it has no local history yet,
-                    # derive a small tail window from the base 1m history so the chart can render immediately.
-                    if derived_enabled() and is_derived_series_id(series_id):
-                        try:
-                            if store.head_time(series_id) is None:
-                                base_series_id = to_base_series_id(series_id)
-                                limit_raw = (os.environ.get("TRADE_CANVAS_DERIVED_BACKFILL_BASE_CANDLES") or "").strip()
-                                try:
-                                    base_limit = max(100, int(limit_raw)) if limit_raw else 2000
-                                except ValueError:
-                                    base_limit = 2000
-
-                                def _backfill() -> None:
-                                    if store.head_time(series_id) is not None:
-                                        return
-                                    base_candles = store.get_closed(base_series_id, since=None, limit=int(base_limit))
-                                    if not base_candles:
-                                        return
-                                    derived_tf = parse_series_id(series_id).timeframe
-                                    derived_closed = rollup_closed_candles(
-                                        base_timeframe=derived_base_timeframe(),
-                                        derived_timeframe=derived_tf,
-                                        base_candles=base_candles,
-                                    )
-                                    if not derived_closed:
-                                        return
-                                    with store.connect() as conn:
-                                        store.upsert_many_closed_in_conn(conn, series_id, derived_closed)
-                                        conn.commit()
-                                    try:
-                                        ws.app.state.factor_orchestrator.ingest_closed(
-                                            series_id=series_id, up_to_candle_time=int(derived_closed[-1].candle_time)
-                                        )
-                                    except Exception:
-                                        pass
-                                    try:
-                                        ws.app.state.overlay_orchestrator.ingest_closed(
-                                            series_id=series_id, up_to_candle_time=int(derived_closed[-1].candle_time)
-                                        )
-                                    except Exception:
-                                        pass
-
-                                await run_blocking(_backfill)
-                        except Exception:
-                            pass
-
-                    await hub.subscribe(ws, series_id=series_id, since=since, supports_batch=bool(supports_batch))
-                    if series_id not in subscribed_series:
-                        subscribed_series.append(series_id)
-
-                    catchup = store.get_closed(series_id, since=since, limit=5000)
-                    effective_since = since
-                    if since is not None:
-                        current_last = await hub.get_last_sent(ws, series_id=series_id)
-                        if current_last is not None and int(current_last) > int(since):
-                            effective_since = int(current_last)
-                        if effective_since is not None and catchup:
-                            catchup = [c for c in catchup if int(c.candle_time) > int(effective_since)]
-                    catchup, gap_payload = await hub.heal_catchup_gap(
+                    await derived_initial_backfill(series_id=series_id)
+                    err_payload = await ws_subscriptions.subscribe(
+                        ws=ws,
                         series_id=series_id,
-                        effective_since=effective_since,
-                        catchup=catchup,
+                        since=since,
+                        supports_batch=bool(supports_batch),
+                        ondemand_enabled=os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1",
                     )
-                    if gap_payload is not None:
-                        await ws.send_json(gap_payload)
-                    if bool(supports_batch) and catchup:
-                        await ws.send_json(
-                            {
-                                "type": "candles_batch",
-                                "series_id": series_id,
-                                "candles": [c.model_dump() for c in catchup],
-                            }
+                    if err_payload is not None:
+                        await ws.send_json(err_payload)
+                        continue
+
+                    read_result = app.state.market_data.read_candles(
+                        CatchupReadRequest(series_id=series_id, since=since, limit=5000)
+                    )
+                    current_last = await hub.get_last_sent(ws, series_id=series_id)
+                    catchup_result = await app.state.market_data.build_ws_catchup(
+                        WsCatchupRequest(
+                            series_id=series_id,
+                            since=since,
+                            last_sent=current_last,
+                            limit=5000,
+                            candles=read_result.candles,
                         )
-                        await hub.set_last_sent(ws, series_id=series_id, candle_time=int(catchup[-1].candle_time))
-                    else:
-                        for candle in catchup:
-                            await ws.send_json(
-                                {"type": "candle_closed", "series_id": series_id, "candle": candle.model_dump()}
-                            )
-                            await hub.set_last_sent(ws, series_id=series_id, candle_time=candle.candle_time)
+                    )
+                    catchup = catchup_result.candles
+                    emit_result = app.state.market_data.build_ws_emit(
+                        WsEmitRequest(
+                            series_id=series_id,
+                            supports_batch=bool(supports_batch),
+                            catchup=catchup,
+                            gap_payload=catchup_result.gap_payload,
+                        )
+                    )
+                    for payload in emit_result.payloads:
+                        await ws.send_json(payload)
+                    if emit_result.last_sent_time is not None:
+                        await hub.set_last_sent(ws, series_id=series_id, candle_time=int(emit_result.last_sent_time))
 
                 elif msg_type == "unsubscribe":
                     series_id = msg.get("series_id")
                     if isinstance(series_id, str) and series_id:
-                        if os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1":
-                            await ws.app.state.ingest_supervisor.unsubscribe(series_id)
-                        await hub.unsubscribe(ws, series_id=series_id)
-                        subscribed_series = [s for s in subscribed_series if s != series_id]
+                        await ws_subscriptions.unsubscribe(
+                            ws=ws,
+                            series_id=series_id,
+                            ondemand_enabled=os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1",
+                        )
                 else:
                     await ws.send_json({"type": "error", "code": "bad_request", "message": "unknown message type"})
         except WebSocketDisconnect:
             pass
         finally:
             # Ensure that an abrupt disconnect releases ondemand ingest refcounts.
-            try:
-                hub_series = await hub.pop_ws(ws)
-            except Exception:
-                hub_series = []
-            for series_id in set(subscribed_series) | set(hub_series):
-                if os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1":
-                    try:
-                        await ws.app.state.ingest_supervisor.unsubscribe(series_id)
-                    except Exception:
-                        pass
+            await ws_subscriptions.cleanup_disconnect(
+                ws=ws,
+                ondemand_enabled=os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1",
+            )
             try:
                 await ws.close(code=1001)
             except Exception:

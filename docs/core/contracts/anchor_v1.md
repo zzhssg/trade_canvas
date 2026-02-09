@@ -2,7 +2,7 @@
 title: Anchor Contract v1（锚：current + historical anchors + switches）
 status: draft
 created: 2026-02-02
-updated: 2026-02-08
+updated: 2026-02-09
 ---
 
 # Anchor Contract v1（锚：current + historical anchors + switches）
@@ -125,6 +125,7 @@ v1 的目标不是“最强语义”，而是“可复现 + 可验收 + 可演�
 - 当出现一根新的可见 pen（confirmed 或 candidate），且其力度明显超过当前锚（阈值可参数化），产生 `AnchorSwitchV1`（reason=`strong_pen`）；
 - 或当检测到“新中枢形成”并满足策略口径时触发（reason=`zhongshu_entry`）。
 - 若新锚与旧锚 **start_time 相同**（仅末端极值更新），视为“锚更新”而非“换锚”，**不得追加 switch**。
+- 当同一 `visible_time` 同时出现 `zhongshu_entry` 与 `strong_pen` 候选时，`strong_pen` 的力度比较基线必须使用该时刻开始前的锚强度，避免“先切弱锚再被同刻强笔覆盖”的抖动。
 
 可见性：
 - `switch_time` 推荐直接使用触发该切换的 pen 的 `visible_time`（或等价确认时刻），避免未来函数。

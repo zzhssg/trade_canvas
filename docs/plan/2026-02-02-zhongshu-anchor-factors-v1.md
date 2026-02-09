@@ -1,9 +1,9 @@
 ---
 title: Zhongshu + Anchor factors v1（中枢与锚：同源、可复现、可回滚）
-status: draft
+status: done
 owner:
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-09
 ---
 
 ## 背景

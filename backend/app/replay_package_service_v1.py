@@ -652,13 +652,17 @@ class ReplayPackageServiceV1:
                         end_time=int(to_time or 0),
                     )
 
+                factor_rebuilt = False
                 if factor_orchestrator is not None:
                     try:
-                        factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time or 0))
+                        factor_result = factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time or 0))
+                        factor_rebuilt = bool(getattr(factor_result, "rebuilt", False))
                     except Exception:
                         pass
                 if overlay_orchestrator is not None:
                     try:
+                        if factor_rebuilt:
+                            overlay_orchestrator.reset_series(series_id=series_id)
                         overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time or 0))
                     except Exception:
                         pass
@@ -710,4 +714,3 @@ def _hash_short(payload: str) -> str:
 
     h = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return h[:24]
-

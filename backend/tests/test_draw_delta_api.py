@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -158,6 +159,32 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(res_late.status_code, 409, res_late.text)
         self.assertIn("ledger_out_of_sync", res_late.text)
 
+    def test_draw_delta_live_defaults_to_store_head_when_overlay_head_stale(self) -> None:
+        base = 60
+        prices = [1, 2, 5, 2, 1, 2, 5, 2, 1]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        # Warm once so overlay rows exist.
+        warm = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(warm.status_code, 200, warm.text)
+        self.assertEqual(int(warm.json()["to_candle_time"]), int(times[-1]))
+
+        # Simulate stale overlay head_time; live draw path should still return latest closed candle.
+        overlay_store = self.client.app.state.overlay_store
+        with overlay_store.connect() as conn:
+            conn.execute(
+                "UPDATE overlay_series_state SET head_time = ? WHERE series_id = ?",
+                (int(times[1]), self.series_id),
+            )
+            conn.commit()
+
+        res_live = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(res_live.status_code, 200, res_live.text)
+        payload_live = res_live.json()
+        self.assertEqual(int(payload_live["to_candle_time"]), int(times[-1]))
+
     def test_anchor_history_polyline_uses_blue_color(self) -> None:
         base = 60
         prices = [
@@ -273,6 +300,255 @@ class DrawDeltaApiTests(unittest.TestCase):
         repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
         self.assertEqual(repaired.status_code, 200, repaired.text)
         self.assertIn("anchor.current", repaired.json().get("active_ids") or [])
+
+    def test_draw_delta_rebuilds_overlay_when_zhongshu_presence_mismatched(self) -> None:
+        base = 60
+        prices = [
+            1,
+            2,
+            10,
+            2,
+            1,
+            2,
+            9,
+            2,
+            1,
+            2,
+            8,
+            2,
+            1,
+            20,
+            22,
+            20,
+            15,
+            20,
+            23,
+            20,
+            16,
+            20,
+            24,
+            20,
+            17,
+            20,
+            25,
+            20,
+            18,
+            20,
+        ]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        first = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(first.status_code, 200, first.text)
+        first_ids = first.json().get("active_ids") or []
+        self.assertTrue(any(str(i).startswith("zhongshu.") for i in first_ids), "expected zhongshu instructions before tampering")
+
+        factor_store = self.client.app.state.factor_store
+        with factor_store.connect() as conn:
+            factor_store.clear_series_in_conn(conn, series_id=self.series_id)
+            conn.commit()
+
+        os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "0"
+        try:
+            repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        finally:
+            os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "1"
+        self.assertEqual(repaired.status_code, 200, repaired.text)
+        repaired_ids = repaired.json().get("active_ids") or []
+        self.assertFalse(any(str(i).startswith("zhongshu.") for i in repaired_ids), "stale zhongshu instructions should be reset")
+
+        zhongshu_patch_defs: list[dict] = []
+        for item in repaired.json().get("instruction_catalog_patch") or []:
+            if not isinstance(item, dict):
+                continue
+            instruction_id = str(item.get("instruction_id") or "")
+            definition = item.get("definition")
+            if instruction_id.startswith("zhongshu.") and isinstance(definition, dict):
+                zhongshu_patch_defs.append(definition)
+        self.assertEqual(zhongshu_patch_defs, [])
+
+    def test_draw_delta_rebuilds_overlay_when_zhongshu_signature_mismatched(self) -> None:
+        base = 60
+        prices = [
+            1,
+            2,
+            10,
+            2,
+            1,
+            2,
+            9,
+            2,
+            1,
+            2,
+            8,
+            2,
+            1,
+            20,
+            22,
+            20,
+            15,
+            20,
+            23,
+            20,
+            16,
+            20,
+            24,
+            20,
+            17,
+            20,
+            25,
+            20,
+            18,
+            20,
+        ]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        first = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(first.status_code, 200, first.text)
+        first_ids = first.json().get("active_ids") or []
+        self.assertTrue(any(str(i).startswith("zhongshu.") for i in first_ids), "expected zhongshu instructions before tampering")
+
+        bogus_payload = {
+            "type": "polyline",
+            "feature": "zhongshu.dead",
+            "points": [{"time": 1, "value": 1.0}, {"time": 2, "value": 1.0}],
+            "color": "rgba(74,222,128,0.58)",
+            "lineWidth": 2,
+            "entryDirection": 1,
+        }
+        overlay_store = self.client.app.state.overlay_store
+        with overlay_store.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO overlay_instruction_versions(series_id, instruction_id, kind, visible_time, def_json, created_at_ms)
+                VALUES (?, ?, 'polyline', ?, ?, 0)
+                """,
+                (
+                    self.series_id,
+                    "zhongshu.dead:bogus:top",
+                    int(times[-1]),
+                    json.dumps(bogus_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                ),
+            )
+            conn.commit()
+
+        repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(repaired.status_code, 200, repaired.text)
+        repaired_ids = repaired.json().get("active_ids") or []
+        self.assertNotIn("zhongshu.dead:bogus:top", repaired_ids)
+
+    def test_draw_delta_infers_dead_entry_direction_when_payload_missing(self) -> None:
+        base = 60
+        prices = [
+            1,
+            2,
+            10,
+            2,
+            1,
+            2,
+            9,
+            2,
+            1,
+            2,
+            8,
+            2,
+            1,
+            20,
+            22,
+            20,
+            15,
+            20,
+            23,
+            20,
+            16,
+            20,
+            24,
+            20,
+            17,
+            20,
+            25,
+            20,
+            18,
+            20,
+        ]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        factor_store = self.client.app.state.factor_store
+        overlay_store = self.client.app.state.overlay_store
+
+        expected_by_start: dict[int, int] = {}
+        with factor_store.connect() as conn:
+            pen_rows = conn.execute(
+                "SELECT payload_json FROM factor_events WHERE series_id = ? AND factor_name = 'pen' AND kind = 'pen.confirmed'",
+                (self.series_id,),
+            ).fetchall()
+            for row in pen_rows:
+                try:
+                    payload = json.loads(row["payload_json"] or "{}")
+                except Exception:
+                    payload = {}
+                if not isinstance(payload, dict):
+                    continue
+                try:
+                    st = int(payload.get("start_time") or 0)
+                    d = int(payload.get("direction") or 0)
+                except Exception:
+                    continue
+                if st > 0 and d in {-1, 1}:
+                    expected_by_start[st] = d
+
+            dead_rows = conn.execute(
+                "SELECT id, payload_json FROM factor_events WHERE series_id = ? AND factor_name = 'zhongshu' AND kind = 'zhongshu.dead'",
+                (self.series_id,),
+            ).fetchall()
+            self.assertTrue(dead_rows, "expected zhongshu.dead rows for fallback test")
+            for row in dead_rows:
+                try:
+                    payload = json.loads(row["payload_json"] or "{}")
+                except Exception:
+                    payload = {}
+                if not isinstance(payload, dict):
+                    continue
+                payload.pop("entry_direction", None)
+                conn.execute(
+                    "UPDATE factor_events SET payload_json = ? WHERE id = ?",
+                    (json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True), int(row["id"])),
+                )
+            conn.commit()
+
+        with overlay_store.connect() as conn:
+            overlay_store.clear_series_in_conn(conn, series_id=self.series_id)
+            conn.commit()
+
+        repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(repaired.status_code, 200, repaired.text)
+
+        checked = 0
+        for item in repaired.json().get("instruction_catalog_patch") or []:
+            if not isinstance(item, dict):
+                continue
+            instruction_id = str(item.get("instruction_id") or "")
+            if not instruction_id.startswith("zhongshu.dead:"):
+                continue
+            parts = instruction_id.split(":")
+            self.assertGreaterEqual(len(parts), 6)
+            start_time = int(parts[1])
+            definition = item.get("definition")
+            if not isinstance(definition, dict):
+                continue
+            direction = int(definition.get("entryDirection") or 0)
+            expected = expected_by_start.get(start_time)
+            if expected is None:
+                continue
+            self.assertEqual(direction, expected)
+            checked += 1
+
+        self.assertGreater(checked, 0, "expected at least one zhongshu.dead instruction to validate direction fallback")
 
 
 if __name__ == "__main__":

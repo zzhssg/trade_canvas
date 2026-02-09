@@ -1,9 +1,9 @@
 ---
 title: Replay 回放引擎 v1（t 帧输出：因子切片 + 绘图指令；K 线最小化增删）
-status: 草稿
+status: deprecated
 owner:
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-09
 ---
 
 ## 背景

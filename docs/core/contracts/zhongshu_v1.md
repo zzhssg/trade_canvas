@@ -2,7 +2,7 @@
 title: Zhongshu Contract v1（中枢：dead + alive）
 status: draft
 created: 2026-02-02
-updated: 2026-02-08
+updated: 2026-02-09
 ---
 
 # Zhongshu Contract v1（中枢：dead + alive）
@@ -36,6 +36,7 @@ type ZhongshuV1 = {
 
   // 生命周期关键时刻（均为 unix seconds，且必须 <= 可见时刻）
   formed_time: number
+  formed_reason?: "pen_confirmed" | "price_cross"
   death_time?: number | null   // 仅 dead 中枢有；alive 为 null
 
   // 可见时刻（用于 history 切片过滤）
@@ -47,6 +48,10 @@ type ZhongshuV1 = {
 - `zd <= zg`，否则结构无效，必须丢弃/拒绝落盘。
 - `formed_time` 必须满足 `start_time <= formed_time <= visible_time`。
 - dead 中枢必须满足：`death_time != null` 且 `death_time == visible_time`（死亡在“确认可见”那根笔/那根收线时刻对外可见）。
+
+说明：
+- `formed_reason="pen_confirmed"`：按传统 4 笔确认时刻形成（P3 确认可见）。
+- `formed_reason="price_cross"`：在 P3 延伸期间，closed K 的 high/low 首次越过 `P1.end_price` 提前确认。
 
 ### 1.2 Slice 形状（外壳）
 
@@ -72,7 +77,7 @@ type ZhongshuSliceV1 = FactorSliceV1 & {
 
 ## 3) 最小算法口径（v1 推荐，确定性且保守）
 
-v1 使用“前向生长”的 4 笔语义（进入笔 + 构成三笔）：
+v1 使用“前向生长”的 4 笔语义（进入笔 + 构成三笔），并支持“提前确认”：
 
 - **形成窗口**：从最早可见 confirmed pen 开始，按时间前向扫描任意连续 4 笔 `P1,P2,P3,P4`。
   - `P1` 是进入笔；
@@ -81,11 +86,21 @@ v1 使用“前向生长”的 4 笔语义（进入笔 + 构成三笔）：
 - **中枢区间计算**：一旦形成，`zg/zd` 只由 `P2,P3,P4` 决定：
   - `zg = min(high(P2), high(P3), high(P4))`（高点中取最低）
   - `zd = max(low(P2), low(P3), low(P4))`（低点中取最高）
+- **确认时刻（formed_time）**：取以下两种触发里“更早且可见”的时刻：
+  1) `price_cross`：第三构成段（P3）延伸期间，closed K 的 high/low 首次越过 `P1.end_price`；
+  2) `pen_confirmed`：P3 成为 confirmed pen 的可见时刻（原口径兜底）。
+- **price_cross 默认判定**：
+  - 若 `P3` 为下行段：首次满足 `closed.low <= P1.end_price`；
+  - 若 `P3` 为上行段：首次满足 `closed.high >= P1.end_price`。
 - **存活推进**：中枢形成后 `zg/zd` 固定不变；后续笔仅推进 `end_time`，不允许“越走越窄”。
 - **死亡条件**（同侧脱离）：任意后续笔若整体落在中枢上方或下方即死亡：
   - `pen_high < zd`（整笔在下方）或 `pen_low > zg`（整笔在上方）。
   - 该笔对应 `death_time=visible_time=current_pen.visible_time`。
-- **下一中枢**：死亡后继续沿时间向前扫描，按同一规则寻找下一个“进入笔 + 三笔构成段”。
+- **死亡后重置起点（reseed）**：死亡事件发生后，把“死亡前一笔”记为 `p0`，把“导致死亡的笔”记为 `p1`。后续新中枢构建时：
+  - 只允许使用 `start_time >= p0.start_time` 的笔参与扫描；
+  - 不允许回退使用 `p0` 之前的笔作为进入笔（防止语义回看）；
+  - 若从 `p0` 起的第一组窗口未满足“进入笔 + 后续三笔重叠”，则继续向后滑动，直到首次满足再确认。
+- **下一中枢**：在 reseed 约束下继续沿时间向前扫描，按同一规则寻找下一个“进入笔 + 三笔构成段”。
 
 说明：
 - 该口径满足“从前往后生长”，并保持 replay/live 一致（仅依赖 confirmed pens 的 `visible_time` 顺序）。

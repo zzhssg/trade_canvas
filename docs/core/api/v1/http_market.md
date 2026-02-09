@@ -2,7 +2,7 @@
 title: API v1 · Market（HTTP + SSE）
 status: draft
 created: 2026-02-03
-updated: 2026-02-03
+updated: 2026-02-09
 ---
 
 # API v1 · Market（HTTP + SSE）
@@ -31,7 +31,7 @@ curl --noproxy '*' -sS \
 ### 语义
 
 - 本接口只返回 **closed candles**（append-only 的 history）。
-- `since` 为下界（含义见实现：返回 `>= since` 的闭合蜡烛；具体边界以代码为准）。
+- `since` 为增量游标（当前实现返回 `> since` 的闭合蜡烛，避免重复消费最后一根）。
 - `server_head_time` 是服务端已落库的 closed head（用于“前端 catchup 是否追到头”的判断）。
 
 ## POST /api/market/ingest/candle_closed
@@ -208,4 +208,3 @@ curl --noproxy '*' -N \
 - SSE 会以 `event: top_markets` 推送 payload，`id:` 为 `generated_at_ms`。
 - 连接断开由服务端检测 `request.is_disconnected()`，并会定期发送 `: ping ...` keep-alive 注释行。
 - 出错会推 `event: error`，`data` 为 `{"type":"error",...}`。
-

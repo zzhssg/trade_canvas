@@ -82,8 +82,10 @@ test("replay mode prepares data and plays", async ({ page, request }) => {
   const targetTime = base * (targetIndex + 1);
   await page.locator('[data-testid="replay-seek"]').evaluate((el, value) => {
     const input = el as HTMLInputElement;
-    input.value = String(value);
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    setter?.call(input, String(value));
     input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
   }, targetIndex);
 
   await expect(chart).toHaveAttribute("data-replay-focus-time", String(targetTime));

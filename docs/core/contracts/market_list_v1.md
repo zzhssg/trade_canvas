@@ -2,7 +2,7 @@
 title: Market List Contract v1（Top Markets）
 status: draft
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-09
 ---
 
 # Market List Contract v1（Top Markets）
@@ -91,4 +91,14 @@ Query:
 - `event: error`：上游异常（用于前端提示/回退）
 
 说明：
-- SSE 为单向（server→client），用于“榜单推送”非常合适；需要订阅/交互时再用 WS。
+- SSE 为单向（server→client），用于"榜单推送"非常合适；需要订阅/交互时再用 WS。
+
+---
+
+## 5. 数据源（Binance 公共接口）
+
+- Spot：`exchangeInfo`（`baseAsset/quoteAsset/status`）+ `ticker/24hr`（`lastPrice/quoteVolume/priceChangePercent`）
+- Futures（USDT-M）：`exchangeInfo`（过滤 `status=TRADING` 且 `contractType=PERPETUAL`）+ `ticker/24hr`
+- 默认只取 `quoteAsset=="USDT"` 以保证 `quoteVolume` 可比
+
+踩坑备忘详见：`docs/core/market-symbol-list.md`。

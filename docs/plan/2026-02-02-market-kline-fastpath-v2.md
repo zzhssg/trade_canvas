@@ -1,9 +1,9 @@
 ---
 title: 市场 K 线 Fastpath v2（freqtrade 数据复用 + 批量落库 + 单一实时源）
-status: 草稿
+status: done
 owner:
 created: 2026-02-02
-updated: 2026-02-08
+updated: 2026-02-09
 ---
 
 ## 背景

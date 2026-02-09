@@ -1,6 +1,6 @@
 # 项目架构图
 
-> status: draft | 2026-02-04
+> status: draft | 2026-02-09
 
 ## 1. 系统总览
 
@@ -32,7 +32,7 @@
 │                                         │         │                       │ │
 │                                         │  ┌─────────────────────────┐    │ │
 │                                         │  │   Ingest Supervisor     │    │ │
-│                                         │  │      (CCXT / WS)        │    │ │
+│                                         │  │     (Binance WS)        │    │ │
 │                                         │  └───────────┬─────────────┘    │ │
 │                                         │              │                  │ │
 │                                         └──────────────┼──────────────────┘ │
@@ -42,7 +42,7 @@
                                                          ▼
                                               ┌─────────────────────┐
                                               │   Exchange (Binance)│
-                                              │   via CCXT / WS     │
+                                              │   via Binance WS    │
                                               └─────────────────────┘
 ```
 
@@ -69,7 +69,7 @@ trade_canvas/
 │       ├── factor_*.py         # 因子模块: orchestrator, store
 │       ├── overlay_*.py        # 覆盖层模块: orchestrator, store
 │       ├── plot_*.py           # 绘图模块: orchestrator, store
-│       ├── ingest_*.py         # 数据摄入: supervisor, ccxt, binance_ws
+│       ├── ingest_*.py         # 数据摄入: supervisor, binance_ws
 │       ├── ws_hub.py           # WebSocket 连接管理
 │       ├── pivot.py            # 枢纽计算
 │       ├── pen.py              # 笔段计算
@@ -93,7 +93,7 @@ trade_canvas/
 | **构建** | Vite |
 | **后端框架** | FastAPI (Python) |
 | **数据库** | SQLite |
-| **交易所接口** | CCXT |
+| **交易所接口** | Binance WebSocket |
 | **回测** | Freqtrade |
 
 ## 4. 数据流
@@ -108,8 +108,8 @@ trade_canvas/
      ▲                              │                              │
      │                              │                              ▼
      │                              │                       ┌──────────┐
-     │         candle_closed        │       fetch_ohlcv     │  CCXT    │
-     │ ◄────────────────────────────┤ ◄─────────────────────│ Exchange │
+     │         candle_closed        │     Binance WS     │  Binance │
+     │ ◄────────────────────────────┤ ◄─────────────────────│    WS    │
      │                              │                       └──────────┘
      │                              │
      │                              ▼

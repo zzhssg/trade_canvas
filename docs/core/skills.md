@@ -30,6 +30,20 @@
 - `frontend-design` / `ui-ux-pro-max` / `lightweight-charts`：前端/图表相关能力
 - `skill-installer` / `skill-creator`：skills 安装与创建
 
+#### 2.1 团队推荐第三方 skills（建议安装 + 按场景触发）
+
+> 原则：这些 skills 属于全局能力，不纳入项目内 `.codex/skills/` 真源；在 `AGENTS.md` 中只写触发场景，详细说明放在本节，避免重复维护。
+
+- `find-skills`（来源：`vercel-labs/skills`）
+  - 用途：当用户询问“有没有 skill 能做 X / 如何扩展能力 / 帮我找 skill”时，先用它做发现与安装建议。
+  - 触发建议：能力发现类问题默认触发。
+- `supabase-postgres-best-practices`（来源：`supabase/agent-skills`）
+  - 用途：后端涉及 Postgres/Supabase 的 SQL、索引、Schema、RLS、性能优化时，作为首选规则集。
+  - 触发建议：只在数据库相关任务触发，避免泛化到非 DB 任务。
+- `brainstorming`（来源：`obra/superpowers`）
+  - 用途：产品方向、需求澄清、方案取舍阶段的结构化发散与收敛。
+  - 触发建议：仅用于规划/创意探索；不替代本仓“三阶段工作流”和门禁要求。
+
 ### 3) 文档中提到但当前未落盘（planned / 待补）
 
 以下条目若在协作中需要用到，建议尽快补齐到 `.codex/skills/` 或从全局 skills 引入：

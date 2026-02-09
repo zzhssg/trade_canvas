@@ -2,7 +2,7 @@
 title: Delta Ledger Contract v1（二级增量账本）
 status: draft
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-09
 ---
 
 # Delta Ledger Contract v1（二级增量账本）
@@ -15,7 +15,7 @@ updated: 2026-02-02
 
 关联契约：
 - 因子真源账本：`docs/core/contracts/factor_ledger_v1.md`
-- 绘图增量输出：`docs/core/contracts/overlay_v1.md`
+- 绘图增量输出：`docs/core/contracts/draw_delta_v1.md`
 - 策略输入/输出：`docs/core/contracts/strategy_v1.md`
 
 ## 1. 记录模型（抽象）

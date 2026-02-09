@@ -10,6 +10,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
+from backend.app.schemas import CandleClosed
 
 
 class MarketSyncE2EUserStoryTests(unittest.TestCase):
@@ -37,6 +38,7 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
         self.tmpdir.cleanup()
         os.environ.pop("TRADE_CANVAS_DB_PATH", None)
         os.environ.pop("TRADE_CANVAS_WHITELIST_PATH", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL", None)
 
     def _ingest(self, candle_time: int) -> None:
         resp = self.client.post(
@@ -162,6 +164,36 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
                 ws.close()
                 t.join(timeout=1.0)
                 self.assertNotIn("msg", got)
+
+    def test_ws_live_gap_backfill_rehydrates_before_live_candle(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL"] = "1"
+        self._ingest(100)
+
+        def fake_backfill(*, store, series_id, expected_next_time, actual_time):
+            self.assertEqual(series_id, self.series_id)
+            self.assertEqual(expected_next_time, 160)
+            self.assertEqual(actual_time, 220)
+            with store.connect() as conn:
+                store.upsert_closed_in_conn(
+                    conn,
+                    self.series_id,
+                    CandleClosed(candle_time=160, open=1.0, high=2.0, low=0.5, close=1.5, volume=10.0),
+                )
+                conn.commit()
+            return 1
+
+        with mock.patch("backend.app.main.backfill_market_gap_best_effort", side_effect=fake_backfill):
+            with self.client.websocket_connect("/ws/market") as ws:
+                ws.send_json({"type": "subscribe", "series_id": self.series_id, "since": 100})
+                self._ingest(220)
+
+                msg1 = ws.receive_json()
+                self.assertEqual(msg1["type"], "candle_closed")
+                self.assertEqual(msg1["candle"]["candle_time"], 160)
+
+                msg2 = ws.receive_json()
+                self.assertEqual(msg2["type"], "candle_closed")
+                self.assertEqual(msg2["candle"]["candle_time"], 220)
 
 
 if __name__ == "__main__":

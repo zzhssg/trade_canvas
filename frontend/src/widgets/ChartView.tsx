@@ -77,6 +77,20 @@ type OverlayPath = {
   lineStyle: LineStyle;
 };
 
+function resolveAnchorTopLayerStyle(path: OverlayPath): { color: string; lineWidth: number; lineStyle: LineStyle; haloWidth: number } {
+  const baseWidth = Math.max(1, Number(path.lineWidth) || 1);
+  if (path.feature === "anchor.current") {
+    const lineWidth = Math.max(3, baseWidth + 1);
+    return { color: "#f59e0b", lineWidth, lineStyle: path.lineStyle, haloWidth: lineWidth + 1 };
+  }
+  if (path.feature === "anchor.history") {
+    const lineWidth = Math.max(2.5, baseWidth + 0.5);
+    return { color: "#3b82f6", lineWidth, lineStyle: LineStyle.Solid, haloWidth: lineWidth + 0.8 };
+  }
+  const lineWidth = Math.max(2.5, baseWidth + 0.5);
+  return { color: path.color, lineWidth, lineStyle: path.lineStyle, haloWidth: lineWidth + 0.8 };
+}
+
 export function ChartView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { ref: resizeRef, width, height } = useResizeObserver<HTMLDivElement>();
@@ -1171,16 +1185,29 @@ export function ChartView() {
       }
     };
 
-    const ro = new ResizeObserver(() => draw());
+    let rafId: number | null = null;
+    const scheduleDraw = () => {
+      if (rafId != null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        draw();
+      });
+    };
+
+    const ro = new ResizeObserver(() => scheduleDraw());
     ro.observe(container);
     const timeScale = chart.timeScale();
-    const onRangeChange = () => draw();
+    const onRangeChange = () => scheduleDraw();
+    const onLogicalRangeChange = () => scheduleDraw();
     timeScale.subscribeVisibleTimeRangeChange(onRangeChange);
-    draw();
+    timeScale.subscribeVisibleLogicalRangeChange(onLogicalRangeChange);
+    scheduleDraw();
 
     return () => {
       ro.disconnect();
       timeScale.unsubscribeVisibleTimeRangeChange(onRangeChange);
+      timeScale.unsubscribeVisibleLogicalRangeChange(onLogicalRangeChange);
+      if (rafId != null) window.cancelAnimationFrame(rafId);
     };
   }, [chartEpoch, chartRef, effectiveVisible, overlayPaintEpoch, seriesRef]);
 
@@ -1248,19 +1275,12 @@ export function ChartView() {
         return null;
       };
 
-      for (const item of paths) {
-        if (!effectiveVisible(item.feature)) continue;
-        if (item.points.length < 2) continue;
+      const drawPath = (points: PenLinePoint[], style: { color: string; lineWidth: number; lineStyle: LineStyle; haloWidth: number }) => {
+        if (points.length < 2) return;
         ctx.save();
         ctx.beginPath();
-        ctx.strokeStyle = item.color;
-        ctx.lineWidth = item.lineWidth;
-        ctx.lineJoin = "round";
-        ctx.lineCap = "round";
-        if (item.lineStyle === LineStyle.Dashed) ctx.setLineDash([6, 6]);
-        else ctx.setLineDash([]);
         let hasPoint = false;
-        for (const point of item.points) {
+        for (const point of points) {
           const x = clampTimeCoord(Number(point.time));
           const y = series.priceToCoordinate(point.value);
           if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) {
@@ -1270,27 +1290,72 @@ export function ChartView() {
           if (!hasPoint) {
             ctx.moveTo(x, y);
             hasPoint = true;
-            continue;
+          } else {
+            ctx.lineTo(x, y);
           }
-          ctx.lineTo(x, y);
         }
-        if (hasPoint) ctx.stroke();
+        if (!hasPoint) {
+          ctx.restore();
+          return;
+        }
+        const dashed = style.lineStyle === LineStyle.Dashed;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "rgba(255,255,255,0.35)";
+        ctx.lineWidth = style.haloWidth;
+        ctx.setLineDash(dashed ? [6, 6] : []);
+        ctx.stroke();
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = style.lineWidth;
+        ctx.setLineDash(dashed ? [6, 6] : []);
+        ctx.stroke();
         ctx.restore();
+      };
+
+      for (const item of paths) {
+        if (!effectiveVisible(item.feature)) continue;
+        const style = resolveAnchorTopLayerStyle(item);
+        drawPath(item.points, style);
+      }
+
+      if (effectiveVisible("anchor.current")) {
+        const highlightPoints = anchorPenPointsRef.current;
+        if (highlightPoints && highlightPoints.length >= 2) {
+          drawPath(highlightPoints, {
+            color: "#f59e0b",
+            lineWidth: anchorPenIsDashedRef.current ? 3 : 4,
+            lineStyle: anchorPenIsDashedRef.current ? LineStyle.Dashed : LineStyle.Solid,
+            haloWidth: anchorPenIsDashedRef.current ? 4 : 5
+          });
+        }
       }
     };
 
-    const ro = new ResizeObserver(() => draw());
+    let rafId: number | null = null;
+    const scheduleDraw = () => {
+      if (rafId != null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        draw();
+      });
+    };
+
+    const ro = new ResizeObserver(() => scheduleDraw());
     ro.observe(container);
     const timeScale = chart.timeScale();
-    const onRangeChange = () => draw();
+    const onRangeChange = () => scheduleDraw();
+    const onLogicalRangeChange = () => scheduleDraw();
     timeScale.subscribeVisibleTimeRangeChange(onRangeChange);
-    draw();
+    timeScale.subscribeVisibleLogicalRangeChange(onLogicalRangeChange);
+    scheduleDraw();
 
     return () => {
       ro.disconnect();
       timeScale.unsubscribeVisibleTimeRangeChange(onRangeChange);
+      timeScale.unsubscribeVisibleLogicalRangeChange(onLogicalRangeChange);
+      if (rafId != null) window.cancelAnimationFrame(rafId);
     };
-  }, [chartEpoch, chartRef, effectiveVisible, overlayPaintEpoch, seriesRef]);
+  }, [anchorHighlightEpoch, chartEpoch, chartRef, effectiveVisible, overlayPaintEpoch, seriesRef]);
 
   const applyPenAndAnchorFromFactorSlices = useCallback(
     (slices: GetFactorSlicesResponseV1) => {
@@ -2006,7 +2071,12 @@ export function ChartView() {
       }
 
       const anchorPts = anchorPenPointsRef.current;
-      if (!anchorPts || anchorPts.length < 2) {
+      if (ENABLE_ANCHOR_TOP_LAYER) {
+        if (anchorPenSeriesRef.current) {
+          chart.removeSeries(anchorPenSeriesRef.current);
+          anchorPenSeriesRef.current = null;
+        }
+      } else if (!anchorPts || anchorPts.length < 2) {
         if (anchorPenSeriesRef.current) {
           chart.removeSeries(anchorPenSeriesRef.current);
           anchorPenSeriesRef.current = null;

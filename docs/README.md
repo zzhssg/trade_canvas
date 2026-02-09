@@ -24,11 +24,10 @@ source .env/bin/activate
 freqtrade --version
 ```
 
-**E2E（SQLite，最小闭环）**
+**后端测试（pytest）**
 
 ```bash
-source .env/bin/activate
-python3 -m unittest discover -s tests -p "test_*.py"
+pytest -q
 ```
 
 **前后端联调 Smoke（可选）**
@@ -36,3 +35,5 @@ python3 -m unittest discover -s tests -p "test_*.py"
 ```bash
 bash scripts/e2e_acceptance.sh
 ```
+
+详细运行说明见：`docs/runbook/backend.md`、`docs/runbook/frontend.md`

@@ -1,9 +1,9 @@
 ---
 title: 市场回测模块（freqtrade bridge）
-status: 草稿
+status: deprecated
 owner:
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-09
 ---
 
 ## 背景

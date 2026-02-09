@@ -75,9 +75,16 @@ test("@smoke clicking tabs / changing symbol does not blank the app", async ({ p
   expect(payload.series_id).toContain("ETH/USDT");
   await expectChartCanvasVisible(page);
 
-  // Route switching should also not cause a blank screen.
-  await page.getByRole("link", { name: "Backtest" }).click();
+  // Route/page switching should also not cause a blank screen.
+  const backtestRouteLink = page.getByRole("link", { name: "Backtest" });
+  if (await backtestRouteLink.count()) {
+    await backtestRouteLink.click();
+  } else {
+    await page.getByRole("button", { name: "Backtest" }).first().click();
+  }
   await expect(page.getByText("Backtest (freqtrade)")).toBeVisible();
+
+  await page.getByRole("link", { name: "Settings" }).click();
   await page.getByRole("link", { name: "Live" }).click();
   await expectChartCanvasVisible(page);
 

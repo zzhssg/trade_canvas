@@ -2,7 +2,7 @@
 title: World State Contract v1（统一世界状态：因子切片 + 绘图状态）
 status: draft
 created: 2026-02-03
-updated: 2026-02-07
+updated: 2026-02-09
 ---
 
 # World State Contract v1（统一世界状态：因子切片 + 绘图状态）
@@ -22,7 +22,7 @@ updated: 2026-02-07
 ## 0) 核心不变量（硬门禁）
 
 1) `closed candle` 为权威输入：世界状态只允许对齐到闭合 K（forming 不进入真源）。
-2) 对齐：`time.candle_id == factor_slices.candle_id == draw_state.to_candle_id`，否则返回 `ledger_out_of_sync`。
+2) 对齐：`time.candle_id == factor_slices.candle_id == draw_delta.to_candle_id`，否则返回 `ledger_out_of_sync`。
 3) `history/head` 语义不变：history=append-only 纯切片；head=可重绘但无未来函数。
 
 ---
@@ -57,9 +57,9 @@ type WorldStateV1 = {
     snapshots: Record<string, any>
   }
 
-  // 绘图状态：本质上是 “draw delta 在 t 的对齐点视图”
+  // 绘图增量（draw delta 在 t 的对齐点视图）
   // v1 允许先用现有 `DrawDeltaV1` 投影表达（active_ids + patch + points）
-  draw_state: {
+  draw_delta: {
     schema_version: 1
     series_id: string
     to_candle_id: string | null
@@ -76,5 +76,5 @@ type WorldStateV1 = {
 - 当 `factor_slices.snapshots.anchor` 存在时，`history.anchors` 与 `history.switches` 必须是同一可见性过滤结果，并满足 1:1 对齐。
 
 说明：
-- `WorldStateV1` 强调“统一输出形状”，不强制后端内部存储实现（可由 ledger/delta ledger 或投影组合得到）。
-- 与 `ReplayFrameV1` 的字段映射：`WorldStateV1.draw_state` 语义等价于 `ReplayFrameV1.draw_delta`（当前对外 API 使用 `draw_state` 命名）。
+- `WorldStateV1` 强调"统一输出形状"，不强制后端内部存储实现（可由 ledger/delta ledger 或投影组合得到）。
+- 字段统一命名为 `draw_delta`，与 `ReplayFrameV1.draw_delta` 保持一致。

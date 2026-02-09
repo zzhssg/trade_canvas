@@ -1,9 +1,9 @@
 ---
 title: WorldState/WorldDelta v1（统一世界状态与差分：live/replay 一套实现）
-status: 草稿
+status: done
 owner:
 created: 2026-02-03
-updated: 2026-02-03
+updated: 2026-02-09
 ---
 
 ## 背景

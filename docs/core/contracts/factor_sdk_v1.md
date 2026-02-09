@@ -2,7 +2,7 @@
 title: Factor SDK Contract v1（因子开发 SDK）
 status: draft
 created: 2026-02-07
-updated: 2026-02-07
+updated: 2026-02-09
 ---
 
 # Factor SDK Contract v1（因子开发 SDK）
@@ -17,6 +17,7 @@ updated: 2026-02-07
 - 因子真源账本：`docs/core/contracts/factor_ledger_v1.md`
 - 二级增量账本：`docs/core/contracts/delta_ledger_v1.md`
 - 策略边界：`docs/core/contracts/strategy_v1.md`
+- 当前模块化落地：`docs/core/factor-modular-architecture.md`
 
 ---
 
@@ -130,7 +131,9 @@ SDK 不绑定具体存储，但必须满足下列语义：
 1. 声明 `FactorSpec`（name/depends_on/logic_hash）。
 2. 实现 `apply_closed(ctx)`，产出 history/head。
 3. 保证 `event_key` 幂等（重复 ingest 不产生重复语义）。
-4. 补齐测试：
+4. 注册默认装配（实现层可对应 `build_default_factor_processors()` 一类入口）。
+5. 注册 slice 事件桶映射（实现层可对应 `build_default_slice_bucket_specs()` 一类入口）。
+6. 补齐测试：
    - `seed ≡ incremental`
    - 重复 ingest 幂等
    - `series_head_time < aligned` 时读路径 fail-safe

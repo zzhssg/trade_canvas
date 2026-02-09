@@ -2,7 +2,7 @@
 title: 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
 status: draft
 created: 2026-02-02
-updated: 2026-02-08
+updated: 2026-02-09
 ---
 
 # 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
@@ -61,6 +61,76 @@ updated: 2026-02-08
 - **图表**：增量更新产出 `overlay`（绘图指令）
 
 市场 K 线同步本身只负责：**把 `CandleClosed` 稳定、可补齐、可订阅地提供给上述两条链路**。
+
+### 1.1 模块收口目标（Phase A，契约先行）
+
+为降低当前 K 线逻辑分散在 `main.py` / `ws_hub.py` / 各类 backfill 脚本的治理成本，v1 先在
+`backend/app/market_data/contracts.py` 统一定义领域能力契约，不改线上行为：
+
+- `CandleReadService`：一次性读取 / 增量读取 / 区间读取（只读 closed）。
+- `BackfillService`：gap 回补与 tail 覆盖（best-effort）。
+- `FreshnessService`：序列新鲜度判定（missing/fresh/stale/degraded）。
+- `WsDeliveryService`：WS 订阅阶段 catchup 与 gap 修复策略。
+- `MarketDataOrchestrator`：面向 API/WS 的总编排入口。
+
+后续 Phase B/C 仅允许在该契约边界内迁移实现，避免继续在路由层和 hub 层散落同类逻辑。
+
+### 1.2 收口进度（Phase B，读链路先迁）
+
+当前已完成第一步行为保持型迁移（不改 HTTP/WS 对外契约）：
+- `GET /api/market/candles` 的读取入口改为经 `MarketDataOrchestrator.read_candles(...)`。
+- WS 订阅 catchup 的读取与 gap-heal 调度改为经 `MarketDataOrchestrator`。
+- `FreshnessService` 负责提供 `head_time/lag/state` 快照，路由层不再直接拼装新鲜度口径。
+
+### 1.3 收口进度（Phase C，gap 回补集中化）
+
+当前已把 `gap -> best-effort backfill -> 区间回读` 从路由内联逻辑迁移到 `market_data`：
+- `StoreBackfillService.backfill_gap(...)` 统一承接 gap 回补（含 kill-switch）。
+- `StoreBackfillService.ensure_tail_coverage(...)` 支持按 `to_time` + `target_candles` 评估覆盖窗口。
+- `build_gap_backfill_handler(...)` 统一封装 WS gap 回补处理器并注入 `CandleHub`。
+- `main.py` 不再内联 gap 回补细节，仅负责装配 `reader/backfill/orchestrator`。
+
+### 1.4 收口进度（Phase D，derived 首次回填集中化）
+
+当前已把“订阅 derived 序列时的首次历史回填（best-effort）”从 `main.py` 内联逻辑迁移到 `market_data`：
+- `build_derived_initial_backfill_handler(...)` 统一封装 derived 首次回填流程（开关判定 + rollup + sidecar）。
+- `main.py` 在 WS subscribe 前仅调用 handler，不再直接处理 derived 的回填细节。
+- 回填后仍保持既有行为：按 `rebuilt` 决定是否 reset overlay，再 ingest overlay。
+
+### 1.5 收口进度（Phase E，WS catchup 协调集中化）
+
+当前已把 WS subscribe 中 `since / last_sent / catchup / gap-heal` 的协调逻辑集中到 `market_data`：
+- `MarketDataOrchestrator.build_ws_catchup(...)` 统一处理 catchup 过滤与 gap-heal。
+- 为保持并发语义，路由层仍先 read、后取 `last_sent`，再把 read 结果交给 orchestrator 汇总。
+- 路由层只保留 WS 协议编解码与发包，不再拼装 catchup 过滤细节。
+
+### 1.6 收口进度（Phase F，WS catchup 发包策略集中化）
+
+当前已把 WS catchup 的发包策略（`gap + candles_batch/candle_closed`）集中到 `market_data`：
+- `MarketDataOrchestrator.build_ws_emit(...)` 统一构造 WS payload 队列与 `last_sent_time`。
+- 路由层只做 `send_json` 循环与 `hub.set_last_sent(...)` 一次性更新。
+- 批量/逐条两条路径的消息结构保持不变（兼容现有客户端）。
+
+### 1.7 收口进度（Phase G，订阅协同集中化）
+
+当前已把 WS subscribe 中“ondemand 容量判定 + hub 订阅/退订协同”抽到 `market_data`：
+- `WsSubscriptionCoordinator.subscribe(...)` 统一处理：容量判定失败时返回标准 `capacity` 错误 payload；成功时执行 hub 订阅。
+- `WsSubscriptionCoordinator.unsubscribe(...)` 统一处理 ondemand/hub 退订协同。
+- 路由层不再直接拼装 `capacity` 错误结构，减少协议漂移点。
+
+### 1.8 收口进度（Phase H，断线清理协同集中化）
+
+当前已把 WS 断线后的清理逻辑（`hub.pop_ws + ondemand refcount release`）从路由层抽到 `market_data`：
+- `WsSubscriptionCoordinator.cleanup_disconnect(...)` 统一处理断线后订阅集合合并与 ondemand 退订。
+- 路由层 finally 仅调用一次 cleanup，不再内联循环释放逻辑。
+- 断线清理异常对主链路保持 best-effort（逐条保护，避免放大故障）。
+
+### 1.9 收口进度（Phase I，订阅状态本地化到 Coordinator）
+
+当前已把 WS 路由里的 `subscribed_series` 本地状态管理下沉到 `WsSubscriptionCoordinator`：
+- coordinator 内部维护 ws→series 集合，并在 subscribe/unsubscribe 时增删。
+- `cleanup_disconnect(...)` 使用“coordinator 本地集合 ∪ hub.pop_ws”统一释放，不再依赖路由传参。
+- 路由层进一步收敛为协议编解码与单点调用。
 
 ---
 
