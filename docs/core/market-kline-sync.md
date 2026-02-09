@@ -132,6 +132,47 @@ updated: 2026-02-09
 - `cleanup_disconnect(...)` 使用“coordinator 本地集合 ∪ hub.pop_ws”统一释放，不再依赖路由传参。
 - 路由层进一步收敛为协议编解码与单点调用。
 
+### 1.10 收口进度（Phase J，订阅主流程统一入口）
+
+当前已把 WS subscribe 的“回填 + 订阅 + catchup + 发包准备”串联到 coordinator：
+- `WsSubscriptionCoordinator.handle_subscribe(...)` 统一执行：derived 初次回填（best-effort）→ 容量判定/订阅 → read/catchup → emit payload 构造 → `last_sent` 更新。
+- 路由层只保留协议校验与 `send_json`，不再内联拼接 catchup/emit 的流程细节。
+- 保持原有并发语义：仍然“先 read，再读取 last_sent，再做 catchup 过滤”，避免 race 条件下重复推送。
+
+### 1.11 收口进度（Phase K，WS 消息校验集中化）
+
+当前已把 `/ws/market` 中 subscribe/unsubscribe 的参数校验从路由层收口到 `market_data`：
+- `WsMessageParser.parse_subscribe(...)` 统一处理 `series_id/since/supports_batch` 校验并输出标准 bad_request payload。
+- `WsMessageParser.parse_unsubscribe_series_id(...)` 统一处理 unsubscribe 的 series_id 提取（保持“无效值静默忽略”的兼容行为）。
+- 路由层继续只做协议分发与发包，减少协议字段校验逻辑在 `main.py` 的散落。
+
+### 1.12 收口进度（Phase L，WS 消息入口解析统一化）
+
+当前已把 `/ws/market` 的消息入口校验也并入 parser：
+- `WsMessageParser.parse_message_type(...)` 统一处理“非对象消息体 / 缺失 type”的 bad_request 返回，避免路由对 `msg.get(...)` 的隐式假设。
+- `WsMessageParser.unknown_message_type(...)` 统一未知消息类型错误结构，减少路由硬编码。
+- 路由层改为“接收消息 -> parser 解析 -> coordinator 执行”，WS 主链路的协议处理更集中、可测。
+
+### 1.13 收口进度（Phase M，WS 错误 payload 统一构造）
+
+当前已把 market WS 链路中的错误 payload 构造集中为统一函数：
+- `build_ws_error_payload(...)` 统一生产 `error` 消息（`bad_request/capacity` 等），避免 parser 与 coordinator 各自拼字典。
+- `WsMessageParser.bad_request(...)` 与 `WsSubscriptionCoordinator.subscribe(...)` 复用同一构造器，保证字段形态一致（含可选 `series_id`）。
+- 路由层继续只消费“已构造好的错误 payload”，减少协议细节泄漏。
+
+### 1.14 收口进度（Phase N，P0 治理项合并落地）
+
+当前已完成一轮 P0 收口，把协议常量、路由职责、观测口径和关键参数统一到可治理形态：
+- 新增 `backend/app/ws_protocol.py`，集中维护 WS 主消息类型与错误码/错误文案常量（避免字符串散落）。
+- `/ws/market` 在 `main.py` 仅保留 endpoint 声明，实际处理下沉到 `market_ws_routes.handle_market_ws(...)`，实现“主文件薄路由”。
+- `WsSubscriptionCoordinator.handle_subscribe(...)` 增加结构化日志（读量/catchup 量/payload 量/gap 标记/耗时），便于线上排障与容量评估。
+- `WsMessageParser.parse_subscribe(...)` 改为强类型返回 `WsSubscribeCommand`（非法参数走异常），移除成功分支的 Optional 语义。
+- 把 `catchup_limit`、gap 回读上限、fresh/stale 窗口收口到配置：
+  - `TRADE_CANVAS_MARKET_WS_CATCHUP_LIMIT`
+  - `TRADE_CANVAS_MARKET_GAP_BACKFILL_READ_LIMIT`
+  - `TRADE_CANVAS_MARKET_FRESH_WINDOW_CANDLES`
+  - `TRADE_CANVAS_MARKET_STALE_WINDOW_CANDLES`
+
 ---
 
 ## 2. Part A：白名单内币种（保证实时性）
@@ -184,6 +225,7 @@ Whitelist（白名单 `series_id` 列表）的真源位置：
    - 增量补齐：`GET /api/market/candles?series_id=...&since=<last_candle_time>&limit=...`
    - 服务端从 store 返回按 `candle_time` 排序的 `CandleClosed[]` 与 `server_head_time`（当前已知最新闭合 time）。
    - 前端循环请求直到 `last_received_time >= server_head_time`（增量补齐完成）。
+   - 若开启自动 tail 回填（见下方开关），服务端会在读路径先尝试补齐目标窗口，再返回数据，避免“新币种/新周期初次打开只有 1 根 K”。
 
 2) **建立 WS 并订阅（实时跟随）**
    - WS 连接后发送：`subscribe { series_id, since=last_received_time }`
@@ -196,6 +238,10 @@ Whitelist（白名单 `series_id` 列表）的真源位置：
 v1 实现建议（后端开关）：
 - `TRADE_CANVAS_ENABLE_ONDEMAND_INGEST=1`
 - `TRADE_CANVAS_ONDEMAND_IDLE_TTL_S=<seconds>`（默认 60）
+- `TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL=1`：读取 `/api/market/candles` 前先触发 tail 回填（默认目标 `limit` 根）。
+- `TRADE_CANVAS_MARKET_AUTO_TAIL_BACKFILL_MAX_CANDLES=2000`：读路径自动回填上限。
+- `TRADE_CANVAS_MARKET_HISTORY_SOURCE=freqtrade`：优先从本地 freqtrade datadir 回填。
+- `TRADE_CANVAS_ENABLE_CCXT_BACKFILL=1`：freqtrade 不足时允许回退到交易所 CCXT 补齐窗口（覆盖“所有币种”场景）。
 
 ### 3.3 单一上游实时源 + 多周期派生（Derived Timeframes）
 

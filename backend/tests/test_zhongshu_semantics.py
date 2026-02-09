@@ -176,6 +176,37 @@ def test_build_alive_with_candles_uses_price_cross_formed_time() -> None:
     assert alive.formed_reason == "price_cross"
 
 
+def test_build_dead_with_candles_keeps_price_cross_formed_reason() -> None:
+    pens = [
+        _pen(10, 20, 100, 130, 100),  # entry
+        _pen(20, 30, 130, 110, 200),  # P1
+        _pen(30, 40, 110, 125, 300),  # P2
+        _pen(40, 50, 125, 108, 500),  # P3 confirmed later
+        _pen(50, 60, 108, 90, 700),   # death pen (fully below ZD=110)
+    ]
+
+    class _C:
+        def __init__(self, candle_time: int, high: float, low: float) -> None:
+            self.candle_time = candle_time
+            self.high = high
+            self.low = low
+
+    candles = [
+        _C(300, 126.0, 120.0),
+        _C(330, 124.0, 114.0),
+        _C(350, 123.0, 109.0),  # first cross below P1.end_price=110
+        _C(500, 119.0, 107.0),
+        _C(700, 100.0, 89.0),
+    ]
+
+    dead = build_dead_zhongshus_from_confirmed_pens(pens, candles=candles, up_to_visible_time=700)
+    assert len(dead) >= 1
+    first = dead[0]
+    assert first.formed_reason == "price_cross"
+    assert first.formed_time == 350
+    assert first.death_time == 700
+
+
 def test_death_reseed_uses_p0_floor_and_waits_until_overlap() -> None:
     # First zhongshu forms on pens[0..3], then dies at pens[4].
     pens = [

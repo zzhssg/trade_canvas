@@ -50,7 +50,7 @@ class BacktestApiTests(unittest.TestCase):
         from backend.app.freqtrade_runner import FreqtradeExecResult
 
         with patch(
-            "backend.app.main.list_strategies_async",
+            "backend.app.backtest_routes.list_strategies_async",
             new=AsyncMock(
                 return_value=FreqtradeExecResult(
                 ok=True,
@@ -70,7 +70,7 @@ class BacktestApiTests(unittest.TestCase):
         from backend.app.freqtrade_runner import FreqtradeExecResult
 
         with patch(
-            "backend.app.main.list_strategies_async",
+            "backend.app.backtest_routes.list_strategies_async",
             new=AsyncMock(
                 return_value=FreqtradeExecResult(
                 ok=True,
@@ -108,8 +108,8 @@ class BacktestApiTests(unittest.TestCase):
             stderr="",
         )
 
-        with patch("backend.app.main.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
-            "backend.app.main.run_backtest_async", new=AsyncMock(return_value=run_ok)
+        with patch("backend.app.backtest_routes.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
+            "backend.app.backtest_routes.run_backtest_async", new=AsyncMock(return_value=run_ok)
         ) as mock_run:
             resp = self.client.post(
                 "/api/backtest/run",
@@ -140,9 +140,9 @@ class BacktestApiTests(unittest.TestCase):
             stderr="WARNINGS",
         )
 
-        with patch("backend.app.main.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
-            "backend.app.main.run_backtest_async", new=AsyncMock(return_value=run_ok)
-        ), patch("backend.app.main.logger") as mock_logger:
+        with patch("backend.app.backtest_routes.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
+            "backend.app.backtest_routes.run_backtest_async", new=AsyncMock(return_value=run_ok)
+        ), patch("backend.app.backtest_routes.logger") as mock_logger:
             resp = self.client.post(
                 "/api/backtest/run",
                 json={"strategy_name": "KnownStrategy", "pair": "BTC/USDT", "timeframe": "1h"},

@@ -34,6 +34,10 @@ def test_analyze_current_builds_report():
         trade_fee_rate=0.0008,
         target_win_rate=0.5,
         target_reward_risk=2.0,
+        enable_true_solar_time=True,
+        solar_longitude_deg=24.9384,
+        solar_tz_offset_hours=2.0,
+        strict_calendar_lib=False,
     )
     svc = OracleService(settings)
 
@@ -61,6 +65,10 @@ def test_analyze_current_without_backtest():
         trade_fee_rate=0.0008,
         target_win_rate=0.5,
         target_reward_risk=2.0,
+        enable_true_solar_time=True,
+        solar_longitude_deg=24.9384,
+        solar_tz_offset_hours=2.0,
+        strict_calendar_lib=False,
     )
     svc = OracleService(settings)
     mock_candles = _load_mock_candles()

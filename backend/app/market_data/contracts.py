@@ -70,6 +70,13 @@ class WsEmitResult:
     last_sent_time: int | None
 
 
+@dataclass(frozen=True)
+class WsSubscribeCommand:
+    series_id: str
+    since: int | None
+    supports_batch: bool
+
+
 class CandleReadService(Protocol):
     def read_tail(self, *, series_id: str, limit: int) -> list[CandleClosed]: ...
 

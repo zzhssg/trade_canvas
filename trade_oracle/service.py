@@ -17,7 +17,13 @@ class OracleService:
     def __init__(self, settings: OracleSettings) -> None:
         self.settings = settings
         self.market = MarketClient(base_url=settings.market_api_base)
-        self.calendar = CalendarService(enable_crosscheck=settings.enable_sx_crosscheck)
+        self.calendar = CalendarService(
+            enable_crosscheck=settings.enable_sx_crosscheck,
+            enable_true_solar_time=settings.enable_true_solar_time,
+            solar_longitude_deg=settings.solar_longitude_deg,
+            solar_tz_offset_hours=settings.solar_tz_offset_hours,
+            strict_calendar_lib=settings.strict_calendar_lib,
+        )
 
     def analyze_current(self, *, series_id: str, symbol: str = "BTC") -> tuple[dict, str]:
         candles = self.market.fetch_candles(series_id=series_id, limit=self.settings.market_limit)

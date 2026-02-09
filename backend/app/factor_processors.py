@@ -5,6 +5,7 @@ from typing import Any
 
 from .anchor_semantics import should_append_switch
 from .factor_registry import FactorProcessor, ProcessorSpec
+from .factor_semantics import is_more_extreme_pivot
 from .factor_slices import build_pen_head_candidate
 from .factor_store import FactorEventWrite
 from .pen import ConfirmedPen, PivotMajorPoint
@@ -164,14 +165,6 @@ class PivotProcessor:
         )
 
 
-def _is_more_extreme(prev: PivotMajorPoint, cur: PivotMajorPoint) -> bool:
-    if cur.direction != prev.direction:
-        return False
-    if cur.direction == "resistance":
-        return float(cur.pivot_price) > float(prev.pivot_price)
-    return float(cur.pivot_price) < float(prev.pivot_price)
-
-
 @dataclass(frozen=True)
 class PenProcessor:
     spec: ProcessorSpec = ProcessorSpec(factor_name="pen", depends_on=("pivot",))
@@ -183,7 +176,7 @@ class PenProcessor:
 
         last = effective[-1]
         if new_pivot.direction == last.direction:
-            if _is_more_extreme(last, new_pivot):
+            if is_more_extreme_pivot(last, new_pivot):
                 effective[-1] = new_pivot
             return []
 
@@ -284,6 +277,9 @@ class ZhongshuProcessor:
 
     def build_alive_head(self, *, state: dict[str, Any], confirmed_pens: list[dict], up_to_visible_time: int, candles: list[Any]) -> dict[str, Any]:
         out: dict[str, Any] = {}
+        if confirmed_pens:
+            out["alive"] = []
+
         alive_state = state.get("alive")
         if isinstance(alive_state, dict):
             out["alive"] = [

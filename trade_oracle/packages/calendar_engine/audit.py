@@ -9,6 +9,7 @@ from trade_oracle.models import BaziSnapshot
 
 from .provider_lunar import LunarPythonProvider
 from .provider_sxtwl import SxtwlProvider
+from .solar_time import TrueSolarConfig
 
 
 @dataclass(frozen=True)
@@ -51,9 +52,21 @@ def build_sample_times(*, start_utc: datetime, end_utc: datetime, step_days: int
     return out
 
 
-def crosscheck_samples(*, sample_times: list[datetime]) -> CalendarCrosscheckReport:
-    lunar = LunarPythonProvider()
-    sxtwl = SxtwlProvider()
+def crosscheck_samples(
+    *,
+    sample_times: list[datetime],
+    enable_true_solar_time: bool = True,
+    solar_longitude_deg: float = 24.9384,
+    solar_tz_offset_hours: float = 2.0,
+    strict_calendar_lib: bool = True,
+) -> CalendarCrosscheckReport:
+    solar_config = TrueSolarConfig(
+        enabled=bool(enable_true_solar_time),
+        longitude_deg=float(solar_longitude_deg),
+        tz_offset_hours=float(solar_tz_offset_hours),
+    )
+    lunar = LunarPythonProvider(solar_config=solar_config, strict_calendar_lib=strict_calendar_lib)
+    sxtwl = SxtwlProvider(solar_config=solar_config, strict_calendar_lib=strict_calendar_lib)
     mismatches: list[CalendarDiffEntry] = []
 
     for ts in sample_times:

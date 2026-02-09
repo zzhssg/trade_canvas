@@ -33,6 +33,10 @@ def _settings() -> OracleSettings:
         trade_fee_rate=0.0008,
         target_win_rate=0.5,
         target_reward_risk=2.0,
+        enable_true_solar_time=True,
+        solar_longitude_deg=24.9384,
+        solar_tz_offset_hours=2.0,
+        strict_calendar_lib=False,
     )
 
 

@@ -15,6 +15,10 @@ class Settings:
     freqtrade_bin: str
     freqtrade_strategy_path: Path | None
     cors_origins: list[str]
+    market_ws_catchup_limit: int
+    market_gap_backfill_read_limit: int
+    market_fresh_window_candles: int
+    market_stale_window_candles: int
 
 
 def load_settings() -> Settings:
@@ -82,6 +86,24 @@ def load_settings() -> Settings:
     )
     cors_origins = [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
 
+    def _env_int(name: str, default: int, *, minimum: int) -> int:
+        raw = (os.environ.get(name) or "").strip()
+        if not raw:
+            return max(int(minimum), int(default))
+        try:
+            return max(int(minimum), int(raw))
+        except ValueError:
+            return max(int(minimum), int(default))
+
+    market_ws_catchup_limit = _env_int("TRADE_CANVAS_MARKET_WS_CATCHUP_LIMIT", 5000, minimum=100)
+    market_gap_backfill_read_limit = _env_int("TRADE_CANVAS_MARKET_GAP_BACKFILL_READ_LIMIT", 5000, minimum=100)
+    market_fresh_window_candles = _env_int("TRADE_CANVAS_MARKET_FRESH_WINDOW_CANDLES", 2, minimum=1)
+    market_stale_window_candles = _env_int(
+        "TRADE_CANVAS_MARKET_STALE_WINDOW_CANDLES",
+        5,
+        minimum=market_fresh_window_candles + 1,
+    )
+
     return Settings(
         db_path=db_path,
         whitelist_path=whitelist_path,
@@ -91,4 +113,8 @@ def load_settings() -> Settings:
         freqtrade_bin=freqtrade_bin,
         freqtrade_strategy_path=freqtrade_strategy_path,
         cors_origins=cors_origins,
+        market_ws_catchup_limit=market_ws_catchup_limit,
+        market_gap_backfill_read_limit=market_gap_backfill_read_limit,
+        market_fresh_window_candles=market_fresh_window_candles,
+        market_stale_window_candles=market_stale_window_candles,
     )

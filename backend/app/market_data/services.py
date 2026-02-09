@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from typing import Awaitable, Callable
@@ -17,6 +18,7 @@ from ..derived_timeframes import (
 )
 from ..history_bootstrapper import backfill_tail_from_freqtrade
 from ..market_backfill import backfill_market_gap_best_effort
+from ..market_backfill import backfill_from_ccxt_range
 from ..series_id import parse_series_id
 from ..schemas import CandleClosed
 from ..store import CandleStore
@@ -36,8 +38,31 @@ from .contracts import (
     WsCatchupRequest,
     WsEmitRequest,
     WsEmitResult,
+    WsSubscribeCommand,
     WsDeliveryService,
 )
+from ..ws_protocol import (
+    WS_ERR_BAD_REQUEST,
+    WS_ERR_CAPACITY,
+    WS_ERR_MSG_INVALID_ENVELOPE,
+    WS_ERR_MSG_INVALID_SINCE,
+    WS_ERR_MSG_INVALID_SUPPORTS_BATCH,
+    WS_ERR_MSG_MISSING_SERIES_ID,
+    WS_ERR_MSG_MISSING_TYPE,
+    WS_ERR_MSG_ONDEMAND_CAPACITY,
+    WS_MSG_CANDLE_CLOSED,
+    WS_MSG_CANDLES_BATCH,
+    WS_MSG_ERROR,
+    ws_err_msg_unknown_type,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _truthy_flag(v: str | None) -> bool:
+    if v is None:
+        return False
+    return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
 class StoreCandleReadService(CandleReadService):
@@ -98,21 +123,41 @@ class StoreBackfillService(BackfillService):
         target = int(target_candles)
         if target <= 0:
             return 0
-        filled = max(
-            0,
-            int(
-                self._tail_backfill_fn(
-                    self._store,
-                    series_id=series_id,
-                    limit=target,
-                )
-            ),
-        )
-        if to_time is None:
-            return filled
+        filled = max(0, int(self._tail_backfill_fn(self._store, series_id=series_id, limit=target)))
+
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
-        end_time = int(to_time)
+        if to_time is None:
+            head = self._store.head_time(series_id)
+            if head is not None:
+                end_time = int(head)
+            else:
+                now = int(time.time())
+                end_time = int(now // int(tf_s)) * int(tf_s)
+        else:
+            end_time = int(to_time)
         start_time = max(0, int(end_time) - (int(target) - 1) * int(tf_s))
+
+        count_after_tail = self._store.count_closed_between_times(series_id, start_time=start_time, end_time=end_time)
+        if int(count_after_tail) < int(target) and _truthy_flag(os.environ.get("TRADE_CANVAS_ENABLE_CCXT_BACKFILL")):
+            try:
+                backfill_from_ccxt_range(
+                    candle_store=self._store,
+                    series_id=series_id,
+                    start_time=int(start_time),
+                    end_time=int(end_time),
+                )
+            except Exception:
+                pass
+
+        if to_time is None:
+            if head is None:
+                head_after = self._store.head_time(series_id)
+                if head_after is None:
+                    return filled
+                end_time = int(head_after)
+                start_time = max(0, int(end_time) - (int(target) - 1) * int(tf_s))
+            covered = self._store.count_closed_between_times(series_id, start_time=start_time, end_time=end_time)
+            return max(int(filled), int(covered))
         return self._store.count_closed_between_times(series_id, start_time=start_time, end_time=end_time)
 
 
@@ -259,7 +304,7 @@ class DefaultMarketDataOrchestrator(MarketDataOrchestrator):
             if req.catchup:
                 payloads.append(
                     {
-                        "type": "candles_batch",
+                        "type": WS_MSG_CANDLES_BATCH,
                         "series_id": req.series_id,
                         "candles": [c.model_dump() for c in req.catchup],
                     }
@@ -270,7 +315,7 @@ class DefaultMarketDataOrchestrator(MarketDataOrchestrator):
         for candle in req.catchup:
             payloads.append(
                 {
-                    "type": "candle_closed",
+                    "type": WS_MSG_CANDLE_CLOSED,
                     "series_id": req.series_id,
                     "candle": candle.model_dump(),
                 }
@@ -329,6 +374,60 @@ def build_gap_backfill_handler(
     return _handler
 
 
+def build_ws_error_payload(
+    *,
+    code: str,
+    message: str,
+    series_id: str | None = None,
+) -> dict:
+    payload = {"type": WS_MSG_ERROR, "code": code, "message": message}
+    if series_id is not None:
+        payload["series_id"] = series_id
+    return payload
+
+
+class WsMessageParser:
+    @staticmethod
+    def bad_request(*, message: str) -> dict:
+        return build_ws_error_payload(code=WS_ERR_BAD_REQUEST, message=message)
+
+    def parse_message_type(self, msg: object) -> str:
+        if not isinstance(msg, dict):
+            raise ValueError(WS_ERR_MSG_INVALID_ENVELOPE)
+        msg_type = msg.get("type")
+        if not isinstance(msg_type, str) or not msg_type:
+            raise ValueError(WS_ERR_MSG_MISSING_TYPE)
+        return msg_type
+
+    def unknown_message_type(self, *, msg_type: str) -> dict:
+        return self.bad_request(message=ws_err_msg_unknown_type(msg_type=msg_type))
+
+    def parse_subscribe(self, msg: dict) -> WsSubscribeCommand:
+        series_id = msg.get("series_id")
+        if not isinstance(series_id, str) or not series_id:
+            raise ValueError(WS_ERR_MSG_MISSING_SERIES_ID)
+
+        since = msg.get("since")
+        if since is not None and not isinstance(since, int):
+            raise ValueError(WS_ERR_MSG_INVALID_SINCE)
+
+        supports_batch = msg.get("supports_batch")
+        if supports_batch is not None and not isinstance(supports_batch, bool):
+            raise ValueError(WS_ERR_MSG_INVALID_SUPPORTS_BATCH)
+
+        return WsSubscribeCommand(
+            series_id=series_id,
+            since=since,
+            supports_batch=bool(supports_batch),
+        )
+
+    def parse_unsubscribe_series_id(self, msg: dict) -> str | None:
+        series_id = msg.get("series_id")
+        if not isinstance(series_id, str) or not series_id:
+            return None
+        return series_id
+
+
 class WsSubscriptionCoordinator:
     def __init__(
         self,
@@ -372,23 +471,95 @@ class WsSubscriptionCoordinator:
     ) -> dict | None:
         if ondemand_enabled:
             if self._ondemand_subscribe is None:
-                return {
-                    "type": "error",
-                    "code": "capacity",
-                    "message": "ondemand_ingest_capacity",
-                    "series_id": series_id,
-                }
+                return build_ws_error_payload(
+                    code=WS_ERR_CAPACITY,
+                    message=WS_ERR_MSG_ONDEMAND_CAPACITY,
+                    series_id=series_id,
+                )
             ok = await self._ondemand_subscribe(series_id)
             if not ok:
-                return {
-                    "type": "error",
-                    "code": "capacity",
-                    "message": "ondemand_ingest_capacity",
-                    "series_id": series_id,
-                }
+                return build_ws_error_payload(
+                    code=WS_ERR_CAPACITY,
+                    message=WS_ERR_MSG_ONDEMAND_CAPACITY,
+                    series_id=series_id,
+                )
         await self._hub.subscribe(ws, series_id=series_id, since=since, supports_batch=bool(supports_batch))
         await self._remember(ws=ws, series_id=series_id)
         return None
+
+    async def handle_subscribe(
+        self,
+        *,
+        ws: WebSocket,
+        series_id: str,
+        since: int | None,
+        supports_batch: bool,
+        ondemand_enabled: bool,
+        market_data: MarketDataOrchestrator,
+        derived_initial_backfill: Callable[..., Awaitable[None]],
+        catchup_limit: int = 5000,
+    ) -> tuple[dict | None, list[dict]]:
+        started_at = time.perf_counter()
+        await derived_initial_backfill(series_id=series_id)
+        err_payload = await self.subscribe(
+            ws=ws,
+            series_id=series_id,
+            since=since,
+            supports_batch=bool(supports_batch),
+            ondemand_enabled=ondemand_enabled,
+        )
+        if err_payload is not None:
+            logger.warning(
+                "market_ws_subscribe_rejected series_id=%s since=%s supports_batch=%s ondemand_enabled=%s reason=%s",
+                series_id,
+                since,
+                bool(supports_batch),
+                bool(ondemand_enabled),
+                err_payload.get("message"),
+            )
+            return err_payload, []
+
+        read_result = market_data.read_candles(
+            CatchupReadRequest(
+                series_id=series_id,
+                since=since,
+                limit=int(catchup_limit),
+            )
+        )
+        current_last = await self._hub.get_last_sent(ws, series_id=series_id)
+        catchup_result = await market_data.build_ws_catchup(
+            WsCatchupRequest(
+                series_id=series_id,
+                since=since,
+                last_sent=current_last,
+                limit=int(catchup_limit),
+                candles=read_result.candles,
+            )
+        )
+        emit_result = market_data.build_ws_emit(
+            WsEmitRequest(
+                series_id=series_id,
+                supports_batch=bool(supports_batch),
+                catchup=catchup_result.candles,
+                gap_payload=catchup_result.gap_payload,
+            )
+        )
+        if emit_result.last_sent_time is not None:
+            await self._hub.set_last_sent(ws, series_id=series_id, candle_time=int(emit_result.last_sent_time))
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        logger.info(
+            "market_ws_subscribe_handled series_id=%s since=%s supports_batch=%s read_count=%s catchup_count=%s payload_count=%s gap_emitted=%s last_sent=%s elapsed_ms=%.2f",
+            series_id,
+            since,
+            bool(supports_batch),
+            len(read_result.candles),
+            len(catchup_result.candles),
+            len(emit_result.payloads),
+            bool(catchup_result.gap_payload),
+            emit_result.last_sent_time,
+            elapsed_ms,
+        )
+        return None, emit_result.payloads
 
     async def unsubscribe(
         self,

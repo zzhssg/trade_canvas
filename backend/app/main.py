@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import time
-import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TextIO
@@ -15,16 +14,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 
 from .blocking import run_blocking
+from .backtest_routes import register_backtest_routes
 from .config import load_settings
 from .debug_hub import DebugHub
-from .freqtrade_config import build_backtest_config, load_json, write_temp_config
-from .freqtrade_data import check_history_available, list_available_timeframes
-from .freqtrade_runner import list_strategies, parse_strategy_list, run_backtest, validate_strategy_name
+from .factor_routes import register_factor_routes
+from .market_ws_routes import handle_market_ws
+from .replay_routes import register_replay_routes
+from .world_routes import register_world_routes
 from .ingest_supervisor import IngestSupervisor
 from .schemas import (
-    BacktestRunRequest,
-    BacktestRunResponse,
-    BacktestPairTimeframesResponse,
     DevCreateWorktreeRequest,
     DevCreateWorktreeResponse,
     DevDeleteWorktreeRequest,
@@ -49,16 +47,8 @@ from .schemas import (
     IngestCandleFormingResponse,
     LimitQuery,
     SinceQuery,
-    ReplayPrepareRequestV1,
-    ReplayPrepareResponseV1,
-    StrategyListResponse,
     TopMarketsLimitQuery,
     TopMarketsResponse,
-    WorldCursorV1,
-    WorldDeltaPollResponseV1,
-    WorldDeltaRecordV1,
-    WorldStateV1,
-    WorldTimeV1,
 )
 from .market_list import BinanceMarketListService, MinIntervalLimiter
 from .factor_orchestrator import FactorOrchestrator
@@ -74,16 +64,6 @@ from .overlay_replay_protocol_v1 import (
     ReplayOverlayPackageWindowResponseV1,
 )
 from .overlay_store import OverlayStore
-from .replay_package_protocol_v1 import (
-    ReplayBuildRequestV1,
-    ReplayBuildResponseV1,
-    ReplayCoverageStatusResponseV1,
-    ReplayEnsureCoverageRequestV1,
-    ReplayEnsureCoverageResponseV1,
-    ReplayReadOnlyResponseV1,
-    ReplayStatusResponseV1,
-    ReplayWindowResponseV1,
-)
 from .replay_package_service_v1 import ReplayPackageServiceV1
 from .overlay_package_service_v1 import OverlayReplayPackageServiceV1
 from .market_backfill import backfill_market_gap_best_effort
@@ -94,9 +74,8 @@ from .market_data import (
     StoreBackfillService,
     StoreCandleReadService,
     StoreFreshnessService,
+    WsMessageParser,
     WsSubscriptionCoordinator,
-    WsCatchupRequest,
-    WsEmitRequest,
     build_derived_initial_backfill_handler,
     build_gap_backfill_handler,
 )
@@ -111,45 +90,10 @@ logger = logging.getLogger(__name__)
 _faulthandler_file: TextIO | None = None
 
 
-async def list_strategies_async(**kwargs):
-    # Keep the event loop responsive: freqtrade runner uses blocking subprocess calls.
-    return await run_blocking(list_strategies, **kwargs)
-
-
-async def run_backtest_async(**kwargs):
-    # Keep the event loop responsive: freqtrade runner uses blocking subprocess calls.
-    return await run_blocking(run_backtest, **kwargs)
-
-
-def _require_backtest_trades() -> bool:
-    return (os.environ.get("TRADE_CANVAS_BACKTEST_REQUIRE_TRADES") or "").strip() == "1"
-
-
-def _extract_total_trades_from_backtest_zip(*, zip_path: Path, strategy_name: str) -> int:
-    with zipfile.ZipFile(str(zip_path), "r") as zf:
-        candidates = [
-            n
-            for n in zf.namelist()
-            if n.startswith("backtest-result-") and n.endswith(".json") and not n.endswith("_config.json")
-        ]
-        if not candidates:
-            candidates = [n for n in zf.namelist() if n.endswith(".json") and not n.endswith("_config.json")]
-        if not candidates:
-            raise ValueError("missing backtest stats json in zip")
-
-        raw = zf.read(candidates[0]).decode("utf-8", errors="replace")
-        payload = json.loads(raw)
-
-    strat = (payload.get("strategy") or {}).get(strategy_name)
-    if not isinstance(strat, dict):
-        raise ValueError("missing strategy stats in backtest json")
-    total = strat.get("total_trades")
-    if isinstance(total, int):
-        return total
-    trades = strat.get("trades")
-    if isinstance(trades, list):
-        return len(trades)
-    raise ValueError("missing total_trades/trades in strategy stats")
+def _truthy_flag(v: str | None) -> bool:
+    if v is None:
+        return False
+    return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _maybe_enable_faulthandler() -> None:
@@ -213,6 +157,7 @@ def create_app() -> FastAPI:
         build_gap_backfill_handler(
             reader=reader_service,
             backfill=backfill_service,
+            read_limit=settings.market_gap_backfill_read_limit,
         )
     )
     derived_initial_backfill = build_derived_initial_backfill_handler(
@@ -222,7 +167,11 @@ def create_app() -> FastAPI:
     )
     market_data = DefaultMarketDataOrchestrator(
         reader=reader_service,
-        freshness=StoreFreshnessService(store=store),
+        freshness=StoreFreshnessService(
+            store=store,
+            fresh_window_candles=settings.market_fresh_window_candles,
+            stale_window_candles=settings.market_stale_window_candles,
+        ),
         ws_delivery=HubWsDeliveryService(hub=hub),
     )
     whitelist = load_market_whitelist(settings.whitelist_path)
@@ -252,6 +201,7 @@ def create_app() -> FastAPI:
         ondemand_subscribe=supervisor.subscribe,
         ondemand_unsubscribe=supervisor.unsubscribe,
     )
+    ws_messages = WsMessageParser()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -283,6 +233,11 @@ def create_app() -> FastAPI:
     app.state.store = store
     app.state.hub = hub
     app.state.market_data = market_data
+    app.state.ws_messages = ws_messages
+    app.state.ws_subscriptions = ws_subscriptions
+    app.state.derived_initial_backfill = derived_initial_backfill
+    app.state.market_ws_catchup_limit = int(settings.market_ws_catchup_limit)
+    app.state.market_backfill = backfill_service
     app.state.factor_store = factor_store
     app.state.factor_orchestrator = factor_orchestrator
     app.state.factor_slices_service = factor_slices_service
@@ -295,10 +250,17 @@ def create_app() -> FastAPI:
     app.state.force_limiter = force_limiter
     app.state.ingest_supervisor = supervisor
     app.state.debug_hub = debug_hub
+    app.state.settings = settings
+    app.state.project_root = project_root
 
     # Initialize worktree manager
     worktree_manager = WorktreeManager(repo_root=project_root)
     app.state.worktree_manager = worktree_manager
+
+    register_factor_routes(app)
+    register_backtest_routes(app)
+    register_replay_routes(app)
+    register_world_routes(app)
 
     def ensure_factor_fresh_for_read(*, series_id: str, up_to_time: int | None) -> bool:
         if up_to_time is None:
@@ -309,12 +271,36 @@ def create_app() -> FastAPI:
         result = app.state.factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=to_time)
         return bool(getattr(result, "rebuilt", False))
 
+    def read_factor_slices(*, series_id: str, at_time: int, window_candles: int) -> GetFactorSlicesResponseV1:
+        aligned = store.floor_time(series_id, at_time=int(at_time))
+        _ = ensure_factor_fresh_for_read(series_id=series_id, up_to_time=aligned)
+        return app.state.factor_slices_service.get_slices(
+            series_id=series_id,
+            at_time=int(at_time),
+            window_candles=int(window_candles),
+        )
+
+    app.state.read_factor_slices = read_factor_slices
+
     @app.get("/api/market/candles", response_model=GetCandlesResponse)
     def get_market_candles(
         series_id: str = Query(..., min_length=1),
         since: SinceQuery = None,
         limit: LimitQuery = 500,
     ) -> GetCandlesResponse:
+        if _truthy_flag(os.environ.get("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL")):
+            target = max(1, int(limit))
+            max_target_raw = (os.environ.get("TRADE_CANVAS_MARKET_AUTO_TAIL_BACKFILL_MAX_CANDLES") or "").strip()
+            if max_target_raw:
+                try:
+                    target = min(int(target), max(1, int(max_target_raw)))
+                except ValueError:
+                    pass
+            app.state.market_backfill.ensure_tail_coverage(
+                series_id=series_id,
+                target_candles=int(target),
+                to_time=None,
+            )
         read_result = app.state.market_data.read_candles(
             CatchupReadRequest(series_id=series_id, since=since, limit=limit)
         )
@@ -651,309 +637,7 @@ def create_app() -> FastAPI:
             next_cursor=next_cursor,
         )
 
-    @app.get("/api/factor/slices", response_model=GetFactorSlicesResponseV1)
-    def get_factor_slices(
-        series_id: str = Query(..., min_length=1),
-        at_time: int = Query(..., ge=0),
-        window_candles: LimitQuery = 2000,
-    ) -> GetFactorSlicesResponseV1:
-        """
-        Read-side factor slices at aligned time t.
-        Returns history/head snapshots produced by the current modular factor pipeline.
-        """
-        aligned = store.floor_time(series_id, at_time=int(at_time))
-        _ = ensure_factor_fresh_for_read(series_id=series_id, up_to_time=aligned)
-        return app.state.factor_slices_service.get_slices(series_id=series_id, at_time=int(at_time), window_candles=int(window_candles))
-
-    @app.post("/api/replay/prepare", response_model=ReplayPrepareResponseV1)
-    def prepare_replay(req: ReplayPrepareRequestV1) -> ReplayPrepareResponseV1:
-        """
-        Replay prepare:
-        - Ensures factor/overlay ledgers are computed up to aligned time.
-        - Returns aligned_time for replay loading.
-        """
-        series_id = req.series_id
-        store_head = store.head_time(series_id)
-        if store_head is None:
-            raise HTTPException(status_code=404, detail="no_data")
-        requested_time = int(req.to_time) if req.to_time is not None else int(store_head)
-        aligned = store.floor_time(series_id, at_time=int(requested_time))
-        if aligned is None:
-            raise HTTPException(status_code=404, detail="no_data")
-
-        window_candles = int(req.window_candles or 2000)
-        window_candles = min(5000, max(100, window_candles))
-
-        computed = False
-        factor_head = app.state.factor_store.head_time(series_id)
-        overlay_head = app.state.overlay_store.head_time(series_id)
-
-        factor_rebuilt = False
-        if factor_head is None or int(factor_head) < int(aligned):
-            factor_result = app.state.factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
-            factor_rebuilt = bool(getattr(factor_result, "rebuilt", False))
-            factor_head = app.state.factor_store.head_time(series_id)
-            computed = True
-
-        if factor_rebuilt:
-            app.state.overlay_orchestrator.reset_series(series_id=series_id)
-            overlay_head = None
-
-        if overlay_head is None or int(overlay_head) < int(aligned):
-            app.state.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
-            overlay_head = app.state.overlay_store.head_time(series_id)
-            computed = True
-
-        if factor_head is None or int(factor_head) < int(aligned):
-            raise HTTPException(status_code=409, detail="ledger_out_of_sync:factor")
-        if overlay_head is None or int(overlay_head) < int(aligned):
-            raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
-
-        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
-            app.state.debug_hub.emit(
-                pipe="read",
-                event="read.http.replay_prepare",
-                series_id=series_id,
-                message="prepare replay",
-                data={
-                    "requested_time": int(requested_time),
-                    "aligned_time": int(aligned),
-                    "window_candles": int(window_candles),
-                    "factor_head_time": int(factor_head),
-                    "overlay_head_time": int(overlay_head),
-                    "computed": bool(computed),
-                },
-            )
-
-        return ReplayPrepareResponseV1(
-            ok=True,
-            series_id=series_id,
-            requested_time=int(requested_time),
-            aligned_time=int(aligned),
-            window_candles=int(window_candles),
-            factor_head_time=int(factor_head) if factor_head is not None else None,
-            overlay_head_time=int(overlay_head) if overlay_head is not None else None,
-            computed=bool(computed),
-        )
-
-    @app.get("/api/frame/live", response_model=WorldStateV1)
-    def get_world_frame_live(
-        series_id: str = Query(..., min_length=1),
-        window_candles: LimitQuery = 2000,
-    ) -> WorldStateV1:
-        """
-        Unified world frame (live): latest aligned world state.
-        v1 implementation is a projection of existing factor_slices + draw/delta.
-        """
-        store_head = store.head_time(series_id)
-        if store_head is None:
-            raise HTTPException(status_code=404, detail="no_data")
-        overlay_head = app.state.overlay_store.head_time(series_id)
-        if overlay_head is None:
-            raise HTTPException(status_code=404, detail="no_overlay")
-        aligned_base = min(int(store_head), int(overlay_head))
-        aligned = store.floor_time(series_id, at_time=int(aligned_base))
-        if aligned is None:
-            raise HTTPException(status_code=404, detail="no_data")
-
-        factor_slices = get_factor_slices(series_id=series_id, at_time=int(aligned), window_candles=window_candles)
-        draw_state = get_draw_delta(series_id=series_id, cursor_version_id=0, window_candles=window_candles, at_time=int(aligned))
-        candle_id = f"{series_id}:{int(aligned)}"
-        if factor_slices.candle_id != candle_id or draw_state.to_candle_id != candle_id:
-            raise HTTPException(status_code=409, detail="ledger_out_of_sync")
-        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
-            app.state.debug_hub.emit(
-                pipe="read",
-                event="read.http.world_frame_live",
-                series_id=series_id,
-                message="get world frame live",
-                data={"at_time": int(store_head), "aligned_time": int(aligned), "candle_id": str(candle_id)},
-            )
-        return WorldStateV1(
-            series_id=series_id,
-            time=WorldTimeV1(at_time=int(store_head), aligned_time=int(aligned), candle_id=candle_id),
-            factor_slices=factor_slices,
-            draw_state=draw_state,
-        )
-
-    @app.get("/api/frame/at_time", response_model=WorldStateV1)
-    def get_world_frame_at_time(
-        series_id: str = Query(..., min_length=1),
-        at_time: int = Query(..., ge=0),
-        window_candles: LimitQuery = 2000,
-    ) -> WorldStateV1:
-        """
-        Unified world frame (replay point query): aligned world state at time t.
-        """
-        aligned = store.floor_time(series_id, at_time=int(at_time))
-        if aligned is None:
-            raise HTTPException(status_code=404, detail="no_data")
-
-        factor_slices = get_factor_slices(series_id=series_id, at_time=int(aligned), window_candles=window_candles)
-        draw_state = get_draw_delta(series_id=series_id, cursor_version_id=0, window_candles=window_candles, at_time=int(aligned))
-        candle_id = f"{series_id}:{int(aligned)}"
-        if factor_slices.candle_id != candle_id or draw_state.to_candle_id != candle_id:
-            raise HTTPException(status_code=409, detail="ledger_out_of_sync")
-        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
-            app.state.debug_hub.emit(
-                pipe="read",
-                event="read.http.world_frame_live",
-                series_id=series_id,
-                message="get world frame live",
-                data={"at_time": int(at_time), "aligned_time": int(aligned), "candle_id": str(candle_id)},
-            )
-        return WorldStateV1(
-            series_id=series_id,
-            time=WorldTimeV1(at_time=int(at_time), aligned_time=int(aligned), candle_id=candle_id),
-            factor_slices=factor_slices,
-            draw_state=draw_state,
-        )
-
-    @app.get("/api/replay/read_only", response_model=ReplayReadOnlyResponseV1)
-    def get_replay_read_only(
-        series_id: str = Query(..., min_length=1),
-        to_time: int | None = Query(default=None, ge=0),
-        window_candles: int | None = Query(default=None, ge=1, le=5000),
-        window_size: int | None = Query(default=None, ge=1, le=2000),
-        snapshot_interval: int | None = Query(default=None, ge=1, le=200),
-    ) -> ReplayReadOnlyResponseV1:
-        service = app.state.replay_service
-        if not service.enabled():
-            raise HTTPException(status_code=404, detail="not_found")
-        status, job_id, cache_key, coverage, metadata, hint = service.read_only(
-            series_id=series_id,
-            to_time=to_time,
-            window_candles=window_candles,
-            window_size=window_size,
-            snapshot_interval=snapshot_interval,
-        )
-        return ReplayReadOnlyResponseV1(
-            status=status,
-            job_id=job_id,
-            cache_key=cache_key,
-            coverage=coverage,
-            metadata=metadata,
-            compute_hint=hint,
-        )
-
-    @app.post("/api/replay/build", response_model=ReplayBuildResponseV1)
-    def post_replay_build(payload: ReplayBuildRequestV1) -> ReplayBuildResponseV1:
-        service = app.state.replay_service
-        if not service.enabled():
-            raise HTTPException(status_code=404, detail="not_found")
-        status, job_id, cache_key = service.build(
-            series_id=payload.series_id,
-            to_time=payload.to_time,
-            window_candles=payload.window_candles,
-            window_size=payload.window_size,
-            snapshot_interval=payload.snapshot_interval,
-        )
-        return ReplayBuildResponseV1(status=status, job_id=job_id, cache_key=cache_key)
-
-    @app.get("/api/replay/status", response_model=ReplayStatusResponseV1)
-    def get_replay_status(
-        job_id: str = Query(..., min_length=1),
-        include_preload: int = Query(0, ge=0, le=1),
-        include_history: int = Query(0, ge=0, le=1),
-    ) -> ReplayStatusResponseV1:
-        service = app.state.replay_service
-        if not service.enabled():
-            raise HTTPException(status_code=404, detail="not_found")
-        payload = service.status(
-            job_id=job_id,
-            include_preload=bool(include_preload),
-            include_history=bool(include_history),
-        )
-        return ReplayStatusResponseV1.model_validate(payload)
-
-    @app.get("/api/replay/window", response_model=ReplayWindowResponseV1)
-    def get_replay_window(
-        job_id: str = Query(..., min_length=1),
-        target_idx: int = Query(..., ge=0),
-    ) -> ReplayWindowResponseV1:
-        service = app.state.replay_service
-        if not service.enabled():
-            raise HTTPException(status_code=404, detail="not_found")
-        window = service.window(job_id=job_id, target_idx=int(target_idx))
-        head_snapshots, history_deltas = service.window_extras(job_id=job_id, window=window)
-        return ReplayWindowResponseV1(
-            job_id=str(job_id),
-            window=window,
-            factor_head_snapshots=head_snapshots,
-            history_deltas=history_deltas,
-        )
-
-    @app.post("/api/replay/ensure_coverage", response_model=ReplayEnsureCoverageResponseV1)
-    def post_replay_ensure_coverage(payload: ReplayEnsureCoverageRequestV1) -> ReplayEnsureCoverageResponseV1:
-        service = app.state.replay_service
-        if not service.enabled():
-            raise HTTPException(status_code=404, detail="not_found")
-        status, job_id = service.ensure_coverage(
-            series_id=payload.series_id,
-            target_candles=payload.target_candles,
-            to_time=payload.to_time,
-            factor_orchestrator=app.state.factor_orchestrator,
-            overlay_orchestrator=app.state.overlay_orchestrator,
-        )
-        return ReplayEnsureCoverageResponseV1(status=status, job_id=job_id)
-
-    @app.get("/api/replay/coverage_status", response_model=ReplayCoverageStatusResponseV1)
-    def get_replay_coverage_status(job_id: str = Query(..., min_length=1)) -> ReplayCoverageStatusResponseV1:
-        service = app.state.replay_service
-        if not service.enabled():
-            raise HTTPException(status_code=404, detail="not_found")
-        payload = service.coverage_status(job_id=job_id)
-        if payload.get("status") == "error" and payload.get("error") == "not_found":
-            raise HTTPException(status_code=404, detail="not_found")
-        return ReplayCoverageStatusResponseV1.model_validate(payload)
-
-    @app.get("/api/delta/poll", response_model=WorldDeltaPollResponseV1)
-    def poll_world_delta(
-        series_id: str = Query(..., min_length=1),
-        after_id: int = Query(0, ge=0),
-        limit: LimitQuery = 2000,
-        window_candles: LimitQuery = 2000,
-    ) -> WorldDeltaPollResponseV1:
-        """
-        v1 world delta (live):
-        - Uses draw/delta cursor as the minimal incremental source (compat projection).
-        - Emits at most 1 record per poll (if cursor advances); otherwise returns empty records.
-        """
-        _ = int(limit)  # reserved for future multi-record batching (delta ledger)
-        draw = get_draw_delta(series_id=series_id, cursor_version_id=int(after_id), window_candles=window_candles, at_time=None)
-        next_id = int(draw.next_cursor.version_id or 0)
-        if draw.to_candle_id is None or draw.to_candle_time is None:
-            return WorldDeltaPollResponseV1(series_id=series_id, records=[], next_cursor=WorldCursorV1(id=int(after_id)))
-
-        if next_id <= int(after_id):
-            return WorldDeltaPollResponseV1(series_id=series_id, records=[], next_cursor=WorldCursorV1(id=int(after_id)))
-
-        rec = WorldDeltaRecordV1(
-            id=int(next_id),
-            series_id=series_id,
-            to_candle_id=str(draw.to_candle_id),
-            to_candle_time=int(draw.to_candle_time),
-            draw_delta=draw,
-            factor_slices=get_factor_slices(
-                series_id=series_id,
-                at_time=int(draw.to_candle_time),
-                window_candles=window_candles,
-            ),
-        )
-        if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
-            app.state.debug_hub.emit(
-                pipe="read",
-                event="read.http.world_delta_poll",
-                series_id=series_id,
-                message="poll world delta",
-                data={
-                    "after_id": int(after_id),
-                    "next_id": int(next_id),
-                    "to_candle_time": int(draw.to_candle_time),
-                    "to_candle_id": str(draw.to_candle_id),
-                },
-            )
-        return WorldDeltaPollResponseV1(series_id=series_id, records=[rec], next_cursor=WorldCursorV1(id=int(next_id)))
+    app.state.read_draw_delta = get_draw_delta
 
     @app.get("/api/market/whitelist")
     def get_market_whitelist() -> dict[str, list[str]]:
@@ -1103,375 +787,9 @@ def create_app() -> FastAPI:
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    @app.get("/api/backtest/strategies", response_model=StrategyListResponse)
-    async def get_backtest_strategies(recursive: bool = True) -> StrategyListResponse:
-        if os.environ.get("TRADE_CANVAS_FREQTRADE_MOCK") == "1":
-            return StrategyListResponse(strategies=["DemoStrategy"])
-
-        if settings.freqtrade_strategy_path is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Strategy directory not configured. Create ./Strategy or set TRADE_CANVAS_FREQTRADE_STRATEGY_PATH.",
-            )
-
-        # Backtest: only read strategies from this repo's Strategy/ directory.
-        # Freqtrade still expects a userdir to exist; prefer a repo-local empty userdir when available.
-        backtest_userdir = project_root / "freqtrade_user_data"
-        userdir = backtest_userdir if backtest_userdir.exists() else settings.freqtrade_userdir
-
-        res = await list_strategies_async(
-            freqtrade_bin=settings.freqtrade_bin,
-            userdir=userdir,
-            cwd=project_root,
-            recursive=recursive,
-            strategy_path=settings.freqtrade_strategy_path,
-            extra_env={"TRADE_CANVAS_FREQTRADE_OFFLINE_MARKETS_PAIRS": "BTC/USDT"},
-        )
-        strategies = parse_strategy_list(res.stdout)
-        if not res.ok and not strategies:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "message": "freqtrade list-strategies failed",
-                    "exit_code": res.exit_code,
-                    "stderr": res.stderr,
-                },
-            )
-        return StrategyListResponse(strategies=strategies)
-
-    @app.get("/api/backtest/pair_timeframes", response_model=BacktestPairTimeframesResponse)
-    async def get_backtest_pair_timeframes(pair: str = Query(..., min_length=1)) -> BacktestPairTimeframesResponse:
-        if os.environ.get("TRADE_CANVAS_FREQTRADE_MOCK") == "1":
-            return BacktestPairTimeframesResponse(pair=pair, trading_mode="mock", datadir="", available_timeframes=[])
-
-        if settings.freqtrade_config_path is None:
-            raise HTTPException(status_code=500, detail="Freqtrade config not configured. Set TRADE_CANVAS_FREQTRADE_CONFIG.")
-        if not settings.freqtrade_config_path.exists():
-            raise HTTPException(status_code=500, detail=f"Freqtrade config not found: {settings.freqtrade_config_path}")
-
-        base_cfg = load_json(settings.freqtrade_config_path)
-        trading_mode = str(base_cfg.get("trading_mode") or "spot")
-        stake_currency = str(base_cfg.get("stake_currency") or "USDT")
-
-        datadir_raw = base_cfg.get("datadir")
-        datadir_path = Path(datadir_raw) if isinstance(datadir_raw, str) and datadir_raw else Path("user_data/data")
-        if not datadir_path.is_absolute():
-            datadir_path = (settings.freqtrade_config_path.parent / datadir_path).resolve()
-
-        # Mirror the pair normalization in /api/backtest/run.
-        eff_pair = pair
-        if trading_mode == "futures" and "/" in eff_pair and ":" not in eff_pair:
-            eff_pair = f"{eff_pair}:{stake_currency}"
-
-        available = list_available_timeframes(
-            datadir=datadir_path,
-            pair=eff_pair,
-            trading_mode=trading_mode,
-            stake_currency=stake_currency,
-        )
-        return BacktestPairTimeframesResponse(
-            pair=pair,
-            trading_mode=trading_mode,
-            datadir=str(datadir_path),
-            available_timeframes=available,
-        )
-
-    @app.post("/api/backtest/run", response_model=BacktestRunResponse)
-    async def run_backtest_job(payload: BacktestRunRequest) -> BacktestRunResponse:
-        if not validate_strategy_name(payload.strategy_name):
-            raise HTTPException(status_code=400, detail="Invalid strategy_name")
-
-        if os.environ.get("TRADE_CANVAS_FREQTRADE_MOCK") == "1":
-            if payload.strategy_name != "DemoStrategy":
-                raise HTTPException(status_code=404, detail="Strategy not found in userdir")
-            pair = payload.pair
-            command = [
-                settings.freqtrade_bin,
-                "backtesting",
-                "--strategy",
-                payload.strategy_name,
-                "--timeframe",
-                payload.timeframe,
-                "--pairs",
-                pair,
-            ]
-            if payload.timerange:
-                command.extend(["--timerange", payload.timerange])
-            stdout = "\n".join(
-                [
-                    "TRADE_CANVAS MOCK BACKTEST",
-                    f"strategy={payload.strategy_name}",
-                    f"pair={pair}",
-                    f"timeframe={payload.timeframe}",
-                    f"timerange={payload.timerange or ''}",
-                    "result=ok",
-                ]
-            )
-            return BacktestRunResponse(
-                ok=True,
-                exit_code=0,
-                duration_ms=1,
-                command=command,
-                stdout=stdout,
-                stderr="",
-            )
-
-        if settings.freqtrade_strategy_path is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Strategy directory not configured. Create ./Strategy or set TRADE_CANVAS_FREQTRADE_STRATEGY_PATH.",
-            )
-
-        if settings.freqtrade_config_path is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Freqtrade config not configured. Set TRADE_CANVAS_FREQTRADE_CONFIG.",
-            )
-        if not settings.freqtrade_config_path.exists():
-            raise HTTPException(
-                status_code=500,
-                detail=f"Freqtrade config not found: {settings.freqtrade_config_path}",
-            )
-        if not settings.freqtrade_root.exists():
-            raise HTTPException(
-                status_code=500,
-                detail=f"Freqtrade root not found: {settings.freqtrade_root}",
-            )
-
-        backtest_userdir = project_root / "freqtrade_user_data"
-        userdir = backtest_userdir if backtest_userdir.exists() else settings.freqtrade_userdir
-        if userdir is not None and not userdir.exists():
-            raise HTTPException(status_code=500, detail=f"Freqtrade userdir not found: {userdir}")
-
-        strategies_res = await list_strategies_async(
-            freqtrade_bin=settings.freqtrade_bin,
-            userdir=userdir,
-            cwd=project_root,
-            recursive=True,
-            strategy_path=settings.freqtrade_strategy_path,
-        )
-        strategies = set(parse_strategy_list(strategies_res.stdout))
-        if payload.strategy_name not in strategies:
-            raise HTTPException(status_code=404, detail="Strategy not found in ./Strategy")
-
-        pair = payload.pair
-        base_cfg: dict = {}
-        try:
-            base_cfg = load_json(settings.freqtrade_config_path)
-            trading_mode = str(base_cfg.get("trading_mode") or "")
-            stake_currency = str(base_cfg.get("stake_currency") or "USDT")
-            if trading_mode == "futures" and "/" in pair and ":" not in pair:
-                pair = f"{pair}:{stake_currency}"
-        except Exception:
-            pass
-
-        if not base_cfg:
-            base_cfg = load_json(settings.freqtrade_config_path)
-
-        # Normalize datadir to an absolute path so subprocess `cwd` is irrelevant.
-        datadir = base_cfg.get("datadir")
-        if isinstance(datadir, str) and datadir:
-            p = Path(datadir)
-            if not p.is_absolute():
-                base_cfg["datadir"] = str((settings.freqtrade_config_path.parent / p).resolve())
-
-        trading_mode = str(base_cfg.get("trading_mode") or "spot")
-        stake_currency = str(base_cfg.get("stake_currency") or "USDT")
-        datadir_path = Path(str(base_cfg.get("datadir") or ""))
-
-        availability = check_history_available(
-            datadir=datadir_path,
-            pair=pair,
-            timeframe=payload.timeframe,
-            trading_mode=trading_mode,
-            stake_currency=stake_currency,
-        )
-        if not availability.ok:
-            expected = [str(p) for p in availability.expected_paths]
-            cmd = (
-                f"{settings.freqtrade_bin} download-data -c {settings.freqtrade_config_path} "
-                f"--userdir {userdir} --pairs {pair} --timeframes {payload.timeframe}"
-                + (" --trading-mode futures" if trading_mode == "futures" else "")
-            )
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "message": "no_ohlcv_history",
-                    "pair": pair,
-                    "timeframe": payload.timeframe,
-                    "trading_mode": trading_mode,
-                    "datadir": str(datadir_path),
-                    "expected_paths": expected,
-                    "available_timeframes": availability.available_timeframes,
-                    "hint": "Download the missing timeframe data into datadir, or switch to an available timeframe.",
-                    "download_data_cmd": cmd,
-                },
-            )
-        bt_cfg = build_backtest_config(base_cfg, pair=pair, timeframe=payload.timeframe)
-        tmp_config = write_temp_config(bt_cfg, root_dir=project_root / "freqtrade_user_data")
-        export_dir = project_root / "freqtrade_user_data" / "backtest_results" / f"tc_{int(time.time())}_{os.getpid()}"
-        export_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            res = await run_backtest_async(
-                freqtrade_bin=settings.freqtrade_bin,
-                userdir=userdir,
-                cwd=project_root,
-                config_path=tmp_config,
-                datadir=datadir_path,
-                strategy_name=payload.strategy_name,
-                pair=pair,
-                timeframe=payload.timeframe,
-                timerange=payload.timerange,
-                strategy_path=settings.freqtrade_strategy_path,
-                export="trades",
-                export_dir=export_dir,
-                extra_env={
-                    "TRADE_CANVAS_FREQTRADE_OFFLINE_MARKETS_PAIRS": pair.split(":", 1)[0],
-                },
-            )
-        finally:
-            try:
-                tmp_config.unlink(missing_ok=True)
-            except Exception:
-                pass
-
-        # Requirement: print freqtrade backtest results.
-        # Keep stdout/stderr separated but both are printed for convenience.
-        if res.stdout.strip():
-            logger.info("freqtrade backtesting stdout:\n%s", res.stdout.rstrip("\n"))
-        if res.stderr.strip():
-            logger.info("freqtrade backtesting stderr:\n%s", res.stderr.rstrip("\n"))
-
-        if res.ok and res.exit_code == 0 and _require_backtest_trades():
-            zips = sorted(export_dir.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
-            if not zips:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "message": "no_backtest_export",
-                        "export_dir": str(export_dir),
-                        "hint": "Expected freqtrade to export backtest results but no zip was found.",
-                    },
-                )
-            try:
-                total_trades = _extract_total_trades_from_backtest_zip(
-                    zip_path=zips[0], strategy_name=payload.strategy_name
-                )
-            except Exception as e:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "message": "bad_backtest_export",
-                        "export_zip": str(zips[0]),
-                        "error": str(e),
-                    },
-                )
-            if total_trades <= 0:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "message": "no_trades",
-                        "strategy": payload.strategy_name,
-                        "total_trades": int(total_trades),
-                        "export_zip": str(zips[0]),
-                        "stdout_tail": (res.stdout or "")[-2000:],
-                    },
-                )
-
-        return BacktestRunResponse(
-            ok=res.ok,
-            exit_code=res.exit_code,
-            duration_ms=res.duration_ms,
-            command=res.command,
-            stdout=res.stdout,
-            stderr=res.stderr,
-        )
-
     @app.websocket("/ws/market")
     async def ws_market(ws: WebSocket) -> None:
-        await ws.accept()
-        try:
-            while True:
-                msg = await ws.receive_json()
-                msg_type = msg.get("type")
-                if msg_type == "subscribe":
-                    series_id = msg.get("series_id")
-                    if not isinstance(series_id, str) or not series_id:
-                        await ws.send_json({"type": "error", "code": "bad_request", "message": "missing series_id"})
-                        continue
-                    since = msg.get("since")
-                    if since is not None and not isinstance(since, int):
-                        await ws.send_json({"type": "error", "code": "bad_request", "message": "invalid since"})
-                        continue
-                    supports_batch = msg.get("supports_batch")
-                    if supports_batch is not None and not isinstance(supports_batch, bool):
-                        await ws.send_json(
-                            {"type": "error", "code": "bad_request", "message": "invalid supports_batch"}
-                        )
-                        continue
-
-                    await derived_initial_backfill(series_id=series_id)
-                    err_payload = await ws_subscriptions.subscribe(
-                        ws=ws,
-                        series_id=series_id,
-                        since=since,
-                        supports_batch=bool(supports_batch),
-                        ondemand_enabled=os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1",
-                    )
-                    if err_payload is not None:
-                        await ws.send_json(err_payload)
-                        continue
-
-                    read_result = app.state.market_data.read_candles(
-                        CatchupReadRequest(series_id=series_id, since=since, limit=5000)
-                    )
-                    current_last = await hub.get_last_sent(ws, series_id=series_id)
-                    catchup_result = await app.state.market_data.build_ws_catchup(
-                        WsCatchupRequest(
-                            series_id=series_id,
-                            since=since,
-                            last_sent=current_last,
-                            limit=5000,
-                            candles=read_result.candles,
-                        )
-                    )
-                    catchup = catchup_result.candles
-                    emit_result = app.state.market_data.build_ws_emit(
-                        WsEmitRequest(
-                            series_id=series_id,
-                            supports_batch=bool(supports_batch),
-                            catchup=catchup,
-                            gap_payload=catchup_result.gap_payload,
-                        )
-                    )
-                    for payload in emit_result.payloads:
-                        await ws.send_json(payload)
-                    if emit_result.last_sent_time is not None:
-                        await hub.set_last_sent(ws, series_id=series_id, candle_time=int(emit_result.last_sent_time))
-
-                elif msg_type == "unsubscribe":
-                    series_id = msg.get("series_id")
-                    if isinstance(series_id, str) and series_id:
-                        await ws_subscriptions.unsubscribe(
-                            ws=ws,
-                            series_id=series_id,
-                            ondemand_enabled=os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1",
-                        )
-                else:
-                    await ws.send_json({"type": "error", "code": "bad_request", "message": "unknown message type"})
-        except WebSocketDisconnect:
-            pass
-        finally:
-            # Ensure that an abrupt disconnect releases ondemand ingest refcounts.
-            await ws_subscriptions.cleanup_disconnect(
-                ws=ws,
-                ondemand_enabled=os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1",
-            )
-            try:
-                await ws.close(code=1001)
-            except Exception:
-                pass
-
+        await handle_market_ws(ws)
 
     @app.websocket("/ws/debug")
     async def ws_debug(ws: WebSocket) -> None:

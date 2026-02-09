@@ -122,6 +122,46 @@ class FactorSlicesApiTests(unittest.TestCase):
         self.assertNotIn("zhongshu", after.json()["factors"])
         os.environ.pop("TRADE_CANVAS_FACTOR_LOGIC_VERSION", None)
 
+    def test_factor_slices_ignores_stale_zhongshu_head_snapshot(self) -> None:
+        base = 60
+        prices = [1, 2, 3, 4, 5, 6]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        stale_head = {
+            "alive": [
+                {
+                    "start_time": 60,
+                    "end_time": 180,
+                    "zg": 5.0,
+                    "zd": 4.0,
+                    "entry_direction": 1,
+                    "formed_time": 180,
+                    "death_time": None,
+                    "visible_time": 180,
+                }
+            ]
+        }
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO factor_head_snapshots(series_id, factor_name, candle_time, seq, head_json, created_at_ms)
+                VALUES (?, 'zhongshu', ?, 0, ?, 0)
+                """,
+                (
+                    self.series_id,
+                    int(times[2]),
+                    json.dumps(stale_head, ensure_ascii=False),
+                ),
+            )
+            conn.commit()
+
+        res = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
+        self.assertEqual(res.status_code, 200, res.text)
+        payload = res.json()
+        self.assertNotIn("zhongshu", payload["factors"])
+
 
 if __name__ == "__main__":
     unittest.main()

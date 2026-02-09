@@ -33,6 +33,10 @@ python3 -m trade_oracle.cli \
 - `TRADE_ORACLE_TRADE_FEE_RATE`（默认 `0.0008`）
 - `TRADE_ORACLE_TARGET_WIN_RATE`（默认 `0.5`）
 - `TRADE_ORACLE_TARGET_REWARD_RISK`（默认 `2.0`）
+- `TRADE_ORACLE_ENABLE_TRUE_SOLAR_TIME`（默认 `1`，开启真太阳时换算）
+- `TRADE_ORACLE_SOLAR_LONGITUDE_DEG`（默认 `24.9384`，赫尔辛基经度）
+- `TRADE_ORACLE_SOLAR_TZ_OFFSET_HOURS`（默认 `2.0`，按 GMT+2 标准时区换算）
+- `TRADE_ORACLE_STRICT_CALENDAR_LIB`（默认 `1`，缺少历法库时直接报错，不降级伪历法）
 
 ## CLI 任务
 
@@ -46,6 +50,12 @@ TRADE_ORACLE_ENABLE_BACKTEST=1 python3 -m trade_oracle.cli --task backtest-live
 # 历法双引擎差异审计（默认 2009-01-03 到 2026-01-01，步长 30 天，样本 > 100）
 python3 -m trade_oracle.cli --task calendar-audit
 ```
+
+## BTC 基准时间约定
+
+- 当前默认基准：`2009-01-03 18:15 GMT+2`。
+- 系统先换算为 UTC `2009-01-03T16:15:00Z`，再按真太阳时（赫尔辛基经度 24.9384E）计算干支。
+- 该约定下 BTC 原局四柱为：`戊子 甲子 戊申 辛酉`。
 
 ## API（MVP）
 

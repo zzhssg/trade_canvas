@@ -66,9 +66,12 @@ type ZhongshuSliceV1 = FactorSliceV1 & {
 
 ## 2) 语义与不变量（硬门禁）
 
-1) **只吃 confirmed pens**：中枢构造只能使用 `pen.history.confirmed`（或等价字段），不得使用 forming/extending pen（避免未来函数）。
+1) **只吃 closed-candle + confirmed 语义输入**：
+   - 结构候选与区间计算只能基于 `pen.history.confirmed`（或等价字段）；
+   - 允许用 `closed candle`（仅 `high/low`）触发 `price_cross` 提前确认；
+   - 严禁使用 forming/extending/tick 数据（避免未来函数）。
 2) **history 纯切片**：`zhongshu.history.dead` 必须仅按 `visible_time<=t` 过滤；禁止在 slice 阶段重算 dead 列表。
-3) **head 无未来函数**：`head.alive(t)` 允许用 `<=t` 的 confirmed pens 进行短窗重算，但不得读取 `>t` 的任何数据；若存在 hot ledger，应优先读 hot 的点查快照。
+3) **head 无未来函数**：`head.alive(t)` 允许用 `<=t` 的 confirmed pens + closed candles 进行短窗重算，但不得读取 `>t` 的任何数据；若存在 hot ledger，应优先读 hot 的点查快照。
 4) **seed ≡ incremental**：同一段 `CandleClosed[]` 输入，在新 DB 上重跑：
    - `dead` 的 `(count,last_visible_time,last_zg/zd)` 必须一致
    - `alive` 在同一 `t` 的结果必须一致（至少 `(formed_time, zg, zd)` 一致）

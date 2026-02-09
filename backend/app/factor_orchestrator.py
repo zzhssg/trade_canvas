@@ -14,6 +14,7 @@ from .debug_hub import DebugHub
 from .factor_graph import FactorGraph, FactorSpec
 from .factor_processors import AnchorProcessor, PenProcessor, PivotProcessor, ZhongshuProcessor, build_default_factor_processors
 from .factor_registry import FactorRegistry
+from .factor_semantics import is_more_extreme_pivot
 from .factor_slices import build_pen_head_candidate, build_pen_head_preview
 from .factor_store import FactorEventWrite, FactorStore
 from .pen import PivotMajorPoint
@@ -25,14 +26,6 @@ def _truthy_flag(v: str | None) -> bool:
     if v is None:
         return False
     return str(v).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _is_more_extreme(prev: PivotMajorPoint, cur: PivotMajorPoint) -> bool:
-    if cur.direction != prev.direction:
-        return False
-    if cur.direction == "resistance":
-        return float(cur.pivot_price) > float(prev.pivot_price)
-    return float(cur.pivot_price) < float(prev.pivot_price)
 
 
 def _rebuild_effective_pivots(pivots: list[dict]) -> list[PivotMajorPoint]:
@@ -59,7 +52,7 @@ def _rebuild_effective_pivots(pivots: list[dict]) -> list[PivotMajorPoint]:
             continue
         last = effective[-1]
         if p.direction == last.direction:
-            if _is_more_extreme(last, p):
+            if is_more_extreme_pivot(last, p):
                 effective[-1] = p
             continue
         effective.append(p)
@@ -71,6 +64,7 @@ class FactorSettings:
     pivot_window_major: int = 50
     pivot_window_minor: int = 5
     lookback_candles: int = 20000
+    state_rebuild_event_limit: int = 50000
 
 
 @dataclass(frozen=True)
@@ -131,6 +125,7 @@ class FactorOrchestrator:
                 "pivot_window_major": int(settings.pivot_window_major),
                 "pivot_window_minor": int(settings.pivot_window_minor),
                 "lookback_candles": int(settings.lookback_candles),
+                "state_rebuild_event_limit": int(settings.state_rebuild_event_limit),
             },
             "files": files,
             "logic_version_override": str(os.environ.get("TRADE_CANVAS_FACTOR_LOGIC_VERSION") or ""),
@@ -146,9 +141,11 @@ class FactorOrchestrator:
         major_raw = (os.environ.get("TRADE_CANVAS_PIVOT_WINDOW_MAJOR") or "").strip()
         minor_raw = (os.environ.get("TRADE_CANVAS_PIVOT_WINDOW_MINOR") or "").strip()
         lookback_raw = (os.environ.get("TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES") or "").strip()
+        state_limit_raw = (os.environ.get("TRADE_CANVAS_FACTOR_STATE_REBUILD_EVENT_LIMIT") or "").strip()
         major = self._settings.pivot_window_major
         minor = self._settings.pivot_window_minor
         lookback = self._settings.lookback_candles
+        state_limit = self._settings.state_rebuild_event_limit
         if major_raw:
             try:
                 major = max(1, int(major_raw))
@@ -164,7 +161,17 @@ class FactorOrchestrator:
                 lookback = max(100, int(lookback_raw))
             except ValueError:
                 lookback = self._settings.lookback_candles
-        return FactorSettings(pivot_window_major=int(major), pivot_window_minor=int(minor), lookback_candles=int(lookback))
+        if state_limit_raw:
+            try:
+                state_limit = max(1000, int(state_limit_raw))
+            except ValueError:
+                state_limit = self._settings.state_rebuild_event_limit
+        return FactorSettings(
+            pivot_window_major=int(major),
+            pivot_window_minor=int(minor),
+            lookback_candles=int(lookback),
+            state_rebuild_event_limit=int(state_limit),
+        )
 
     def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> FactorIngestResult:
         t0 = time.perf_counter()
@@ -260,13 +267,27 @@ class FactorOrchestrator:
 
         # Build incremental state from recent history.
         state_start = max(0, int(head_time) - int(lookback_candles) * int(tf_s))
+        state_scan_limit = max(int(s.state_rebuild_event_limit), int(lookback_candles) * 8)
         rows = self._factor_store.get_events_between_times(
             series_id=series_id,
             factor_name=None,
             start_candle_time=int(state_start),
             end_candle_time=int(head_time),
-            limit=50000,
+            limit=int(state_scan_limit),
         )
+        if len(rows) >= int(state_scan_limit) and self._debug_hub is not None:
+            self._debug_hub.emit(
+                pipe="write",
+                event="factor.state_rebuild.limit_reached",
+                series_id=series_id,
+                message="state rebuild event scan reached limit; consider raising TRADE_CANVAS_FACTOR_STATE_REBUILD_EVENT_LIMIT",
+                data={
+                    "state_start": int(state_start),
+                    "head_time": int(head_time),
+                    "scan_limit": int(state_scan_limit),
+                    "rows": int(len(rows)),
+                },
+            )
 
         pivot_events: list[dict] = []
         pen_events: list[dict] = []
@@ -467,7 +488,7 @@ class FactorOrchestrator:
                     candle_time=int(up_to),
                     head=pen_head,
                 )
-            if zhongshu_head.get("alive"):
+            if "alive" in zhongshu_head:
                 self._factor_store.insert_head_snapshot_in_conn(
                     conn,
                     series_id=series_id,

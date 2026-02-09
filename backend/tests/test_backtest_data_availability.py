@@ -79,8 +79,8 @@ class BacktestDataAvailabilityTests(unittest.TestCase):
             stderr="",
         )
 
-        with patch("backend.app.main.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
-            "backend.app.main.run_backtest_async", new=AsyncMock()
+        with patch("backend.app.backtest_routes.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
+            "backend.app.backtest_routes.run_backtest_async", new=AsyncMock()
         ) as mock_run:
             resp = self.client.post(
                 "/api/backtest/run",
@@ -99,4 +99,3 @@ class BacktestDataAvailabilityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

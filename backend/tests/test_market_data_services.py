@@ -12,11 +12,13 @@ from backend.app.market_data import (
     StoreBackfillService,
     StoreCandleReadService,
     StoreFreshnessService,
+    WsMessageParser,
     WsSubscriptionCoordinator,
     WsCatchupRequest,
     WsEmitRequest,
     build_derived_initial_backfill_handler,
     build_gap_backfill_handler,
+    build_ws_error_payload,
 )
 from backend.app.schemas import CandleClosed
 from backend.app.store import CandleStore
@@ -189,6 +191,43 @@ def test_store_backfill_service_wraps_gap_and_tail_backfill() -> None:
         assert svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=220) == 2
 
 
+def test_store_backfill_service_falls_back_to_ccxt_for_missing_window(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as td:
+        store = CandleStore(db_path=Path(td) / "market.db")
+        series_id = "binance:futures:SOL/USDT:1h"
+        called: list[tuple[int, int]] = []
+
+        def fake_tail_backfill(store: CandleStore, *, series_id: str, limit: int) -> int:
+            return 0
+
+        def fake_ccxt_backfill(*, candle_store: CandleStore, series_id: str, start_time: int, end_time: int, batch_limit: int = 1000) -> int:
+            called.append((int(start_time), int(end_time)))
+            with candle_store.connect() as conn:
+                candle_store.upsert_closed_in_conn(
+                    conn,
+                    series_id,
+                    CandleClosed(candle_time=0, open=1.0, high=2.0, low=0.5, close=1.5, volume=10.0),
+                )
+                candle_store.upsert_closed_in_conn(
+                    conn,
+                    series_id,
+                    CandleClosed(candle_time=3600, open=2.0, high=3.0, low=1.5, close=2.5, volume=10.0),
+                )
+                conn.commit()
+            return 2
+
+        monkeypatch.setenv("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", "1")
+        monkeypatch.setattr("backend.app.market_data.services.backfill_from_ccxt_range", fake_ccxt_backfill)
+
+        svc = StoreBackfillService(
+            store=store,
+            tail_backfill_fn=fake_tail_backfill,
+        )
+        covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=3600)
+        assert covered == 2
+        assert called == [(0, 3600)]
+
+
 def test_build_gap_backfill_handler_applies_flag_and_reads_recovered_interval(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as td:
         store = CandleStore(db_path=Path(td) / "market.db")
@@ -300,6 +339,8 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
             self.unsub_calls: list[str] = []
             self.pop_result: list[str] = []
             self.pop_calls = 0
+            self.last_sent_time: int | None = None
+            self.last_sent_series: str | None = None
 
         async def subscribe(self, ws, *, series_id: str, since: int | None, supports_batch: bool = False) -> None:
             self.sub_calls.append((series_id, since, bool(supports_batch)))
@@ -310,6 +351,13 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
         async def pop_ws(self, ws) -> list[str]:
             self.pop_calls += 1
             return list(self.pop_result)
+
+        async def get_last_sent(self, ws, *, series_id: str) -> int | None:
+            return None
+
+        async def set_last_sent(self, ws, *, series_id: str, candle_time: int) -> None:
+            self.last_sent_series = series_id
+            self.last_sent_time = int(candle_time)
 
     class _OnDemand:
         def __init__(self) -> None:
@@ -323,6 +371,18 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
 
         async def unsubscribe(self, series_id: str) -> None:
             self.unsubscribed.append(series_id)
+
+    class _MarketData:
+        def read_candles(self, req: CatchupReadRequest):
+            c = CandleClosed(candle_time=160, open=1.0, high=2.0, low=0.5, close=1.5, volume=10.0)
+            return SimpleNamespace(series_id=req.series_id, effective_since=req.since, candles=[c], gap_payload=None)
+
+        async def build_ws_catchup(self, req: WsCatchupRequest):
+            return SimpleNamespace(series_id=req.series_id, effective_since=req.since, candles=req.candles or [], gap_payload=None)
+
+        def build_ws_emit(self, req: WsEmitRequest):
+            payloads = [{"type": "candle_closed", "series_id": req.series_id, "candle": req.catchup[0].model_dump()}]
+            return SimpleNamespace(payloads=payloads, last_sent_time=int(req.catchup[-1].candle_time) if req.catchup else None)
 
     hub = _Hub()
     ondemand = _OnDemand()
@@ -343,6 +403,30 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
     assert err is None
     assert ondemand.subscribed == ["binance:futures:BTC/USDT:1m"]
     assert hub.sub_calls == [("binance:futures:BTC/USDT:1m", 100, True)]
+    assert hub.last_sent_time is None
+
+    async def _noop_backfill(*, series_id: str) -> None:
+        return None
+
+    err_flow, payloads = asyncio.run(
+        svc.handle_subscribe(
+            ws=ws,
+            series_id="binance:futures:BTC/USDT:1m",
+            since=100,
+            supports_batch=False,
+            ondemand_enabled=False,
+            market_data=_MarketData(),
+            derived_initial_backfill=_noop_backfill,
+        )
+    )
+    assert err_flow is None
+    assert [p["type"] for p in payloads] == ["candle_closed"]
+    assert hub.last_sent_series == "binance:futures:BTC/USDT:1m"
+    assert hub.last_sent_time == 160
+    assert hub.sub_calls == [
+        ("binance:futures:BTC/USDT:1m", 100, True),
+        ("binance:futures:BTC/USDT:1m", 100, False),
+    ]
 
     err_ok2 = asyncio.run(
         svc.subscribe(
@@ -356,6 +440,7 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
     assert err_ok2 is None
     assert hub.sub_calls == [
         ("binance:futures:BTC/USDT:1m", 100, True),
+        ("binance:futures:BTC/USDT:1m", 100, False),
         ("binance:futures:SOL/USDT:1m", 100, False),
     ]
 
@@ -373,6 +458,7 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
     assert err2["code"] == "capacity"
     assert hub.sub_calls == [
         ("binance:futures:BTC/USDT:1m", 100, True),
+        ("binance:futures:BTC/USDT:1m", 100, False),
         ("binance:futures:SOL/USDT:1m", 100, False),
     ]
 
@@ -398,4 +484,63 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
         "binance:futures:BTC/USDT:1m",
         "binance:futures:SOL/USDT:1m",
         "binance:futures:DOGE/USDT:1m",
+    }
+
+
+def test_ws_message_parser_validates_subscribe_and_unsubscribe_payloads() -> None:
+    parser = WsMessageParser()
+
+    assert parser.parse_message_type({"type": "subscribe"}) == "subscribe"
+
+    try:
+        parser.parse_message_type(["bad"])
+        assert False, "expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "invalid message envelope"
+
+    try:
+        parser.parse_message_type({"series_id": "binance:futures:BTC/USDT:1m"})
+        assert False, "expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "missing message type"
+
+    cmd = parser.parse_subscribe({"type": "subscribe", "series_id": "binance:futures:BTC/USDT:1m", "since": 100})
+    assert cmd.series_id == "binance:futures:BTC/USDT:1m"
+    assert cmd.since == 100
+    assert cmd.supports_batch is False
+
+    for payload, expected in [
+        ({"type": "subscribe"}, "missing series_id"),
+        ({"type": "subscribe", "series_id": "binance:futures:BTC/USDT:1m", "since": "100"}, "invalid since"),
+        ({"type": "subscribe", "series_id": "binance:futures:BTC/USDT:1m", "supports_batch": "1"}, "invalid supports_batch"),
+    ]:
+        try:
+            parser.parse_subscribe(payload)
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert str(exc) == expected
+
+    assert parser.parse_unsubscribe_series_id({"type": "unsubscribe", "series_id": "binance:futures:ETH/USDT:1m"}) == (
+        "binance:futures:ETH/USDT:1m"
+    )
+    assert parser.parse_unsubscribe_series_id({"type": "unsubscribe"}) is None
+
+    assert parser.unknown_message_type(msg_type="noop") == {
+        "type": "error",
+        "code": "bad_request",
+        "message": "unknown message type: noop",
+    }
+
+
+def test_build_ws_error_payload_supports_optional_series_id() -> None:
+    assert build_ws_error_payload(code="bad_request", message="missing message type") == {
+        "type": "error",
+        "code": "bad_request",
+        "message": "missing message type",
+    }
+    assert build_ws_error_payload(code="capacity", message="ondemand_ingest_capacity", series_id="s1") == {
+        "type": "error",
+        "code": "capacity",
+        "message": "ondemand_ingest_capacity",
+        "series_id": "s1",
     }

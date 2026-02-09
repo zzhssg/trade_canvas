@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", default="trade_oracle/output")
     parser.add_argument("--backtest-output", default="backtest_evidence.json")
     parser.add_argument("--audit-output", default="calendar_crosscheck.json")
-    parser.add_argument("--audit-start-utc", default="2009-01-03T18:15:05+00:00")
+    parser.add_argument("--audit-start-utc", default="2009-01-03T16:15:00+00:00")
     parser.add_argument("--audit-end-utc", default="2026-01-01T00:00:00+00:00")
     parser.add_argument("--audit-step-days", type=int, default=30)
     return parser

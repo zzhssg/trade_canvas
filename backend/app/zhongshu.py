@@ -550,30 +550,86 @@ def build_alive_zhongshu_from_confirmed_pens(
     )
 
 
-def build_dead_zhongshus_from_confirmed_pens(pens: list[dict]) -> list[ZhongshuDead]:
+def build_dead_zhongshus_from_confirmed_pens(
+    pens: list[dict],
+    *,
+    candles: list[Any] | None = None,
+    up_to_visible_time: int | None = None,
+) -> list[ZhongshuDead]:
     """
     Forward-growing Zhongshu semantics (append-only dead events):
-    - Consumes confirmed pens only.
+    - Consumes confirmed pens; when candles are provided, includes closed-candle early-confirm path.
     - Forms with entry pen + next 3 pens (range from the latter 3).
     - Keeps zg/zd fixed after formation.
     - Dies when a new pen is fully above or fully below the zhongshu zone.
     """
+    t_limit = int(up_to_visible_time or 0)
+    if t_limit <= 0:
+        max_pen_time = 0
+        for p in pens:
+            try:
+                max_pen_time = max(max_pen_time, int(p.get("visible_time") or 0))
+            except Exception:
+                continue
+        max_candle_time = 0
+        if candles is not None:
+            for c in candles:
+                try:
+                    max_candle_time = max(max_candle_time, int(getattr(c, "candle_time")))
+                except Exception:
+                    continue
+        t_limit = max(max_pen_time, max_candle_time)
+
     items = []
     for p in pens:
         try:
             vt = int(p.get("visible_time") or 0)
         except Exception:
             vt = 0
-        if vt <= 0:
+        if vt <= 0 or (t_limit > 0 and vt > t_limit):
             continue
         items.append((vt, p))
     items.sort(key=lambda x: x[0])
 
     state = init_zhongshu_state()
     out: list[ZhongshuDead] = []
-    for _, pen in items:
+
+    if candles is None:
+        for _, pen in items:
+            dead_event, _ = update_zhongshu_state(state, pen)
+            if dead_event is not None:
+                out.append(dead_event)
+        return out
+
+    candle_items: list[tuple[int, dict]] = []
+    for c in candles:
+        try:
+            ct = int(getattr(c, "candle_time"))
+            hi = float(getattr(c, "high"))
+            lo = float(getattr(c, "low"))
+        except Exception:
+            continue
+        if ct <= 0 or (t_limit > 0 and ct > t_limit):
+            continue
+        candle_items.append((ct, {"candle_time": int(ct), "high": float(hi), "low": float(lo)}))
+    candle_items.sort(key=lambda x: x[0])
+
+    pi = 0
+    plen = len(items)
+    for candle_time, candle_payload in candle_items:
+        while pi < plen and int(items[pi][0]) <= int(candle_time):
+            _, pen = items[pi]
+            dead_event, _ = update_zhongshu_state(state, pen)
+            if dead_event is not None:
+                out.append(dead_event)
+            pi += 1
+        update_zhongshu_state_on_closed_candle(state, candle_payload)
+
+    while pi < plen:
+        _, pen = items[pi]
         dead_event, _ = update_zhongshu_state(state, pen)
         if dead_event is not None:
             out.append(dead_event)
+        pi += 1
 
     return out

@@ -125,7 +125,8 @@ class MarketWebSocketTests(unittest.TestCase):
             t = threading.Thread(target=recv_one, daemon=True)
             t.start()
             t.join(timeout=0.2)
-            self.assertTrue(t.is_alive(), "unexpected extra ws message after capacity error")
+            if not t.is_alive():
+                self.assertNotIn("msg", got, "unexpected extra ws message after capacity error")
             ws.close()
             t.join(timeout=1.0)
             self.assertNotIn("msg", got)
@@ -163,3 +164,17 @@ class MarketWebSocketTests(unittest.TestCase):
                 self.assertEqual(msg["type"], "candles_batch")
                 self.assertEqual([c["candle_time"] for c in msg.get("candles", [])], [160, 220])
                 patched.assert_called_once()
+
+    def test_ws_invalid_message_shape_and_type_return_bad_request(self) -> None:
+        with self.client.websocket_connect("/ws/market") as ws:
+            ws.send_json(["bad-envelope"])
+            err_envelope = ws.receive_json()
+            self.assertEqual(err_envelope, {"type": "error", "code": "bad_request", "message": "invalid message envelope"})
+
+            ws.send_json({"series_id": self.series_id})
+            err_missing_type = ws.receive_json()
+            self.assertEqual(err_missing_type, {"type": "error", "code": "bad_request", "message": "missing message type"})
+
+            ws.send_json({"type": "noop"})
+            err_unknown = ws.receive_json()
+            self.assertEqual(err_unknown, {"type": "error", "code": "bad_request", "message": "unknown message type: noop"})

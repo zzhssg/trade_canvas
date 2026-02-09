@@ -177,15 +177,16 @@ class FactorSlicesService:
                 ),
             )
 
-        # Zhongshu head.alive is derived from confirmed pens at t (head-only); dead is append-only history slice.
+        # Zhongshu head.alive:
+        # - prefer deterministic derive at aligned time when confirmed pens exist in current window;
+        # - fallback to persisted head only when it is exactly aligned (avoid stale carry-over).
         zhongshu_head: dict = {}
-        if zhongshu_head_row is not None:
-            zhongshu_head = dict(zhongshu_head_row.head or {})
-        elif pen_confirmed:
+        if pen_confirmed:
+            zhongshu_head["alive"] = []
             try:
                 from .zhongshu import build_alive_zhongshu_from_confirmed_pens
 
-                candles_for_zs = self._candle_store.get_closed_between_times(
+                candles_for_zs = self.candle_store.get_closed_between_times(
                     series_id,
                     start_time=int(start_time),
                     end_time=int(aligned),
@@ -212,6 +213,11 @@ class FactorSlicesService:
                         "visible_time": int(alive.visible_time),
                     }
                 ]
+        elif zhongshu_head_row is not None and int(zhongshu_head_row.candle_time) == int(aligned):
+            head = dict(zhongshu_head_row.head or {})
+            alive = head.get("alive")
+            if isinstance(alive, list):
+                zhongshu_head["alive"] = alive
 
         if zhongshu_dead or zhongshu_head.get("alive"):
             factors.append("zhongshu")

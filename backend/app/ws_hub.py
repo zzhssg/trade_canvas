@@ -6,6 +6,13 @@ from typing import Awaitable, Callable
 
 from fastapi import WebSocket
 
+from .ws_protocol import (
+    WS_MSG_CANDLE_CLOSED,
+    WS_MSG_CANDLES_BATCH,
+    WS_MSG_CANDLE_FORMING,
+    WS_MSG_GAP,
+    WS_MSG_SYSTEM,
+)
 from .schemas import CandleClosed
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 
@@ -120,7 +127,7 @@ class CandleHub:
             return (
                 merged,
                 {
-                    "type": "gap",
+                    "type": WS_MSG_GAP,
                     "series_id": series_id,
                     "expected_next_time": expected_next,
                     "actual_time": first_time,
@@ -171,7 +178,7 @@ class CandleHub:
                     if first_time > expected_next:
                         await ws.send_json(
                             {
-                                "type": "gap",
+                                "type": WS_MSG_GAP,
                                 "series_id": series_id,
                                 "expected_next_time": expected_next,
                                 "actual_time": first_time,
@@ -181,7 +188,7 @@ class CandleHub:
                 if sub.supports_batch:
                     await ws.send_json(
                         {
-                            "type": "candles_batch",
+                            "type": WS_MSG_CANDLES_BATCH,
                             "series_id": series_id,
                             "candles": [c.model_dump() for c in sendable],
                         }
@@ -200,7 +207,7 @@ class CandleHub:
                     if expected_next_one is not None and int(candle.candle_time) > int(expected_next_one):
                         await ws.send_json(
                             {
-                                "type": "gap",
+                                "type": WS_MSG_GAP,
                                 "series_id": series_id,
                                 "expected_next_time": expected_next_one,
                                 "actual_time": int(candle.candle_time),
@@ -209,7 +216,7 @@ class CandleHub:
 
                     await ws.send_json(
                         {
-                            "type": "candle_closed",
+                            "type": WS_MSG_CANDLE_CLOSED,
                             "series_id": series_id,
                             "candle": candle.model_dump(),
                         }
@@ -289,7 +296,7 @@ class CandleHub:
                             continue
                         await ws.send_json(
                             {
-                                "type": "candle_closed",
+                                "type": WS_MSG_CANDLE_CLOSED,
                                 "series_id": series_id,
                                 "candle": item.model_dump(),
                             }
@@ -300,7 +307,7 @@ class CandleHub:
                     if expected_next is not None and int(candle.candle_time) > int(expected_next):
                         await ws.send_json(
                             {
-                                "type": "gap",
+                                "type": WS_MSG_GAP,
                                 "series_id": series_id,
                                 "expected_next_time": int(expected_next),
                                 "actual_time": int(candle.candle_time),
@@ -309,7 +316,7 @@ class CandleHub:
 
                 await ws.send_json(
                     {
-                        "type": "candle_closed",
+                        "type": WS_MSG_CANDLE_CLOSED,
                         "series_id": series_id,
                         "candle": candle.model_dump(),
                     }
@@ -333,7 +340,7 @@ class CandleHub:
                     continue
                 await ws.send_json(
                     {
-                        "type": "candle_forming",
+                        "type": WS_MSG_CANDLE_FORMING,
                         "series_id": series_id,
                         "candle": candle.model_dump(),
                     }
@@ -348,7 +355,7 @@ class CandleHub:
                 if series_id in subs:
                     targets.append(ws)
         payload = {
-            "type": "system",
+            "type": WS_MSG_SYSTEM,
             "series_id": series_id,
             "event": str(event),
             "message": str(message),

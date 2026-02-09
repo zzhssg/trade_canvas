@@ -2,21 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-
-def _is_more_extreme_pivot(prev: dict, cur: dict) -> bool:
-    direction = str(cur.get("direction") or "")
-    if direction != str(prev.get("direction") or ""):
-        return False
-    try:
-        cur_price = float(cur.get("pivot_price") or 0.0)
-        prev_price = float(prev.get("pivot_price") or 0.0)
-    except Exception:
-        return False
-    if direction == "resistance":
-        return cur_price > prev_price
-    if direction == "support":
-        return cur_price < prev_price
-    return False
+from .factor_semantics import is_more_extreme_pivot_dict
 
 
 def _build_effective_major_pivots(*, major_pivots: list[dict], at_time: int) -> list[dict]:
@@ -49,7 +35,7 @@ def _build_effective_major_pivots(*, major_pivots: list[dict], at_time: int) -> 
             continue
         last = effective[-1]
         if str(last.get("direction") or "") == str(p.get("direction") or ""):
-            if _is_more_extreme_pivot(last, p):
+            if is_more_extreme_pivot_dict(last, p):
                 effective[-1] = p
             continue
         effective.append(p)
