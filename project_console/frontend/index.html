@@ -69,7 +69,7 @@
         padding: 14px;
         background: var(--bg-card);
         display: grid;
-        grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.85fr) minmax(260px, 1.2fr) minmax(280px, 1fr) minmax(280px, 1fr);
+        grid-template-columns: minmax(240px, 1.35fr) minmax(200px, 1fr) minmax(240px, 1.2fr) minmax(260px, 1fr) minmax(260px, 1fr);
         gap: 14px;
         align-items: start;
       }
@@ -77,16 +77,40 @@
       .field-label { color: #7f97bf; font-size: 11px; letter-spacing: 0.2px; }
       .field-value { min-width: 0; color: var(--text-main); font-size: 12px; }
       .field-value.path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .title { font-weight: 620; font-size: 13px; margin-bottom: 4px; }
+      .title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .title {
+        font-weight: 620;
+        font-size: 13px;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .status-tag {
         font-size: 11px;
         padding: 2px 8px;
         border-radius: 999px;
         background: rgba(255, 210, 122, 0.12);
         color: #ffd27a;
-        margin-left: 8px;
+        white-space: nowrap;
+      }
+      .meta-row { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .meta-chip {
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid #37537f;
+        background: #142747;
+        color: #b8ccef;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .meta-chip.main {
+        border-color: #3e6f8d;
+        background: #173548;
+        color: #8dd7ff;
       }
       .muted { color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+      .muted.path-tip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .svc-grid { display: grid; gap: 10px; }
       .svc-row {
         display: flex;
@@ -133,7 +157,11 @@
         color: #ccfff0;
       }
       .icon-btn.success:hover { background: #285e55; border-color: #44a391; }
-      .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-start; align-content: flex-start; }
+      .actions { display: grid; gap: 8px; align-content: flex-start; }
+      .actions-row { display: flex; gap: 8px; flex-wrap: wrap; }
+      .actions-row:empty { display: none; }
+      .actions-row-primary button { font-weight: 560; }
+      .actions-note { margin-top: 2px; }
       button {
         border: 1px solid transparent;
         color: #fff;
@@ -168,9 +196,11 @@
         color: var(--danger-text);
         display: none;
       }
+      @media (max-width: 1500px) {
+        .card { grid-template-columns: repeat(2, minmax(260px, 1fr)); }
+      }
       @media (max-width: 1260px) {
         .card { grid-template-columns: 1fr; gap: 9px; }
-        .actions { justify-content: flex-start; }
       }
       @media (prefers-reduced-motion: reduce) {
         * { transition: none !important; }
@@ -236,6 +266,26 @@
         await load();
       }
 
+      function pathBasename(path) {
+        if (!path) return "";
+        const parts = String(path).split(/[\\/]/).filter(Boolean);
+        return parts.length ? parts[parts.length - 1] : String(path);
+      }
+
+      function resolveProjectTitle(project) {
+        const titled = [project.plan_title, project.description, project.branch]
+          .map((v) => (v || "").trim())
+          .find(Boolean);
+        return titled || pathBasename(project.path) || "未命名项目";
+      }
+
+      function middleEllipsis(value, maxLength, headLength, tailLength) {
+        const text = (value || "").trim();
+        if (!text) return "";
+        if (text.length <= maxLength) return text;
+        return `${text.slice(0, headLength)}...${text.slice(-tailLength)}`;
+      }
+
       function renderServiceRow(project, component, running, port, canControl) {
         const label = component === "backend" ? "Backend" : "Frontend";
         const stateText = running ? "运行中" : "未启动";
@@ -295,19 +345,33 @@
           const canControl = p.plan_status === "pending_acceptance" || p.is_main_project;
           const backendRunning = !!(p.services && p.services.backend_running);
           const frontendRunning = !!(p.services && p.services.frontend_running);
+          const projectTitle = resolveProjectTitle(p);
+          const branchLabel = (p.branch || "").trim() || "detached";
+          const planPathLabel = (p.plan_path || "").trim() || "未绑定计划文档";
+          const planPathDisplay = middleEllipsis(planPathLabel, 56, 30, 20);
+          const showPlanTip = p.plan_title && p.plan_title !== projectTitle;
+          const planTip = showPlanTip ? `<div class="muted path-tip" title="${p.plan_title}">${p.plan_title}</div>` : "";
+          const pathDisplay = middleEllipsis(p.path || "-", 62, 34, 22);
           card.innerHTML = `
             <div class="field">
               <div class="field-label">项目</div>
-              <div class="title">${p.plan_title || p.branch || p.path}<span class="status-tag">${p.plan_status_label}</span></div>
-              <div class="muted">${p.branch}</div>
+              <div class="title-row">
+                <div class="title" title="${projectTitle}">${projectTitle}</div>
+                <span class="status-tag">${p.plan_status_label}</span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-chip">${branchLabel}</span>
+                ${p.is_main_project ? '<span class="meta-chip main">主项目</span>' : ""}
+              </div>
             </div>
             <div class="field">
               <div class="field-label">计划文档</div>
-              <div class="field-value path">${p.plan_path || "未绑定 plan"}</div>
+              <div class="field-value path" title="${planPathLabel}">${planPathDisplay}</div>
+              ${planTip}
             </div>
             <div class="field">
               <div class="field-label">工作目录</div>
-              <div class="field-value path" title="${p.path}">${p.path}</div>
+              <div class="field-value path" title="${p.path}">${pathDisplay}</div>
             </div>
             <div class="field">
               <div class="field-label">服务状态</div>
@@ -324,25 +388,31 @@
           svcGrid.appendChild(renderServiceRow(p, "frontend", frontendRunning, services.frontend_port, canControl));
 
           const actions = card.querySelector(".actions");
+          const primaryActions = document.createElement("div");
+          primaryActions.className = "actions-row actions-row-primary";
+          actions.appendChild(primaryActions);
+          const secondaryActions = document.createElement("div");
+          secondaryActions.className = "actions-row actions-row-secondary";
+          actions.appendChild(secondaryActions);
 
           if (!p.plan_path) {
             const b = document.createElement("button");
             b.className = "primary";
             b.textContent = "绑定计划";
             b.onclick = () => bindPlan(p).catch((e) => showError(String(e.message || e)));
-            actions.appendChild(b);
+            primaryActions.appendChild(b);
           } else if (p.plan_status === "draft") {
             const b = document.createElement("button");
             b.className = "primary";
             b.textContent = "开始开发";
             b.onclick = () => setStatus(p, "in_progress").catch((e) => showError(String(e.message || e)));
-            actions.appendChild(b);
+            primaryActions.appendChild(b);
           } else if (p.plan_status === "in_progress") {
             const b = document.createElement("button");
             b.className = "primary";
             b.textContent = "标记待验收";
             b.onclick = () => setStatus(p, "pending_acceptance").catch((e) => showError(String(e.message || e)));
-            actions.appendChild(b);
+            primaryActions.appendChild(b);
           }
 
           if (canControl) {
@@ -351,26 +421,26 @@
             b.className = "primary";
             b.textContent = running ? "一键停止前后端" : "一键启动前后端";
             b.onclick = () => testAction(p, running ? "stop" : "start").catch((e) => showError(String(e.message || e)));
-            actions.appendChild(b);
+            primaryActions.appendChild(b);
 
             const restart = document.createElement("button");
             restart.className = "secondary";
             restart.textContent = "一键重启前后端";
             restart.onclick = () => testAction(p, "restart").catch((e) => showError(String(e.message || e)));
-            actions.appendChild(restart);
+            secondaryActions.appendChild(restart);
 
             if (p.services && p.services.frontend_port) {
               const open = document.createElement("button");
               open.className = "emphasis";
               open.textContent = "打开测试页";
               open.onclick = () => window.open(`http://127.0.0.1:${p.services.frontend_port}`, "_blank");
-              actions.prepend(open);
+              primaryActions.prepend(open);
             }
           } else {
             const tip = document.createElement("div");
-            tip.className = "muted";
+            tip.className = "muted actions-note";
             tip.textContent = "仅「待验收」或主项目可启动测试服务";
-            actions.appendChild(tip);
+            secondaryActions.appendChild(tip);
           }
 
           buckets[k].appendChild(card);
