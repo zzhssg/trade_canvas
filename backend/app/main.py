@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -17,27 +16,13 @@ from .blocking import run_blocking
 from .backtest_routes import register_backtest_routes
 from .config import load_settings
 from .debug_hub import DebugHub
+from .dev_routes import register_dev_routes
 from .factor_routes import register_factor_routes
 from .market_ws_routes import handle_market_ws
 from .replay_routes import register_replay_routes
 from .world_routes import register_world_routes
 from .ingest_supervisor import IngestSupervisor
 from .schemas import (
-    DevCreateWorktreeRequest,
-    DevCreateWorktreeResponse,
-    DevDeleteWorktreeRequest,
-    DevDeleteWorktreeResponse,
-    DevPortAllocationResponse,
-    DevServiceState,
-    DevServiceStatus,
-    DevStartServicesRequest,
-    DevStartServicesResponse,
-    DevStopServicesResponse,
-    DevUpdateMetadataRequest,
-    DevUpdateMetadataResponse,
-    DevWorktreeInfo,
-    DevWorktreeListResponse,
-    DevWorktreeMetadata,
     DrawDeltaV1,
     GetCandlesResponse,
     GetFactorSlicesResponseV1,
@@ -84,8 +69,6 @@ from .timeframe import series_id_timeframe, timeframe_to_seconds
 from .whitelist import load_market_whitelist
 from .ws_hub import CandleHub
 from .worktree_manager import WorktreeManager
-
-logger = logging.getLogger(__name__)
 
 _faulthandler_file: TextIO | None = None
 
@@ -258,6 +241,7 @@ def create_app() -> FastAPI:
     app.state.worktree_manager = worktree_manager
 
     register_factor_routes(app)
+    register_dev_routes(app)
     register_backtest_routes(app)
     register_replay_routes(app)
     register_world_routes(app)
@@ -817,148 +801,6 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
-    # ============ Dev Panel / Worktree Management API ============
-
-    def _worktree_to_response(wt) -> DevWorktreeInfo:
-        """Convert internal WorktreeInfo to response model."""
-        metadata = None
-        if wt.metadata:
-            metadata = DevWorktreeMetadata(
-                description=wt.metadata.description,
-                plan_path=wt.metadata.plan_path,
-                created_at=wt.metadata.created_at,
-                owner=wt.metadata.owner,
-                ports=wt.metadata.ports,
-            )
-        services = None
-        if wt.services:
-            services = DevServiceStatus(
-                backend=DevServiceState(
-                    running=wt.services.backend.running,
-                    port=wt.services.backend.port,
-                    pid=wt.services.backend.pid,
-                    url=wt.services.backend.url,
-                ),
-                frontend=DevServiceState(
-                    running=wt.services.frontend.running,
-                    port=wt.services.frontend.port,
-                    pid=wt.services.frontend.pid,
-                    url=wt.services.frontend.url,
-                ),
-            )
-        return DevWorktreeInfo(
-            id=wt.id,
-            path=wt.path,
-            branch=wt.branch,
-            commit=wt.commit,
-            is_detached=wt.is_detached,
-            is_main=wt.is_main,
-            metadata=metadata,
-            services=services,
-        )
-
-    @app.get("/api/dev/worktrees", response_model=DevWorktreeListResponse)
-    def list_worktrees() -> DevWorktreeListResponse:
-        """List all worktrees with metadata and service status."""
-        worktrees = worktree_manager.list_worktrees()
-        return DevWorktreeListResponse(
-            worktrees=[_worktree_to_response(wt) for wt in worktrees]
-        )
-
-    @app.get("/api/dev/worktrees/{worktree_id}", response_model=DevWorktreeInfo)
-    def get_worktree(worktree_id: str) -> DevWorktreeInfo:
-        """Get a specific worktree by ID."""
-        wt = worktree_manager.get_worktree(worktree_id)
-        if wt is None:
-            raise HTTPException(status_code=404, detail="worktree_not_found")
-        return _worktree_to_response(wt)
-
-    @app.post("/api/dev/worktrees", response_model=DevCreateWorktreeResponse)
-    def create_worktree(req: DevCreateWorktreeRequest) -> DevCreateWorktreeResponse:
-        """Create a new worktree with metadata."""
-        try:
-            wt = worktree_manager.create_worktree(
-                branch=req.branch,
-                description=req.description,
-                plan_path=req.plan_path,
-                base_branch=req.base_branch,
-            )
-            return DevCreateWorktreeResponse(ok=True, worktree=_worktree_to_response(wt))
-        except ValueError as e:
-            return DevCreateWorktreeResponse(ok=False, error=str(e))
-        except Exception as e:
-            logger.exception("Failed to create worktree")
-            return DevCreateWorktreeResponse(ok=False, error=str(e))
-
-    @app.post("/api/dev/worktrees/{worktree_id}/start", response_model=DevStartServicesResponse)
-    def start_worktree_services(
-        worktree_id: str, req: DevStartServicesRequest
-    ) -> DevStartServicesResponse:
-        """Start frontend + backend services for a worktree."""
-        try:
-            status = worktree_manager.start_services(
-                worktree_id=worktree_id,
-                backend_port=req.backend_port,
-                frontend_port=req.frontend_port,
-            )
-            return DevStartServicesResponse(
-                ok=True,
-                services=DevServiceStatus(
-                    backend=DevServiceState(
-                        running=status.backend.running,
-                        port=status.backend.port,
-                        pid=status.backend.pid,
-                        url=status.backend.url,
-                    ),
-                    frontend=DevServiceState(
-                        running=status.frontend.running,
-                        port=status.frontend.port,
-                        pid=status.frontend.pid,
-                        url=status.frontend.url,
-                    ),
-                ),
-            )
-        except ValueError as e:
-            return DevStartServicesResponse(ok=False, error=str(e))
-        except Exception as e:
-            logger.exception("Failed to start services")
-            return DevStartServicesResponse(ok=False, error=str(e))
-
-    @app.post("/api/dev/worktrees/{worktree_id}/stop", response_model=DevStopServicesResponse)
-    def stop_worktree_services(worktree_id: str) -> DevStopServicesResponse:
-        """Stop services for a worktree."""
-        try:
-            ok = worktree_manager.stop_services(worktree_id)
-            return DevStopServicesResponse(ok=ok)
-        except Exception as e:
-            logger.exception("Failed to stop services")
-            return DevStopServicesResponse(ok=False, error=str(e))
-
-    @app.delete("/api/dev/worktrees/{worktree_id}", response_model=DevDeleteWorktreeResponse)
-    def delete_worktree(
-        worktree_id: str, req: DevDeleteWorktreeRequest
-    ) -> DevDeleteWorktreeResponse:
-        """Delete a worktree and archive its metadata."""
-        try:
-            ok = worktree_manager.delete_worktree(worktree_id, force=req.force)
-            return DevDeleteWorktreeResponse(ok=ok)
-        except ValueError as e:
-            return DevDeleteWorktreeResponse(ok=False, error=str(e))
-        except Exception as e:
-            logger.exception("Failed to delete worktree")
-            return DevDeleteWorktreeResponse(ok=False, error=str(e))
-
-    @app.get("/api/dev/ports/allocate", response_model=DevPortAllocationResponse)
-    def allocate_ports_endpoint() -> DevPortAllocationResponse:
-        """Get next available port pair."""
-        from .port_allocator import allocate_ports as do_allocate
-
-        index = worktree_manager._read_index()
-        used_backend = {v.get("backend_port", 0) for v in index.get("allocations", {}).values()}
-        used_frontend = {v.get("frontend_port", 0) for v in index.get("allocations", {}).values()}
-        backend_port, frontend_port = do_allocate(used_backend, used_frontend)
-        return DevPortAllocationResponse(backend_port=backend_port, frontend_port=frontend_port)
-
     # ============ Replay Overlay Package API ============
 
     def _require_overlay_pkg_enabled() -> None:
@@ -1018,32 +860,6 @@ def create_app() -> FastAPI:
         window = app.state.overlay_pkg_service.window(job_id=job_id, target_idx=int(target_idx))
         return ReplayOverlayPackageWindowResponseV1(job_id=str(job_id), window=window)
 
-    @app.patch("/api/dev/worktrees/{worktree_id}/metadata", response_model=DevUpdateMetadataResponse)
-    def update_worktree_metadata(
-        worktree_id: str, req: DevUpdateMetadataRequest
-    ) -> DevUpdateMetadataResponse:
-        """Update worktree metadata."""
-        try:
-            metadata = worktree_manager.update_metadata(
-                worktree_id=worktree_id,
-                description=req.description,
-                plan_path=req.plan_path,
-            )
-            if metadata is None:
-                return DevUpdateMetadataResponse(ok=False, error="worktree_not_found")
-            return DevUpdateMetadataResponse(
-                ok=True,
-                metadata=DevWorktreeMetadata(
-                    description=metadata.description,
-                    plan_path=metadata.plan_path,
-                    created_at=metadata.created_at,
-                    owner=metadata.owner,
-                    ports=metadata.ports,
-                ),
-            )
-        except Exception as e:
-            logger.exception("Failed to update metadata")
-            return DevUpdateMetadataResponse(ok=False, error=str(e))
 
     return app
 

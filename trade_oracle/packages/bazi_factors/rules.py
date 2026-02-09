@@ -48,10 +48,18 @@ CONTROL = {
     "metal": "wood",
 }
 
+LAYER_LABELS = {
+    "year": "流年",
+    "month": "流月",
+    "day": "流日",
+}
+
 
 @dataclass(frozen=True)
 class FactorBundle:
     scores: list[FactorScore]
+    layer_scores: dict[str, float]
+    day_master: str
 
     @property
     def total(self) -> float:
@@ -80,20 +88,37 @@ def _relation_score(day_master: str, transit_elem: str) -> float:
     return 0.0
 
 
-def score_factors(*, natal: BaziSnapshot, transit: BaziSnapshot) -> FactorBundle:
+def _direction(v: float) -> str:
+    if v > 0.35:
+        return "bullish"
+    if v < -0.35:
+        return "bearish"
+    return "neutral"
+
+
+def _compute_layer_scores(*, natal: BaziSnapshot, transit: BaziSnapshot) -> tuple[str, dict[str, float]]:
     day_master = STEM_ELEMENT.get(natal.day.stem, "earth")
-    transit_elements = [
-        STEM_ELEMENT.get(transit.year.stem, "earth"),
-        STEM_ELEMENT.get(transit.month.stem, "earth"),
-        STEM_ELEMENT.get(transit.day.stem, "earth"),
-    ]
-    relation = sum(_relation_score(day_master, elem) for elem in transit_elements)
+    layer_elements = {
+        "year": STEM_ELEMENT.get(transit.year.stem, "earth"),
+        "month": STEM_ELEMENT.get(transit.month.stem, "earth"),
+        "day": STEM_ELEMENT.get(transit.day.stem, "earth"),
+    }
+    layer_scores = {layer: _relation_score(day_master, elem) for layer, elem in layer_elements.items()}
+    return day_master, layer_scores
+
+
+def score_factors(*, natal: BaziSnapshot, transit: BaziSnapshot) -> FactorBundle:
+    day_master, layer_scores = _compute_layer_scores(natal=natal, transit=transit)
+    relation = sum(layer_scores.values())
 
     natal_strength = _element_strength(natal)
     strongest_elem = max(natal_strength.items(), key=lambda x: x[1])[0]
 
     blind_score = relation
-    blind_reason = f"日主={day_master}，流年/月/日作用分={relation:.2f}"
+    blind_reason = (
+        f"日主={day_master}，流年={layer_scores['year']:+.2f}，"
+        f"流月={layer_scores['month']:+.2f}，流日={layer_scores['day']:+.2f}。"
+    )
 
     pattern_bonus = 0.7 if strongest_elem == day_master else -0.3
     pattern_score = relation * 0.6 + pattern_bonus
@@ -103,16 +128,9 @@ def score_factors(*, natal: BaziSnapshot, transit: BaziSnapshot) -> FactorBundle
     strength_score = relation - balance_penalty
     strength_reason = f"日主平衡惩罚={balance_penalty:.2f}"
 
-    def direction(v: float) -> str:
-        if v > 0.35:
-            return "bullish"
-        if v < -0.35:
-            return "bearish"
-        return "neutral"
-
     scores = [
-        FactorScore(school="盲派", score=blind_score, direction=direction(blind_score), reason=blind_reason),
-        FactorScore(school="格局派", score=pattern_score, direction=direction(pattern_score), reason=pattern_reason),
-        FactorScore(school="旺衰派", score=strength_score, direction=direction(strength_score), reason=strength_reason),
+        FactorScore(school="盲派", score=blind_score, direction=_direction(blind_score), reason=blind_reason),
+        FactorScore(school="格局派", score=pattern_score, direction=_direction(pattern_score), reason=pattern_reason),
+        FactorScore(school="旺衰派", score=strength_score, direction=_direction(strength_score), reason=strength_reason),
     ]
-    return FactorBundle(scores=scores)
+    return FactorBundle(scores=scores, layer_scores=layer_scores, day_master=day_master)
