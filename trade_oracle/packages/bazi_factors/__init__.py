@@ -1,2 +1,1 @@
 """Bazi factor scoring."""
-
