@@ -1,6 +1,6 @@
 ---
 title: trade_oracle MVP（BTC 八字走势报告）
-status: 开发中
+status: 已上线
 owner: Codex
 created: 2026-02-09
 updated: 2026-02-09
