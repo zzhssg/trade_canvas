@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from trade_oracle.models import AnalysisResult, BaziSnapshot, Candle, StrategyMetrics
-from trade_oracle.packages.bazi_factors.rules import score_factors
+from trade_oracle.packages.bazi_factors.rules import LAYER_LABELS, score_factors
 
 
 def _confidence_from_score(total_score: float) -> str:
@@ -23,6 +23,64 @@ def _bias_from_score(total_score: float) -> str:
     return "neutral"
 
 
+def _score_direction(score: float) -> str:
+    if score > 0.35:
+        return "bullish"
+    if score < -0.35:
+        return "bearish"
+    return "neutral"
+
+
+def _layer_attribution(bundle) -> dict:
+    layers = []
+    for layer in ("year", "month", "day"):
+        score = float(bundle.layer_scores.get(layer, 0.0))
+        layers.append(
+            {
+                "layer": layer,
+                "label": LAYER_LABELS.get(layer, layer),
+                "score": score,
+                "direction": _score_direction(score),
+            }
+        )
+    return {
+        "day_master": bundle.day_master,
+        "layers": layers,
+    }
+
+
+def _build_hist_note(
+    *,
+    daily_ret: float,
+    total: float,
+    bias: str,
+    confidence: str,
+    layer_attr: dict,
+    layer_backtest: dict | None,
+) -> str:
+    layers = layer_attr.get("layers", [])
+    dominant = max(layers, key=lambda x: abs(float(x.get("score", 0.0)))) if layers else None
+    dominant_text = ""
+    if dominant is not None:
+        dominant_text = f"主导项={dominant['label']}({dominant['score']:+.2f})"
+
+    segment_text = ""
+    if layer_backtest:
+        segments = layer_backtest.get("time_segments", [])
+        if segments:
+            recent = segments[-1]
+            stg = recent.get("strategy", {})
+            segment_text = (
+                f"，最近分段={recent.get('label')} 胜率={float(stg.get('win_rate', 0.0)):.2%} "
+                f"盈亏比={float(stg.get('reward_risk') or 0.0):.2f}"
+            )
+
+    base = f"最近一日收益={daily_ret:.4f}，总评分={total:.2f}，方向={bias}，置信度={confidence}"
+    if dominant_text:
+        base = f"{base}，{dominant_text}"
+    return f"{base}{segment_text}。"
+
+
 def build_analysis(
     *,
     series_id: str,
@@ -30,6 +88,7 @@ def build_analysis(
     birth_bazi: BaziSnapshot,
     transit_bazi: BaziSnapshot,
     strategy_metrics: StrategyMetrics | None,
+    layer_backtest: dict | None = None,
 ) -> AnalysisResult:
     bundle = score_factors(natal=birth_bazi, transit=transit_bazi)
     total = bundle.total
@@ -42,9 +101,14 @@ def build_analysis(
     if prev_close > 0:
         daily_ret = (last_close - prev_close) / prev_close
 
-    hist_note = (
-        f"最近一日收益={daily_ret:.4f}，总评分={total:.2f}，"
-        f"方向={bias}，置信度={confidence}。"
+    layer_attr = _layer_attribution(bundle)
+    hist_note = _build_hist_note(
+        daily_ret=daily_ret,
+        total=total,
+        bias=bias,
+        confidence=confidence,
+        layer_attr=layer_attr,
+        layer_backtest=layer_backtest,
     )
 
     evidence = {
@@ -65,6 +129,7 @@ def build_analysis(
                 for s in bundle.scores
             ],
         },
+        "layer_attribution": layer_attr,
     }
 
     if strategy_metrics is not None:
@@ -76,6 +141,9 @@ def build_analysis(
             "threshold": strategy_metrics.threshold,
             "windows": strategy_metrics.windows,
         }
+
+    if layer_backtest is not None:
+        evidence["layer_backtest"] = layer_backtest
 
     return AnalysisResult(
         series_id=series_id,

@@ -10,7 +10,7 @@ from trade_oracle.packages.asset_registry.registry import get_asset_birth
 from trade_oracle.packages.calendar_engine.service import CalendarService
 from trade_oracle.packages.reporting.markdown import render_markdown
 from trade_oracle.packages.research_engine.analyzer import build_analysis
-from trade_oracle.packages.research_engine.backtest import run_walk_forward_backtest
+from trade_oracle.packages.research_engine.backtest import run_layer_segment_backtest, run_walk_forward_backtest
 
 
 class OracleService:
@@ -36,12 +36,20 @@ class OracleService:
         if self.settings.enable_backtest:
             strategy_metrics = self._run_backtest(candles=candles, birth_bazi=birth_bazi)
 
+        layer_backtest = run_layer_segment_backtest(
+            candles=candles,
+            natal=birth_bazi,
+            calendar=self.calendar,
+            fee_rate=self.settings.trade_fee_rate,
+        )
+
         analysis = build_analysis(
             series_id=series_id,
             candles=candles,
             birth_bazi=birth_bazi,
             transit_bazi=transit_bazi,
             strategy_metrics=strategy_metrics,
+            layer_backtest=layer_backtest,
         )
 
         payload = {
