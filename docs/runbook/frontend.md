@@ -51,6 +51,25 @@ npm run dev
 
 兼容：也可使用 `VITE_API_BASE`（低优先级，建议迁移到 `VITE_API_BASE_URL`）。
 
+### Trade Oracle 页面（可选）
+
+右上角导航默认会显示 `Oracle`（位于 `Live` 右侧），并访问独立 `trade_oracle` API。
+
+可选环境变量：
+
+```bash
+cd frontend
+export VITE_ENABLE_TRADE_ORACLE_PAGE=1
+export VITE_ORACLE_API_BASE_URL="/oracle-api"   # 默认 dev 已是 /oracle-api（走 Vite proxy 到 8091）
+npm run dev
+```
+
+若要关闭入口：
+
+```bash
+export VITE_ENABLE_TRADE_ORACLE_PAGE=0
+```
+
 ## 前后端联调 E2E（验收）
 
 在仓库根目录一键跑通：

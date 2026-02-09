@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "asset_birth.v1",
+  "type": "object",
+  "required": ["symbol", "name", "birth_time_utc", "source_ref"],
+  "properties": {
+    "symbol": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "birth_time_utc": {"type": "string", "format": "date-time"},
+    "source_ref": {"type": "string", "minLength": 1}
+  }
+}

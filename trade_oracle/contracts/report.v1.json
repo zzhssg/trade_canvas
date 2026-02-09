@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "report.v1",
+  "type": "object",
+  "required": [
+    "series_id",
+    "generated_at_utc",
+    "bias",
+    "confidence",
+    "total_score",
+    "factor_scores",
+    "historical_note",
+    "evidence"
+  ],
+  "properties": {
+    "series_id": {"type": "string"},
+    "generated_at_utc": {"type": "string", "format": "date-time"},
+    "bias": {"type": "string", "enum": ["bullish", "bearish", "neutral"]},
+    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+    "total_score": {"type": "number"},
+    "factor_scores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["school", "score", "direction", "reason"],
+        "properties": {
+          "school": {"type": "string"},
+          "score": {"type": "number"},
+          "direction": {"type": "string"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "historical_note": {"type": "string"},
+    "evidence": {"type": "object"}
+  }
+}

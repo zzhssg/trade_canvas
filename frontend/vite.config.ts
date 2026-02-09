@@ -17,6 +17,11 @@ export default defineConfig({
         target: "https://fapi.binance.com",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/binance-fapi/, "")
+      },
+      "/oracle-api": {
+        target: "http://127.0.0.1:8091",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/oracle-api/, "")
       }
     }
   }
