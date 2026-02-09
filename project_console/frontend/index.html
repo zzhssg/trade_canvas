@@ -45,7 +45,18 @@
       }
       .title-wrap strong { font-size: 16px; letter-spacing: 0.2px; display: block; }
       .subtitle { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
-      .header-actions { display: flex; gap: 8px; }
+      .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .search-input {
+        width: min(280px, 42vw);
+        border-radius: 8px;
+        border: 1px solid #36527c;
+        background: #12233f;
+        color: #dce9ff;
+        padding: 8px 10px;
+        min-height: 36px;
+        font-size: 12px;
+      }
+      .search-input::placeholder { color: #88a1c9; }
       .board { padding: 16px; display: grid; gap: 12px; max-width: 1540px; margin: 0 auto; }
       .col {
         background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 16%), var(--bg-panel);
@@ -61,17 +72,52 @@
         border-bottom: 1px solid var(--line);
         color: #b4c8ec;
         letter-spacing: 0.3px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .col-count {
+        font-size: 11px;
+        color: #8facd8;
+        background: #173257;
+        border: 1px solid #345b8f;
+        border-radius: 999px;
+        padding: 1px 7px;
       }
       .list { padding: 10px; display: grid; gap: 8px; }
       .card {
         border: 1px solid #294066;
         border-radius: 10px;
-        padding: 14px;
+        padding: 10px;
         background: var(--bg-card);
         display: grid;
-        grid-template-columns: minmax(240px, 1.35fr) minmax(200px, 1fr) minmax(240px, 1.2fr) minmax(260px, 1fr) minmax(260px, 1fr);
-        gap: 14px;
-        align-items: start;
+        gap: 10px;
+      }
+      .card-head {
+        display: grid;
+        grid-template-columns: minmax(260px, 1.5fr) minmax(220px, 1.1fr) minmax(260px, 1.2fr) auto;
+        gap: 12px;
+        align-items: center;
+      }
+      .card-body {
+        display: none;
+        border-top: 1px solid #284165;
+        padding-top: 10px;
+        gap: 10px;
+      }
+      .card.expanded .card-body { display: grid; }
+      .detail-grid {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(260px, 1.3fr);
+        gap: 10px;
+      }
+      .detail-item {
+        background: #10233d;
+        border: 1px solid #284165;
+        border-radius: 8px;
+        padding: 9px 10px;
+        display: grid;
+        gap: 5px;
       }
       .field { display: grid; gap: 4px; min-width: 0; }
       .field-label { color: #7f97bf; font-size: 11px; letter-spacing: 0.2px; }
@@ -109,8 +155,27 @@
         background: #173548;
         color: #8dd7ff;
       }
+      .service-brief { display: flex; gap: 8px; flex-wrap: wrap; }
+      .svc-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid #35507a;
+        background: #142743;
+        font-size: 11px;
+        color: #c2d5f2;
+      }
+      .svc-pill.running {
+        border-color: #2e6c63;
+        background: #153733;
+      }
       .muted { color: var(--text-muted); font-size: 12px; line-height: 1.45; }
       .muted.path-tip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .quick-actions button { min-height: 32px; padding: 6px 10px; font-size: 11px; }
+      .card-toggle { min-height: 32px; padding: 6px 10px; font-size: 11px; }
       .svc-grid { display: grid; gap: 10px; }
       .svc-row {
         display: flex;
@@ -157,11 +222,8 @@
         color: #ccfff0;
       }
       .icon-btn.success:hover { background: #285e55; border-color: #44a391; }
-      .actions { display: grid; gap: 8px; align-content: flex-start; }
-      .actions-row { display: flex; gap: 8px; flex-wrap: wrap; }
-      .actions-row:empty { display: none; }
-      .actions-row-primary button { font-weight: 560; }
-      .actions-note { margin-top: 2px; }
+      .actions-inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .actions-inline .muted { font-size: 11px; }
       button {
         border: 1px solid transparent;
         color: #fff;
@@ -197,10 +259,13 @@
         display: none;
       }
       @media (max-width: 1500px) {
-        .card { grid-template-columns: repeat(2, minmax(260px, 1fr)); }
+        .card-head { grid-template-columns: minmax(240px, 1.4fr) minmax(220px, 1fr) minmax(240px, 1fr); }
+        .card-toggle { justify-self: start; }
       }
       @media (max-width: 1260px) {
-        .card { grid-template-columns: 1fr; gap: 9px; }
+        .card-head { grid-template-columns: 1fr; gap: 10px; }
+        .detail-grid { grid-template-columns: 1fr; }
+        .search-input { width: 100%; }
       }
       @media (prefers-reduced-motion: reduce) {
         * { transition: none !important; }
@@ -214,17 +279,23 @@
         <div class="subtitle">项目生命周期看板（草稿 / 开发中 / 待验收 / 已上线）</div>
       </div>
       <div class="header-actions">
+        <input id="search" class="search-input" type="search" placeholder="搜索项目 / 分支 / 路径" />
+        <button id="expand-all" class="ghost">展开全部</button>
+        <button id="collapse-all" class="ghost">收起全部</button>
         <button id="refresh" class="secondary">刷新</button>
       </div>
     </header>
     <div id="error"></div>
     <section class="board">
-      <div class="col"><h2>草稿</h2><div id="draft" class="list"></div></div>
-      <div class="col"><h2>开发中</h2><div id="in_progress" class="list"></div></div>
-      <div class="col"><h2>待验收</h2><div id="pending_acceptance" class="list"></div></div>
-      <div class="col"><h2>已上线</h2><div id="online" class="list"></div></div>
+      <div class="col"><h2>草稿 <span class="col-count" id="count-draft">0</span></h2><div id="draft" class="list"></div></div>
+      <div class="col"><h2>开发中 <span class="col-count" id="count-in_progress">0</span></h2><div id="in_progress" class="list"></div></div>
+      <div class="col"><h2>待验收 <span class="col-count" id="count-pending_acceptance">0</span></h2><div id="pending_acceptance" class="list"></div></div>
+      <div class="col"><h2>已上线 <span class="col-count" id="count-online">0</span></h2><div id="online" class="list"></div></div>
     </section>
     <script>
+      const UI_STATE = { search: "", expanded: new Set() };
+      const BUCKET_KEYS = ["draft", "in_progress", "pending_acceptance", "online"];
+
       function showError(msg) {
         const el = document.getElementById("error");
         if (!msg) { el.style.display = "none"; el.textContent = ""; return; }
@@ -266,6 +337,15 @@
         await load();
       }
 
+      function makeButton(text, className, onClick) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = className;
+        btn.textContent = text;
+        btn.onclick = onClick;
+        return btn;
+      }
+
       function pathBasename(path) {
         if (!path) return "";
         const parts = String(path).split(/[\\/]/).filter(Boolean);
@@ -284,6 +364,65 @@
         if (!text) return "";
         if (text.length <= maxLength) return text;
         return `${text.slice(0, headLength)}...${text.slice(-tailLength)}`;
+      }
+
+      function renderServicePill(label, running, port) {
+        const pill = document.createElement("span");
+        pill.className = `svc-pill ${running ? "running" : ""}`.trim();
+        const dot = document.createElement("span");
+        dot.className = `dot ${running ? "running" : "stopped"}`;
+        dot.setAttribute("aria-hidden", "true");
+        const txt = document.createElement("span");
+        txt.textContent = `${label} ${running ? "运行中" : "未启动"} :${port || "-"}`;
+        pill.appendChild(dot);
+        pill.appendChild(txt);
+        return pill;
+      }
+
+      function syncCardExpanded(card, expanded) {
+        const toggleBtn = card.querySelector(".card-toggle");
+        card.classList.toggle("expanded", expanded);
+        toggleBtn.textContent = expanded ? "收起" : "详情";
+      }
+
+      function applySearchAndCounts() {
+        const query = UI_STATE.search.trim().toLowerCase();
+        for (const key of BUCKET_KEYS) {
+          const bucket = document.getElementById(key);
+          const cards = Array.from(bucket.querySelectorAll(".card"));
+          let visible = 0;
+          for (const card of cards) {
+            const matched = !query || (card.dataset.search || "").includes(query);
+            card.style.display = matched ? "" : "none";
+            if (matched) visible += 1;
+          }
+          const count = document.getElementById(`count-${key}`);
+          if (count) count.textContent = String(visible);
+
+          let empty = bucket.querySelector(".empty");
+          if (visible === 0) {
+            if (!empty) {
+              empty = document.createElement("div");
+              empty.className = "empty";
+              bucket.appendChild(empty);
+            }
+            empty.style.display = "block";
+            empty.textContent = cards.length ? "无匹配项目" : "暂无项目";
+          } else if (empty) {
+            empty.style.display = "none";
+          }
+        }
+      }
+
+      function setAllExpanded(expanded) {
+        const cards = document.querySelectorAll(".card");
+        for (const card of cards) {
+          const wid = card.dataset.worktreeId || "";
+          if (!wid) continue;
+          if (expanded) UI_STATE.expanded.add(wid);
+          else UI_STATE.expanded.delete(wid);
+          syncCardExpanded(card, expanded);
+        }
       }
 
       function renderServiceRow(project, component, running, port, canControl) {
@@ -324,6 +463,155 @@
         return row;
       }
 
+      function renderProjectCard(project) {
+        const canControl = project.plan_status === "pending_acceptance" || project.is_main_project;
+        const services = project.services || {};
+        const backendRunning = !!services.backend_running;
+        const frontendRunning = !!services.frontend_running;
+        const projectTitle = resolveProjectTitle(project);
+        const branchLabel = (project.branch || "").trim() || "detached";
+        const planPathLabel = (project.plan_path || "").trim() || "未绑定计划文档";
+        const planPathDisplay = middleEllipsis(planPathLabel, 56, 30, 20);
+        const worktreePath = project.path || "-";
+        const pathDisplay = middleEllipsis(worktreePath, 62, 34, 22);
+        const showPlanTip = project.plan_title && project.plan_title !== projectTitle;
+
+        const card = document.createElement("article");
+        card.className = "card";
+        card.dataset.worktreeId = project.worktree_id;
+        card.dataset.search = `${projectTitle} ${branchLabel} ${planPathLabel} ${worktreePath}`.toLowerCase();
+        card.innerHTML = `
+          <div class="card-head">
+            <div class="field project-meta">
+              <div class="title-row">
+                <div class="title"></div>
+                <span class="status-tag"></span>
+              </div>
+              <div class="meta-row"></div>
+            </div>
+            <div class="service-brief"></div>
+            <div class="quick-actions"></div>
+            <button class="ghost card-toggle" type="button">详情</button>
+          </div>
+          <div class="card-body">
+            <div class="detail-grid">
+              <div class="detail-item detail-plan">
+                <div class="field-label">计划文档</div>
+                <div class="field-value path"></div>
+                <div class="muted path-tip"></div>
+              </div>
+              <div class="detail-item detail-path">
+                <div class="field-label">工作目录</div>
+                <div class="field-value path"></div>
+              </div>
+              <div class="detail-item detail-service">
+                <div class="field-label">服务控制</div>
+                <div class="svc-grid"></div>
+              </div>
+            </div>
+            <div class="actions-inline"></div>
+          </div>
+        `;
+
+        const titleEl = card.querySelector(".title");
+        titleEl.textContent = projectTitle;
+        titleEl.title = projectTitle;
+        card.querySelector(".status-tag").textContent = project.plan_status_label;
+
+        const metaRow = card.querySelector(".meta-row");
+        const branchChip = document.createElement("span");
+        branchChip.className = "meta-chip";
+        branchChip.textContent = branchLabel;
+        metaRow.appendChild(branchChip);
+        if (project.is_main_project) {
+          const mainChip = document.createElement("span");
+          mainChip.className = "meta-chip main";
+          mainChip.textContent = "主项目";
+          metaRow.appendChild(mainChip);
+        }
+
+        const brief = card.querySelector(".service-brief");
+        brief.appendChild(renderServicePill("B", backendRunning, services.backend_port));
+        brief.appendChild(renderServicePill("F", frontendRunning, services.frontend_port));
+
+        const quickActions = card.querySelector(".quick-actions");
+        if (!project.plan_path) {
+          quickActions.appendChild(
+            makeButton("绑定计划", "primary", () => bindPlan(project).catch((e) => showError(String(e.message || e))))
+          );
+        } else if (project.plan_status === "draft") {
+          quickActions.appendChild(
+            makeButton("开始开发", "primary", () => setStatus(project, "in_progress").catch((e) => showError(String(e.message || e))))
+          );
+        } else if (project.plan_status === "in_progress") {
+          quickActions.appendChild(
+            makeButton("标记待验收", "primary", () => setStatus(project, "pending_acceptance").catch((e) => showError(String(e.message || e))))
+          );
+        }
+
+        if (canControl) {
+          const running = backendRunning && frontendRunning;
+          quickActions.appendChild(
+            makeButton(running ? "一键停止" : "一键启动", "primary", () => testAction(project, running ? "stop" : "start").catch((e) => showError(String(e.message || e))))
+          );
+          if (services.frontend_port) {
+            quickActions.prepend(
+              makeButton("打开测试页", "emphasis", () => window.open(`http://127.0.0.1:${services.frontend_port}`, "_blank"))
+            );
+          }
+        }
+
+        const toggleBtn = card.querySelector(".card-toggle");
+        toggleBtn.onclick = (event) => {
+          event.stopPropagation();
+          const wid = project.worktree_id;
+          const expanded = !card.classList.contains("expanded");
+          if (expanded) UI_STATE.expanded.add(wid);
+          else UI_STATE.expanded.delete(wid);
+          syncCardExpanded(card, expanded);
+        };
+
+        const head = card.querySelector(".card-head");
+        head.addEventListener("click", (event) => {
+          if (event.target.closest("button")) return;
+          toggleBtn.click();
+        });
+
+        const planValue = card.querySelector(".detail-plan .field-value");
+        planValue.textContent = planPathDisplay;
+        planValue.title = planPathLabel;
+        const planTip = card.querySelector(".detail-plan .path-tip");
+        if (showPlanTip) {
+          planTip.textContent = project.plan_title;
+          planTip.title = project.plan_title;
+        } else {
+          planTip.style.display = "none";
+        }
+
+        const pathValue = card.querySelector(".detail-path .field-value");
+        pathValue.textContent = pathDisplay;
+        pathValue.title = worktreePath;
+
+        const svcGrid = card.querySelector(".detail-service .svc-grid");
+        svcGrid.appendChild(renderServiceRow(project, "backend", backendRunning, services.backend_port, canControl));
+        svcGrid.appendChild(renderServiceRow(project, "frontend", frontendRunning, services.frontend_port, canControl));
+
+        const actionsInline = card.querySelector(".actions-inline");
+        if (canControl) {
+          actionsInline.appendChild(
+            makeButton("一键重启前后端", "secondary", () => testAction(project, "restart").catch((e) => showError(String(e.message || e))))
+          );
+        } else {
+          const note = document.createElement("div");
+          note.className = "muted";
+          note.textContent = "仅「待验收」或主项目可启动测试服务";
+          actionsInline.appendChild(note);
+        }
+
+        syncCardExpanded(card, UI_STATE.expanded.has(project.worktree_id));
+        return card;
+      }
+
       async function load() {
         showError("");
         const res = await fetch("/api/projects");
@@ -340,122 +628,17 @@
 
         for (const p of data.projects) {
           const k = buckets[p.plan_status] ? p.plan_status : "draft";
-          const card = document.createElement("div");
-          card.className = "card";
-          const canControl = p.plan_status === "pending_acceptance" || p.is_main_project;
-          const backendRunning = !!(p.services && p.services.backend_running);
-          const frontendRunning = !!(p.services && p.services.frontend_running);
-          const projectTitle = resolveProjectTitle(p);
-          const branchLabel = (p.branch || "").trim() || "detached";
-          const planPathLabel = (p.plan_path || "").trim() || "未绑定计划文档";
-          const planPathDisplay = middleEllipsis(planPathLabel, 56, 30, 20);
-          const showPlanTip = p.plan_title && p.plan_title !== projectTitle;
-          const planTip = showPlanTip ? `<div class="muted path-tip" title="${p.plan_title}">${p.plan_title}</div>` : "";
-          const pathDisplay = middleEllipsis(p.path || "-", 62, 34, 22);
-          card.innerHTML = `
-            <div class="field">
-              <div class="field-label">项目</div>
-              <div class="title-row">
-                <div class="title" title="${projectTitle}">${projectTitle}</div>
-                <span class="status-tag">${p.plan_status_label}</span>
-              </div>
-              <div class="meta-row">
-                <span class="meta-chip">${branchLabel}</span>
-                ${p.is_main_project ? '<span class="meta-chip main">主项目</span>' : ""}
-              </div>
-            </div>
-            <div class="field">
-              <div class="field-label">计划文档</div>
-              <div class="field-value path" title="${planPathLabel}">${planPathDisplay}</div>
-              ${planTip}
-            </div>
-            <div class="field">
-              <div class="field-label">工作目录</div>
-              <div class="field-value path" title="${p.path}">${pathDisplay}</div>
-            </div>
-            <div class="field">
-              <div class="field-label">服务状态</div>
-              <div class="svc-grid"></div>
-            </div>
-            <div class="field">
-              <div class="field-label">快捷操作</div>
-              <div class="actions"></div>
-            </div>
-          `;
-          const svcGrid = card.querySelector(".svc-grid");
-          const services = p.services || {};
-          svcGrid.appendChild(renderServiceRow(p, "backend", backendRunning, services.backend_port, canControl));
-          svcGrid.appendChild(renderServiceRow(p, "frontend", frontendRunning, services.frontend_port, canControl));
-
-          const actions = card.querySelector(".actions");
-          const primaryActions = document.createElement("div");
-          primaryActions.className = "actions-row actions-row-primary";
-          actions.appendChild(primaryActions);
-          const secondaryActions = document.createElement("div");
-          secondaryActions.className = "actions-row actions-row-secondary";
-          actions.appendChild(secondaryActions);
-
-          if (!p.plan_path) {
-            const b = document.createElement("button");
-            b.className = "primary";
-            b.textContent = "绑定计划";
-            b.onclick = () => bindPlan(p).catch((e) => showError(String(e.message || e)));
-            primaryActions.appendChild(b);
-          } else if (p.plan_status === "draft") {
-            const b = document.createElement("button");
-            b.className = "primary";
-            b.textContent = "开始开发";
-            b.onclick = () => setStatus(p, "in_progress").catch((e) => showError(String(e.message || e)));
-            primaryActions.appendChild(b);
-          } else if (p.plan_status === "in_progress") {
-            const b = document.createElement("button");
-            b.className = "primary";
-            b.textContent = "标记待验收";
-            b.onclick = () => setStatus(p, "pending_acceptance").catch((e) => showError(String(e.message || e)));
-            primaryActions.appendChild(b);
-          }
-
-          if (canControl) {
-            const running = backendRunning && frontendRunning;
-            const b = document.createElement("button");
-            b.className = "primary";
-            b.textContent = running ? "一键停止前后端" : "一键启动前后端";
-            b.onclick = () => testAction(p, running ? "stop" : "start").catch((e) => showError(String(e.message || e)));
-            primaryActions.appendChild(b);
-
-            const restart = document.createElement("button");
-            restart.className = "secondary";
-            restart.textContent = "一键重启前后端";
-            restart.onclick = () => testAction(p, "restart").catch((e) => showError(String(e.message || e)));
-            secondaryActions.appendChild(restart);
-
-            if (p.services && p.services.frontend_port) {
-              const open = document.createElement("button");
-              open.className = "emphasis";
-              open.textContent = "打开测试页";
-              open.onclick = () => window.open(`http://127.0.0.1:${p.services.frontend_port}`, "_blank");
-              primaryActions.prepend(open);
-            }
-          } else {
-            const tip = document.createElement("div");
-            tip.className = "muted actions-note";
-            tip.textContent = "仅「待验收」或主项目可启动测试服务";
-            secondaryActions.appendChild(tip);
-          }
-
-          buckets[k].appendChild(card);
+          buckets[k].appendChild(renderProjectCard(p));
         }
-
-        for (const el of Object.values(buckets)) {
-          if (!el.children.length) {
-            const empty = document.createElement("div");
-            empty.className = "empty";
-            empty.textContent = "暂无项目";
-            el.appendChild(empty);
-          }
-        }
+        applySearchAndCounts();
       }
 
+      document.getElementById("search").addEventListener("input", (event) => {
+        UI_STATE.search = event.target.value || "";
+        applySearchAndCounts();
+      });
+      document.getElementById("expand-all").addEventListener("click", () => setAllExpanded(true));
+      document.getElementById("collapse-all").addEventListener("click", () => setAllExpanded(false));
       document.getElementById("refresh").addEventListener("click", load);
       load();
     </script>
