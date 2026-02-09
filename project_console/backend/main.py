@@ -12,7 +12,9 @@ from .worktree_service import (
     bind_plan,
     get_service_state,
     list_projects,
+    start_single_service,
     start_test_services,
+    stop_single_service,
     stop_test_services,
     update_plan_status,
 )
@@ -181,6 +183,75 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=f"not a git repo: {repo}")
         try:
             s = start_test_services(repo, worktree_id, restart=True)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return {
+            "ok": True,
+            "services": {
+                "backend_running": s.backend_running,
+                "frontend_running": s.frontend_running,
+                "backend_port": s.backend_port,
+                "frontend_port": s.frontend_port,
+            },
+        }
+
+    @app.post("/api/projects/{worktree_id}/test/{component}/start")
+    def test_single_start_api(
+        worktree_id: str,
+        component: str,
+        repo_root: str | None = Query(default=None),
+    ) -> dict[str, object]:
+        repo = Path(repo_root).resolve() if repo_root else default_repo
+        if not (repo / ".git").exists():
+            raise HTTPException(status_code=400, detail=f"not a git repo: {repo}")
+        try:
+            s = start_single_service(repo, worktree_id, component, restart=False)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return {
+            "ok": True,
+            "services": {
+                "backend_running": s.backend_running,
+                "frontend_running": s.frontend_running,
+                "backend_port": s.backend_port,
+                "frontend_port": s.frontend_port,
+            },
+        }
+
+    @app.post("/api/projects/{worktree_id}/test/{component}/restart")
+    def test_single_restart_api(
+        worktree_id: str,
+        component: str,
+        repo_root: str | None = Query(default=None),
+    ) -> dict[str, object]:
+        repo = Path(repo_root).resolve() if repo_root else default_repo
+        if not (repo / ".git").exists():
+            raise HTTPException(status_code=400, detail=f"not a git repo: {repo}")
+        try:
+            s = start_single_service(repo, worktree_id, component, restart=True)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return {
+            "ok": True,
+            "services": {
+                "backend_running": s.backend_running,
+                "frontend_running": s.frontend_running,
+                "backend_port": s.backend_port,
+                "frontend_port": s.frontend_port,
+            },
+        }
+
+    @app.post("/api/projects/{worktree_id}/test/{component}/stop")
+    def test_single_stop_api(
+        worktree_id: str,
+        component: str,
+        repo_root: str | None = Query(default=None),
+    ) -> dict[str, object]:
+        repo = Path(repo_root).resolve() if repo_root else default_repo
+        if not (repo / ".git").exists():
+            raise HTTPException(status_code=400, detail=f"not a git repo: {repo}")
+        try:
+            s = stop_single_service(repo, worktree_id, component)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         return {

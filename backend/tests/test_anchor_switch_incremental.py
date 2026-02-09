@@ -95,6 +95,88 @@ class AnchorSwitchIncrementalTests(unittest.TestCase):
         self.assertIsNotNone(cur)
         self.assertLessEqual(int(cur.get("end_time") or 0), int(payload["at_time"]))
 
+    def test_strong_pen_switch_keeps_single_best_ref_per_visible_time(self) -> None:
+        base = 60
+        prices = [
+            100,
+            95,
+            94,
+            92,
+            90,
+            87,
+            88,
+            83,
+            80,
+            77,
+            72,
+            77,
+            72,
+            73,
+            72,
+            73,
+            70,
+            68,
+            70,
+            71,
+            68,
+            66,
+            64,
+            65,
+            63,
+            64,
+            65,
+            70,
+            72,
+            77,
+            82,
+            79,
+            74,
+            75,
+            78,
+            80,
+            83,
+            82,
+            83,
+            80,
+            81,
+            80,
+            83,
+            78,
+            77,
+            72,
+            75,
+            73,
+            68,
+            66,
+        ]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        res = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
+        self.assertEqual(res.status_code, 200, res.text)
+        payload = res.json()
+        switches = ((payload.get("snapshots", {}).get("anchor", {}).get("history", {}) or {}).get("switches")) or []
+
+        strong_by_time: dict[int, list[dict]] = {}
+        for sw in switches:
+            if not isinstance(sw, dict):
+                continue
+            if str(sw.get("reason") or "") != "strong_pen":
+                continue
+            st = int(sw.get("switch_time") or 0)
+            strong_by_time.setdefault(st, []).append(sw)
+
+        duplicated = {st: items for st, items in strong_by_time.items() if len(items) > 1}
+        self.assertEqual(duplicated, {}, "strong_pen switches must be unique per visible_time")
+
+        picked = strong_by_time.get(1620) or []
+        self.assertEqual(len(picked), 1)
+        ref = picked[0].get("new_anchor") if isinstance(picked[0], dict) else None
+        self.assertIsInstance(ref, dict)
+        self.assertEqual(int(ref.get("start_time") or 0), 1200)
+        self.assertEqual(str(ref.get("kind") or ""), "candidate")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -9,6 +10,7 @@ class ZhongshuDead:
     end_time: int
     zg: float  # upper bound
     zd: float  # lower bound
+    entry_direction: int  # entry pen direction: 1=up, -1=down
     formed_time: int
     death_time: int
     visible_time: int
@@ -20,6 +22,7 @@ class ZhongshuAlive:
     end_time: int
     zg: float  # upper bound
     zd: float  # lower bound
+    entry_direction: int  # entry pen direction: 1=up, -1=down
     formed_time: int
     visible_time: int
 
@@ -37,6 +40,140 @@ def _as_range(pen: dict) -> tuple[float, float] | None:
     return (lo, hi)
 
 
+def _entry_direction(pen: dict) -> int:
+    try:
+        direction = int(pen.get("direction") or 0)
+    except Exception:
+        direction = 0
+    if direction in {-1, 1}:
+        return int(direction)
+
+    r = _as_range(pen)
+    if r is None:
+        return 1
+    try:
+        sp = float(pen.get("start_price"))
+        ep = float(pen.get("end_price"))
+    except Exception:
+        return 1
+    return 1 if ep >= sp else -1
+
+
+def _try_form_from_tail(window: list[dict]) -> tuple[dict | None, dict | None]:
+    # Formation rule: entry pen + next 3 pens.
+    if len(window) < 4:
+        return None, None
+
+    entry_pen = window[-4]
+    trio = window[-3:]
+    ranges = [_as_range(p) for p in trio]
+    if any(r is None for r in ranges):
+        return None, None
+
+    lo = max(r[0] for r in ranges if r is not None)
+    hi = min(r[1] for r in ranges if r is not None)
+    if lo > hi:
+        return None, None
+
+    formed_pen = trio[-1]
+    formed_time = int(formed_pen.get("visible_time") or 0)
+    if formed_time <= 0:
+        return None, None
+
+    start_time = int(entry_pen.get("start_time") or 0)
+    end_time = int(formed_pen.get("end_time") or 0)
+    if start_time <= 0 or end_time <= 0:
+        return None, None
+
+    return (
+        {
+            "start_time": start_time,
+            "end_time": end_time,
+            "zg": float(hi),
+            "zd": float(lo),
+            "entry_direction": int(_entry_direction(entry_pen)),
+            "formed_time": formed_time,
+            "last_seen_visible_time": formed_time,
+        },
+        entry_pen,
+    )
+
+
+def _is_same_side_outside(alive: dict, pen: dict) -> bool:
+    r = _as_range(pen)
+    if r is None:
+        return False
+    zd = float(alive.get("zd") or 0.0)
+    zg = float(alive.get("zg") or 0.0)
+    pen_lo, pen_hi = float(r[0]), float(r[1])
+    return pen_hi < zd or pen_lo > zg
+
+
+def init_zhongshu_state() -> dict[str, Any]:
+    return {"alive": None, "tail": []}
+
+
+def update_zhongshu_state(state: dict[str, Any], pen: dict) -> tuple[ZhongshuDead | None, dict | None]:
+    tail: list[dict] = list(state.get("tail") or [])
+    tail.append(pen)
+    if len(tail) > 4:
+        tail = tail[-4:]
+
+    alive = state.get("alive")
+    formed_entry_pen: dict | None = None
+    dead_event: ZhongshuDead | None = None
+
+    if _as_range(pen) is None:
+        state["tail"] = tail
+        return None, None
+
+    if alive is None:
+        alive, formed_entry_pen = _try_form_from_tail(tail)
+    else:
+        # Keep zg/zd fixed after formation; only end_time advances.
+        if _is_same_side_outside(alive, pen):
+            visible_time = int(pen.get("visible_time") or 0)
+            dead_event = ZhongshuDead(
+                start_time=int(alive["start_time"]),
+                end_time=int(alive.get("end_time") or 0),
+                zg=float(alive["zg"]),
+                zd=float(alive["zd"]),
+                entry_direction=int(alive.get("entry_direction") or 1),
+                formed_time=int(alive["formed_time"]),
+                death_time=int(visible_time),
+                visible_time=int(visible_time),
+            )
+            alive, formed_entry_pen = _try_form_from_tail(tail)
+        else:
+            try:
+                alive["end_time"] = max(int(alive.get("end_time") or 0), int(pen.get("end_time") or 0))
+            except Exception:
+                pass
+            alive["last_seen_visible_time"] = int(pen.get("visible_time") or 0)
+
+    state["alive"] = alive
+    state["tail"] = tail
+    return dead_event, formed_entry_pen
+
+
+def replay_zhongshu_state(pens: list[dict]) -> dict[str, Any]:
+    items: list[tuple[int, dict]] = []
+    for p in pens:
+        try:
+            vt = int(p.get("visible_time") or 0)
+        except Exception:
+            vt = 0
+        if vt <= 0:
+            continue
+        items.append((vt, p))
+    items.sort(key=lambda x: x[0])
+
+    state = init_zhongshu_state()
+    for _, p in items:
+        update_zhongshu_state(state, p)
+    return state
+
+
 def build_alive_zhongshu_from_confirmed_pens(
     pens: list[dict],
     *,
@@ -45,7 +182,7 @@ def build_alive_zhongshu_from_confirmed_pens(
     """
     Compute the t-time alive zhongshu snapshot (head-only):
     - Uses only confirmed pens with visible_time<=t (no future function).
-    - Replays the same conservative intersection semantics as build_dead_zhongshus_from_confirmed_pens.
+    - Replays the same semantics as build_dead_zhongshus_from_confirmed_pens.
     - Returns the last alive zhongshu at t (0/1).
     """
     t = int(up_to_visible_time or 0)
@@ -65,65 +202,11 @@ def build_alive_zhongshu_from_confirmed_pens(
     if not items:
         return None
 
-    alive: dict | None = None
+    state = init_zhongshu_state()
+    for _, pen in items:
+        update_zhongshu_state(state, pen)
 
-    def try_form(window: list[dict]) -> dict | None:
-        if len(window) < 3:
-            return None
-        ranges = [_as_range(p) for p in window[-3:]]
-        if any(r is None for r in ranges):
-            return None
-        lo = max(r[0] for r in ranges if r is not None)
-        hi = min(r[1] for r in ranges if r is not None)
-        if lo > hi:
-            return None
-        third = window[-1]
-        formed_time = int(third.get("visible_time") or 0)
-        if formed_time <= 0:
-            return None
-        start_time = int(window[-3].get("start_time") or 0)
-        end_time = int(third.get("end_time") or 0)
-        if start_time <= 0 or end_time <= 0:
-            return None
-        return {
-            "start_time": start_time,
-            "end_time": end_time,
-            "zg": float(hi),
-            "zd": float(lo),
-            "formed_time": formed_time,
-            "last_seen_visible_time": formed_time,
-        }
-
-    confirmed: list[dict] = []
-    for visible_time, pen in items:
-        confirmed.append(pen)
-        r = _as_range(pen)
-        if r is None:
-            continue
-
-        if alive is None:
-            alive = try_form(confirmed)
-            continue
-
-        lo = float(alive["zd"])
-        hi = float(alive["zg"])
-        nlo = max(lo, float(r[0]))
-        nhi = min(hi, float(r[1]))
-
-        if nlo <= nhi:
-            alive["zd"] = float(nlo)
-            alive["zg"] = float(nhi)
-            try:
-                alive["end_time"] = max(int(alive.get("end_time") or 0), int(pen.get("end_time") or 0))
-            except Exception:
-                pass
-            alive["last_seen_visible_time"] = int(visible_time)
-            continue
-
-        # Alive dies at current pen visible_time; clear and allow immediate reform.
-        alive = None
-        alive = try_form(confirmed)
-
+    alive = state.get("alive")
     if alive is None:
         return None
 
@@ -132,6 +215,7 @@ def build_alive_zhongshu_from_confirmed_pens(
         end_time = int(alive.get("end_time") or 0)
         zg = float(alive.get("zg") or 0.0)
         zd = float(alive.get("zd") or 0.0)
+        entry_direction = int(alive.get("entry_direction") or 1)
         formed_time = int(alive.get("formed_time") or 0)
     except Exception:
         return None
@@ -145,6 +229,7 @@ def build_alive_zhongshu_from_confirmed_pens(
         end_time=end_time,
         zg=zg,
         zd=zd,
+        entry_direction=entry_direction if entry_direction in {-1, 1} else 1,
         formed_time=formed_time,
         visible_time=int(t),
     )
@@ -152,13 +237,11 @@ def build_alive_zhongshu_from_confirmed_pens(
 
 def build_dead_zhongshus_from_confirmed_pens(pens: list[dict]) -> list[ZhongshuDead]:
     """
-    Minimal Zhongshu semantics (append-only dead events):
-    - Consumes confirmed pens (history only).
-    - Forms when the last 3 pen ranges overlap (intersection non-empty).
-    - While alive, intersection is updated by intersecting with each new pen range.
-    - Dies when intersection becomes empty, visible at the current pen's visible_time.
-
-    This is intentionally conservative and deterministic; it avoids future function by using only confirmed pens.
+    Forward-growing Zhongshu semantics (append-only dead events):
+    - Consumes confirmed pens only.
+    - Forms with entry pen + next 3 pens (range from the latter 3).
+    - Keeps zg/zd fixed after formation.
+    - Dies when a new pen is fully above or fully below the zhongshu zone.
     """
     items = []
     for p in pens:
@@ -171,78 +254,11 @@ def build_dead_zhongshus_from_confirmed_pens(pens: list[dict]) -> list[ZhongshuD
         items.append((vt, p))
     items.sort(key=lambda x: x[0])
 
-    alive: dict | None = None
+    state = init_zhongshu_state()
     out: list[ZhongshuDead] = []
-
-    def try_form(window: list[dict]) -> dict | None:
-        if len(window) < 3:
-            return None
-        ranges = [_as_range(p) for p in window[-3:]]
-        if any(r is None for r in ranges):
-            return None
-        lo = max(r[0] for r in ranges if r is not None)
-        hi = min(r[1] for r in ranges if r is not None)
-        if lo > hi:
-            return None
-        third = window[-1]
-        formed_time = int(third.get("visible_time") or 0)
-        if formed_time <= 0:
-            return None
-        start_time = int(window[-3].get("start_time") or 0)
-        end_time = int(third.get("end_time") or 0)
-        if start_time <= 0 or end_time <= 0:
-            return None
-        return {
-            "start_time": start_time,
-            "end_time": end_time,
-            "zg": float(hi),
-            "zd": float(lo),
-            "formed_time": formed_time,
-            "last_seen_visible_time": formed_time,
-        }
-
-    # Keep a rolling list of confirmed pens to enable "form after death".
-    confirmed: list[dict] = []
-    for visible_time, pen in items:
-        confirmed.append(pen)
-        r = _as_range(pen)
-        if r is None:
-            continue
-
-        if alive is None:
-            alive = try_form(confirmed)
-            continue
-
-        lo = float(alive["zd"])
-        hi = float(alive["zg"])
-        nlo = max(lo, float(r[0]))
-        nhi = min(hi, float(r[1]))
-
-        if nlo <= nhi:
-            alive["zd"] = float(nlo)
-            alive["zg"] = float(nhi)
-            try:
-                alive["end_time"] = max(int(alive.get("end_time") or 0), int(pen.get("end_time") or 0))
-            except Exception:
-                pass
-            alive["last_seen_visible_time"] = int(visible_time)
-            continue
-
-        # Alive dies at current pen visible_time.
-        out.append(
-            ZhongshuDead(
-                start_time=int(alive["start_time"]),
-                end_time=int(alive.get("end_time") or 0),
-                zg=float(alive["zg"]),
-                zd=float(alive["zd"]),
-                formed_time=int(alive["formed_time"]),
-                death_time=int(visible_time),
-                visible_time=int(visible_time),
-            )
-        )
-        alive = None
-
-        # After death, allow immediate reform using the latest window.
-        alive = try_form(confirmed)
+    for _, pen in items:
+        dead_event, _ = update_zhongshu_state(state, pen)
+        if dead_event is not None:
+            out.append(dead_event)
 
     return out

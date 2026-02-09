@@ -212,13 +212,17 @@ class OverlayOrchestrator:
         polyline_defs: list[tuple[str, int, dict[str, Any]]] = []
         pen_confirmed.sort(key=lambda d: (int(d.get("visible_time") or 0), int(d.get("start_time") or 0)))
         pen_lookup: dict[tuple[int, int, int], dict[str, Any]] = {}
+        pen_latest_by_start_dir: dict[tuple[int, int], dict[str, Any]] = {}
         for p in pen_confirmed:
-            key = (
-                int(p.get("start_time") or 0),
-                int(p.get("end_time") or 0),
-                int(p.get("direction") or 0),
-            )
+            start_time = int(p.get("start_time") or 0)
+            end_time = int(p.get("end_time") or 0)
+            direction = int(p.get("direction") or 0)
+            key = (start_time, end_time, direction)
             pen_lookup[key] = p
+            pointer_key = (start_time, direction)
+            prev = pen_latest_by_start_dir.get(pointer_key)
+            if prev is None or int(prev.get("end_time") or 0) <= end_time:
+                pen_latest_by_start_dir[pointer_key] = p
 
         candles = self._candle_store.get_closed_between_times(
             series_id,
@@ -251,6 +255,7 @@ class OverlayOrchestrator:
             color: str,
             line_width: int = 2,
             line_style: str | None = None,
+            entry_direction: int | None = None,
         ) -> None:
             if len(points) < 2:
                 return
@@ -263,7 +268,14 @@ class OverlayOrchestrator:
             }
             if line_style:
                 payload["lineStyle"] = str(line_style)
+            if entry_direction in {-1, 1}:
+                payload["entryDirection"] = int(entry_direction)
             polyline_defs.append((instruction_id, int(visible_time), payload))
+
+        def zhongshu_border_color(*, is_alive: bool, entry_direction: int) -> str:
+            if is_alive:
+                return "rgba(22,163,74,0.72)" if entry_direction >= 0 else "rgba(220,38,38,0.72)"
+            return "rgba(74,222,128,0.58)" if entry_direction >= 0 else "rgba(248,113,113,0.58)"
 
         # Zhongshu dead boxes (rendered as top/bottom lines).
         for zs in zhongshu_dead:
@@ -272,24 +284,28 @@ class OverlayOrchestrator:
             zg = float(zs.get("zg") or 0.0)
             zd = float(zs.get("zd") or 0.0)
             visible_time = int(zs.get("visible_time") or 0)
+            entry_direction = int(zs.get("entry_direction") or -1)
             if start_time <= 0 or end_time <= 0 or visible_time <= 0:
                 continue
             if end_time < cutoff_time or start_time > to_time:
                 continue
             base_id = f"zhongshu.dead:{start_time}:{end_time}:{zg:.6f}:{zd:.6f}"
+            border_color = zhongshu_border_color(is_alive=False, entry_direction=entry_direction)
             add_polyline(
                 f"{base_id}:top",
                 visible_time=visible_time,
                 feature="zhongshu.dead",
                 points=[{"time": start_time, "value": zg}, {"time": end_time, "value": zg}],
-                color="rgba(148,163,184,0.7)",
+                color=border_color,
+                entry_direction=entry_direction,
             )
             add_polyline(
                 f"{base_id}:bottom",
                 visible_time=visible_time,
                 feature="zhongshu.dead",
                 points=[{"time": start_time, "value": zd}, {"time": end_time, "value": zd}],
-                color="rgba(148,163,184,0.7)",
+                color=border_color,
+                entry_direction=entry_direction,
             )
 
         # Zhongshu alive (single evolving box).
@@ -298,24 +314,28 @@ class OverlayOrchestrator:
             end_time = int(alive.end_time)
             zg = float(alive.zg)
             zd = float(alive.zd)
+            entry_direction = int(alive.entry_direction) if int(alive.entry_direction) in {-1, 1} else 1
+            border_color = zhongshu_border_color(is_alive=True, entry_direction=entry_direction)
             add_polyline(
                 "zhongshu.alive:top",
                 visible_time=int(to_time),
                 feature="zhongshu.alive",
                 points=[{"time": start_time, "value": zg}, {"time": end_time, "value": zg}],
-                color="rgba(34,197,94,0.8)",
+                color=border_color,
+                entry_direction=entry_direction,
             )
             add_polyline(
                 "zhongshu.alive:bottom",
                 visible_time=int(to_time),
                 feature="zhongshu.alive",
                 points=[{"time": start_time, "value": zd}, {"time": end_time, "value": zd}],
-                color="rgba(34,197,94,0.8)",
+                color=border_color,
+                entry_direction=entry_direction,
             )
 
         history_anchors, history_switches = build_anchor_history_from_switches(anchor_switches)
 
-        # Anchor current + reverse + history (polyline).
+        # Anchor current + history (polyline).
         current_ref = None
         if history_switches:
             cur = history_switches[-1].get("new_anchor")
@@ -338,14 +358,6 @@ class OverlayOrchestrator:
             direction = int(ref.get("direction") or 0)
             if start_time <= 0 or end_time <= 0:
                 return []
-            if kind == "confirmed":
-                match = pen_lookup.get((start_time, end_time, direction))
-                if match:
-                    return [
-                        {"time": start_time, "value": float(match.get("start_price") or 0.0)},
-                        {"time": end_time, "value": float(match.get("end_price") or 0.0)},
-                    ]
-                return []
             if kind == "candidate" and isinstance(pen_candidate, dict):
                 if (
                     int(pen_candidate.get("start_time") or 0) == start_time
@@ -356,7 +368,15 @@ class OverlayOrchestrator:
                         {"time": start_time, "value": float(pen_candidate.get("start_price") or 0.0)},
                         {"time": end_time, "value": float(pen_candidate.get("end_price") or 0.0)},
                     ]
-            return []
+            match = pen_lookup.get((start_time, end_time, direction))
+            if match is None:
+                match = pen_latest_by_start_dir.get((start_time, direction))
+            if match is None:
+                return []
+            return [
+                {"time": int(match.get("start_time") or 0), "value": float(match.get("start_price") or 0.0)},
+                {"time": int(match.get("end_time") or 0), "value": float(match.get("end_price") or 0.0)},
+            ]
 
         anchor_points = resolve_points(current_ref)
         if anchor_points:
@@ -383,27 +403,9 @@ class OverlayOrchestrator:
                 visible_time=max(1, switch_time),
                 feature="anchor.history",
                 points=history_points,
-                color="rgba(245,158,11,0.28)",
+                color="rgba(59,130,246,0.55)",
                 line_width=1,
             )
-
-        if isinstance(pen_candidate, dict):
-            reverse_ref = {
-                "kind": "candidate",
-                "start_time": int(pen_candidate.get("start_time") or 0),
-                "end_time": int(pen_candidate.get("end_time") or 0),
-                "direction": int(pen_candidate.get("direction") or 0),
-            }
-            reverse_points = resolve_points(reverse_ref)
-            if reverse_points:
-                add_polyline(
-                    "anchor.reverse",
-                    visible_time=int(to_time),
-                    feature="anchor.reverse",
-                    points=reverse_points,
-                    color="#f59e0b",
-                    line_style="dashed",
-                )
 
         if isinstance(pen_extending, dict):
             add_polyline(

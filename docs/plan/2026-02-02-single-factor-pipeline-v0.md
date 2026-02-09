@@ -110,7 +110,7 @@ v0 改为实现 **旧系统的 Pivot（极值点）算法**，并用其产出最
 - [x] M1（Pivot v0 ingest：极值点 + 延迟事件）
   - 改什么：
     - `backend/app/plot_orchestrator.py`（新）：消费 `CandleClosed` 计算 pivot（major+minor），产出 `pivot.major` / `pivot.minor` events
-    - `backend/app/ingest_ccxt.py`、`backend/app/ingest_binance_ws.py`、`backend/app/main.py`：在 closed candle 成功写入 store 后触发 orchestrator（批量/单根都要覆盖）
+    - `backend/app/ingest_binance_ws.py`、`backend/app/main.py`：在 closed candle 成功写入 store 后触发 orchestrator（批量/单根都要覆盖）
   - 怎么验收：
     - 新增 `backend/tests/test_plot_pivot_ingest.py`
       - 对拍：`seed(all_candles)` 的输出 == 逐根 `apply_closed()` 的输出（`seed ≡ incremental`）

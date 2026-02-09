@@ -5,7 +5,8 @@ import os
 import time
 from dataclasses import dataclass
 
-from .ingest_ccxt import WhitelistIngestSettings, run_whitelist_ingest_loop
+from .ingest_binance_ws import run_binance_ws_ingest_loop
+from .ingest_settings import WhitelistIngestSettings
 from .series_id import parse_series_id
 from .store import CandleStore
 from .ws_hub import CandleHub
@@ -38,12 +39,14 @@ class IngestSupervisor:
         whitelist_series_ids: tuple[str, ...],
         ingest_settings: WhitelistIngestSettings | None = None,
         ondemand_idle_ttl_s: int = 60,
+        whitelist_ingest_enabled: bool = False,
     ) -> None:
         self._store = store
         self._hub = hub
         self._factor_orchestrator = factor_orchestrator
         self._overlay_orchestrator = overlay_orchestrator
         self._whitelist = set(whitelist_series_ids)
+        self._whitelist_ingest_enabled = bool(whitelist_ingest_enabled)
         self._settings = ingest_settings or WhitelistIngestSettings()
         self._idle_ttl_s = ondemand_idle_ttl_s
         self._lock = asyncio.Lock()
@@ -57,6 +60,8 @@ class IngestSupervisor:
         self._reaper_task = asyncio.create_task(self._reaper_loop())
 
     async def start_whitelist(self) -> None:
+        if not self._whitelist_ingest_enabled:
+            return
         async with self._lock:
             for series_id in self._whitelist:
                 if series_id in self._jobs:
@@ -67,7 +72,7 @@ class IngestSupervisor:
     async def subscribe(self, series_id: str) -> bool:
         if is_derived_series_id(series_id):
             series_id = to_base_series_id(series_id)
-        if series_id in self._whitelist:
+        if self._is_pinned_whitelist(series_id):
             return True
 
         now = time.time()
@@ -85,12 +90,12 @@ class IngestSupervisor:
                         max_jobs = 0
 
                 if max_jobs > 0:
-                    non_whitelist = [j for sid, j in self._jobs.items() if sid not in self._whitelist]
-                    if len(non_whitelist) >= max_jobs:
+                    ondemand_jobs = [j for sid, j in self._jobs.items() if not self._is_pinned_whitelist(sid)]
+                    if len(ondemand_jobs) >= max_jobs:
                         idle = [
                             j
                             for sid, j in self._jobs.items()
-                            if sid not in self._whitelist and j.refcount == 0 and j.last_zero_at is not None
+                            if not self._is_pinned_whitelist(sid) and j.refcount == 0 and j.last_zero_at is not None
                         ]
                         idle.sort(key=lambda j: float(j.last_zero_at or now))
                         if idle:
@@ -100,7 +105,10 @@ class IngestSupervisor:
                         else:
                             return False
 
-                job = self._start_job(series_id, refcount=0)
+                try:
+                    job = self._start_job(series_id, refcount=0)
+                except Exception:
+                    return False
                 self._jobs[series_id] = job
 
             job.refcount += 1
@@ -115,7 +123,7 @@ class IngestSupervisor:
     async def unsubscribe(self, series_id: str) -> None:
         if is_derived_series_id(series_id):
             series_id = to_base_series_id(series_id)
-        if series_id in self._whitelist:
+        if self._is_pinned_whitelist(series_id):
             return
         async with self._lock:
             job = self._jobs.get(series_id)
@@ -165,23 +173,16 @@ class IngestSupervisor:
                 "jobs": jobs,
                 "whitelist_series_ids": sorted(self._whitelist),
                 "ondemand_max_jobs": max_jobs,
+                "whitelist_ingest_enabled": self._whitelist_ingest_enabled,
             }
 
     def _start_job(self, series_id: str, *, refcount: int) -> _Job:
         stop = asyncio.Event()
-        realtime = (os.environ.get("TRADE_CANVAS_MARKET_REALTIME_SOURCE") or "ccxt").strip().lower()
-        ingest_fn = run_whitelist_ingest_loop
-        source = "ccxt"
-        if realtime == "binance_ws":
-            try:
-                series = parse_series_id(series_id)
-                if series.exchange == "binance":
-                    from .ingest_binance_ws import run_binance_ws_ingest_loop
-
-                    ingest_fn = run_binance_ws_ingest_loop
-                    source = "binance_ws"
-            except Exception:
-                ingest_fn = run_whitelist_ingest_loop
+        series = parse_series_id(series_id)
+        if series.exchange != "binance":
+            raise ValueError(f"unsupported exchange for realtime ingest: {series.exchange!r}")
+        ingest_fn = run_binance_ws_ingest_loop
+        source = "binance_ws"
 
         started_at = time.time()
 
@@ -224,7 +225,7 @@ class IngestSupervisor:
             to_stop: list[_Job] = []
             async with self._lock:
                 for series_id, job in list(self._jobs.items()):
-                    if series_id in self._whitelist:
+                    if self._is_pinned_whitelist(series_id):
                         continue
                     if job.refcount != 0 or job.last_zero_at is None:
                         continue
@@ -238,3 +239,6 @@ class IngestSupervisor:
                 job.task.cancel()
             if to_stop:
                 await asyncio.gather(*(j.task for j in to_stop), return_exceptions=True)
+
+    def _is_pinned_whitelist(self, series_id: str) -> bool:
+        return self._whitelist_ingest_enabled and series_id in self._whitelist

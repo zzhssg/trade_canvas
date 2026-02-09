@@ -5,7 +5,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-from backend.app.ingest_ccxt import _make_exchange_client
+from backend.app.ccxt_client import _make_exchange_client
 from backend.app.series_id import parse_series_id
 
 
@@ -36,4 +36,3 @@ class IngestCcxtTimeoutOptionTests(unittest.TestCase):
         self.assertEqual(name, "futures")
         self.assertTrue(options.get("enableRateLimit"))
         self.assertEqual(int(options.get("timeout")), 12345)
-

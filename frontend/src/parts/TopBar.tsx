@@ -18,7 +18,6 @@ export function TopBar() {
       </div>
       <div className="flex items-center gap-3 text-xs text-white/70">
         <NavLink to="/live" active={location.pathname === "/live"} label="Live" />
-        <NavLink to="/backtest" active={location.pathname === "/backtest"} label="Backtest" />
         <NavLink to="/settings" active={location.pathname === "/settings"} label="Settings" />
         <div className="ml-3 rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[11px] text-white/70">
           feed: mock

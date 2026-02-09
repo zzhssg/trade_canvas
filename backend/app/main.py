@@ -86,6 +86,7 @@ from .replay_package_protocol_v1 import (
 )
 from .replay_package_service_v1 import ReplayPackageServiceV1
 from .overlay_package_service_v1 import OverlayReplayPackageServiceV1
+from .market_backfill import backfill_market_gap_best_effort
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 from .whitelist import load_market_whitelist
@@ -198,6 +199,32 @@ def create_app() -> FastAPI:
     factor_orchestrator.set_debug_hub(debug_hub)
     overlay_orchestrator.set_debug_hub(debug_hub)
     hub = CandleHub()
+
+    async def gap_backfill_handler(series_id: str, expected_next_time: int, actual_time: int):
+        if os.environ.get("TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL") != "1":
+            return []
+        filled = await run_blocking(
+            backfill_market_gap_best_effort,
+            store=store,
+            series_id=series_id,
+            expected_next_time=int(expected_next_time),
+            actual_time=int(actual_time),
+        )
+        if int(filled) <= 0:
+            return []
+        tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
+        end_time = int(actual_time) - int(tf_s)
+        if end_time < int(expected_next_time):
+            return []
+        return await run_blocking(
+            store.get_closed_between_times,
+            series_id,
+            start_time=int(expected_next_time),
+            end_time=int(end_time),
+            limit=5000,
+        )
+
+    hub.set_gap_backfill_handler(gap_backfill_handler)
     whitelist = load_market_whitelist(settings.whitelist_path)
     market_list = BinanceMarketListService()
     force_limiter = MinIntervalLimiter(min_interval_s=2.0)
@@ -209,6 +236,7 @@ def create_app() -> FastAPI:
             idle_ttl_s = max(1, int(idle_ttl_raw))
         except ValueError:
             idle_ttl_s = 60
+    whitelist_ingest_enabled = os.environ.get("TRADE_CANVAS_ENABLE_WHITELIST_INGEST") == "1"
 
     supervisor = IngestSupervisor(
         store=store,
@@ -217,11 +245,12 @@ def create_app() -> FastAPI:
         overlay_orchestrator=overlay_orchestrator,
         whitelist_series_ids=whitelist.series_ids,
         ondemand_idle_ttl_s=idle_ttl_s,
+        whitelist_ingest_enabled=whitelist_ingest_enabled,
     )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if os.environ.get("TRADE_CANVAS_ENABLE_WHITELIST_INGEST") == "1":
+        if whitelist_ingest_enabled:
             await supervisor.start_whitelist()
 
         if os.environ.get("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST") == "1":
@@ -448,6 +477,40 @@ def create_app() -> FastAPI:
         cutoff_time = max(0, int(to_time) - int(window_candles) * int(tf_s))
 
         latest_defs = app.state.overlay_store.get_latest_defs_up_to_time(series_id=series_id, up_to_time=int(to_time))
+        if int(cursor_version_id) == 0:
+            expected_start = 0
+            try:
+                slices = app.state.factor_slices_service.get_slices(
+                    series_id=series_id,
+                    at_time=int(to_time),
+                    window_candles=int(window_candles),
+                )
+                anchor_snapshot = (slices.snapshots or {}).get("anchor")
+                anchor_head = (anchor_snapshot.head if anchor_snapshot is not None else {}) or {}
+                current_ref = anchor_head.get("current_anchor_ref") if isinstance(anchor_head, dict) else None
+                if isinstance(current_ref, dict):
+                    expected_start = int(current_ref.get("start_time") or 0)
+            except Exception:
+                expected_start = 0
+
+            if expected_start > 0:
+                current_def = next((d for d in latest_defs if d.kind == "polyline" and d.instruction_id == "anchor.current"), None)
+                rendered_start = 0
+                if current_def is not None:
+                    pts = current_def.payload.get("points")
+                    if isinstance(pts, list) and pts:
+                        first = pts[0]
+                        if isinstance(first, dict):
+                            try:
+                                rendered_start = int(first.get("time") or 0)
+                            except Exception:
+                                rendered_start = 0
+                if int(rendered_start) != int(expected_start):
+                    app.state.overlay_orchestrator.reset_series(series_id=series_id)
+                    app.state.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time))
+                    latest_defs = app.state.overlay_store.get_latest_defs_up_to_time(
+                        series_id=series_id, up_to_time=int(to_time)
+                    )
         active_ids: list[str] = []
         for d in latest_defs:
             if d.kind == "marker":
@@ -667,7 +730,7 @@ def create_app() -> FastAPI:
                 event="read.http.world_frame_live",
                 series_id=series_id,
                 message="get world frame live",
-                data={"at_time": int(store_head), "aligned_time": int(aligned), "candle_id": str(candle_id)},
+                data={"at_time": int(at_time), "aligned_time": int(aligned), "candle_id": str(candle_id)},
             )
         return WorldStateV1(
             series_id=series_id,
@@ -1349,19 +1412,13 @@ def create_app() -> FastAPI:
                             effective_since = int(current_last)
                         if effective_since is not None and catchup:
                             catchup = [c for c in catchup if int(c.candle_time) > int(effective_since)]
-                    if effective_since is not None and int(effective_since) > 0 and catchup:
-                        tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
-                        expected_next = int(effective_since) + int(tf_s)
-                        first_time = int(catchup[0].candle_time)
-                        if first_time > expected_next:
-                            await ws.send_json(
-                                {
-                                    "type": "gap",
-                                    "series_id": series_id,
-                                    "expected_next_time": expected_next,
-                                    "actual_time": first_time,
-                                }
-                            )
+                    catchup, gap_payload = await hub.heal_catchup_gap(
+                        series_id=series_id,
+                        effective_since=effective_since,
+                        catchup=catchup,
+                    )
+                    if gap_payload is not None:
+                        await ws.send_json(gap_payload)
                     if bool(supports_batch) and catchup:
                         await ws.send_json(
                             {

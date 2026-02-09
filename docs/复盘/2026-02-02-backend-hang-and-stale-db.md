@@ -2,7 +2,7 @@
 title: 复盘：后端“卡死/退不掉”与“1970 K 线”排查链路
 status: done
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-08
 ---
 
 # 复盘：后端“卡死/退不掉”与“1970 K 线”排查链路
@@ -73,9 +73,9 @@ updated: 2026-02-02
 - 关键文件：
   - `backend/app/main.py`（WS 断开释放、freqtrade API 异步化、faulthandler）
   - `backend/app/freqtrade_runner.py`（可取消子进程 + 超时）
-  - `backend/app/ingest_ccxt.py`（ccxt timeout）
+  - `backend/app/ccxt_client.py`（ccxt timeout helper）
+  - `backend/app/ingest_binance_ws.py`（实时 ingest 主链路）
   - `scripts/dev_backend.sh`（`--no-access-log`、`--fresh-db`）
 - 验证命令：
   - `pytest -q`
   - `cd frontend && npm run build`
-

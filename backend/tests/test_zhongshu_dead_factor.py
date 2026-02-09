@@ -92,6 +92,7 @@ class ZhongshuDeadFactorTests(unittest.TestCase):
         self.assertEqual(zs["meta"]["factor_name"], "zhongshu")
         dead = zs["history"]["dead"]
         self.assertGreaterEqual(len(dead), 1)
+        self.assertIn(int(dead[-1].get("entry_direction") or 0), {-1, 1})
         self.assertTrue(all(int(item.get("visible_time") or 0) <= int(payload["at_time"]) for item in dead))
 
 

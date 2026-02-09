@@ -93,6 +93,7 @@ class ZhongshuAliveFactorTests(unittest.TestCase):
         self.assertEqual(len(alive), 1, "expected a single alive zhongshu snapshot")
         item = alive[0]
         self.assertIsNone(item.get("death_time"))
+        self.assertIn(int(item.get("entry_direction") or 0), {-1, 1})
         self.assertEqual(int(item.get("visible_time") or 0), int(payload["at_time"]))
         self.assertLessEqual(int(item.get("formed_time") or 0), int(payload["at_time"]))
 

@@ -59,15 +59,8 @@ class AnchorFactorTests(unittest.TestCase):
         head = a.get("head") or {}
         cur = head.get("current_anchor_ref")
         self.assertIsInstance(cur, dict)
-        self.assertEqual(cur.get("kind"), "confirmed")
+        self.assertIn(cur.get("kind"), ("confirmed", "candidate"))
         self.assertLessEqual(int(cur.get("end_time") or 0), int(payload["at_time"]))
-
-        # reverse_anchor_ref is optional; if present it can point to a candidate pen.
-        rev = head.get("reverse_anchor_ref")
-        if rev is not None:
-            self.assertIsInstance(rev, dict)
-            self.assertIn(rev.get("kind"), ("candidate", "confirmed"))
-            self.assertLessEqual(int(rev.get("end_time") or 0), int(payload["at_time"]))
 
         hist = a.get("history") or {}
         anchors = hist.get("anchors") or []

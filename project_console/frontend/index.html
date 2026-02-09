@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Project Console</title>
+    <style>
+      :root {
+        --bg-main: #040b16;
+        --bg-panel: #0f1a2b;
+        --bg-card: #131f33;
+        --text-main: #e5edf9;
+        --text-muted: #97aacd;
+        --line: #22324f;
+        --blue: #4a7dff;
+        --blue-strong: #2d63ee;
+        --green: #2dd194;
+        --gray: #64748b;
+        --danger-bg: #481f2a;
+        --danger-text: #ffd6dd;
+        --shadow: 0 10px 24px rgba(4, 8, 16, 0.35);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "SF Pro Text", "PingFang SC", "Segoe UI", sans-serif;
+        color: var(--text-main);
+        background:
+          radial-gradient(1100px 480px at -15% -20%, rgba(50, 92, 189, 0.28), transparent),
+          radial-gradient(900px 360px at 110% -10%, rgba(31, 145, 163, 0.22), transparent),
+          var(--bg-main);
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        padding: 14px 20px;
+        border-bottom: 1px solid rgba(130, 155, 198, 0.18);
+        background: rgba(4, 11, 22, 0.82);
+        backdrop-filter: blur(10px);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .title-wrap strong { font-size: 16px; letter-spacing: 0.2px; display: block; }
+      .subtitle { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+      .header-actions { display: flex; gap: 8px; }
+      .board { padding: 16px; display: grid; gap: 12px; max-width: 1540px; margin: 0 auto; }
+      .col {
+        background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 16%), var(--bg-panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+      .col h2 {
+        margin: 0;
+        padding: 12px 14px;
+        font-size: 13px;
+        border-bottom: 1px solid var(--line);
+        color: #b4c8ec;
+        letter-spacing: 0.3px;
+      }
+      .list { padding: 10px; display: grid; gap: 8px; }
+      .card {
+        border: 1px solid #294066;
+        border-radius: 10px;
+        padding: 14px;
+        background: var(--bg-card);
+        display: grid;
+        grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.85fr) minmax(260px, 1.2fr) minmax(280px, 1fr) minmax(280px, 1fr);
+        gap: 14px;
+        align-items: start;
+      }
+      .field { display: grid; gap: 4px; min-width: 0; }
+      .field-label { color: #7f97bf; font-size: 11px; letter-spacing: 0.2px; }
+      .field-value { min-width: 0; color: var(--text-main); font-size: 12px; }
+      .field-value.path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .title { font-weight: 620; font-size: 13px; margin-bottom: 4px; }
+      .status-tag {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(255, 210, 122, 0.12);
+        color: #ffd27a;
+        margin-left: 8px;
+      }
+      .muted { color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+      .svc-grid { display: grid; gap: 10px; }
+      .svc-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .svc-meta { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+      .svc-state { white-space: nowrap; }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        box-shadow: 0 0 0 2px rgba(15, 23, 40, 0.8);
+      }
+      .dot.running { background: var(--green); box-shadow: 0 0 0 2px rgba(45, 209, 148, 0.2); }
+      .dot.stopped { background: var(--gray); }
+      .svc-port { color: #bed0ee; font-size: 12px; }
+      .svc-actions { display: inline-flex; gap: 8px; }
+      .icon-btn {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        border: 1px solid #2f476d;
+        background: #1a2b49;
+        color: #dbe8ff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 180ms ease, border-color 180ms ease;
+      }
+      .icon-btn:hover { background: #234179; border-color: #4a7dff; }
+      .icon-btn svg { width: 20px; height: 20px; }
+      .icon-btn.danger {
+        background: #3c2230;
+        border-color: #75435a;
+        color: #ffd9e4;
+      }
+      .icon-btn.danger:hover { background: #5a3042; border-color: #be6e8d; }
+      .icon-btn.success {
+        background: #1f3f3a;
+        border-color: #326d62;
+        color: #ccfff0;
+      }
+      .icon-btn.success:hover { background: #285e55; border-color: #44a391; }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-start; align-content: flex-start; }
+      button {
+        border: 1px solid transparent;
+        color: #fff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        min-height: 36px;
+        font-size: 12px;
+        line-height: 1;
+        cursor: pointer;
+        transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, opacity 180ms ease;
+      }
+      button:hover { transform: translateY(-1px); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+      button.primary { background: var(--blue); }
+      button.primary:hover { background: var(--blue-strong); }
+      button.emphasis {
+        background: linear-gradient(120deg, #3d8bff, #4a67ff);
+        border-color: #7ca8ff;
+        font-weight: 600;
+        box-shadow: 0 8px 18px rgba(36, 85, 176, 0.35);
+      }
+      button.emphasis:hover { background: linear-gradient(120deg, #2f79ee, #3f5ff2); }
+      button.secondary { background: #1d335f; border-color: #355487; }
+      button.ghost { background: transparent; border-color: #36527c; color: #d8e6ff; }
+      .empty { color: #5f7499; font-size: 12px; padding: 8px; }
+      #error {
+        margin: 10px auto 0;
+        max-width: 1540px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: var(--danger-bg);
+        color: var(--danger-text);
+        display: none;
+      }
+      @media (max-width: 1260px) {
+        .card { grid-template-columns: 1fr; gap: 9px; }
+        .actions { justify-content: flex-start; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="title-wrap">
+        <strong>Project Console</strong>
+        <div class="subtitle">项目生命周期看板（草稿 / 开发中 / 待验收 / 已上线）</div>
+      </div>
+      <div class="header-actions">
+        <button id="refresh" class="secondary">刷新</button>
+      </div>
+    </header>
+    <div id="error"></div>
+    <section class="board">
+      <div class="col"><h2>草稿</h2><div id="draft" class="list"></div></div>
+      <div class="col"><h2>开发中</h2><div id="in_progress" class="list"></div></div>
+      <div class="col"><h2>待验收</h2><div id="pending_acceptance" class="list"></div></div>
+      <div class="col"><h2>已上线</h2><div id="online" class="list"></div></div>
+    </section>
+    <script>
+      function showError(msg) {
+        const el = document.getElementById("error");
+        if (!msg) { el.style.display = "none"; el.textContent = ""; return; }
+        el.style.display = "block";
+        el.textContent = msg;
+      }
+
+      async function postJson(url, payload) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload || {})
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+        return body;
+      }
+
+      async function bindPlan(project) {
+        const initial = project.plan_path || "docs/plan/";
+        const v = window.prompt("绑定 plan_path（示例：docs/plan/2026-02-08-xxx.md）", initial);
+        if (!v) return;
+        await postJson(`/api/projects/${project.worktree_id}/bind_plan`, { plan_path: v.trim() });
+        await load();
+      }
+
+      async function setStatus(project, status) {
+        await postJson(`/api/projects/${project.worktree_id}/status`, { status });
+        await load();
+      }
+
+      async function testAction(project, action) {
+        await postJson(`/api/projects/${project.worktree_id}/test/${action}`, {});
+        await load();
+      }
+
+      async function testSingleAction(project, component, action) {
+        await postJson(`/api/projects/${project.worktree_id}/test/${component}/${action}`, {});
+        await load();
+      }
+
+      function renderServiceRow(project, component, running, port, canControl) {
+        const label = component === "backend" ? "Backend" : "Frontend";
+        const stateText = running ? "运行中" : "未启动";
+        const dotClass = running ? "running" : "stopped";
+        const row = document.createElement("div");
+        const toggleTitle = running ? `停止${label}` : `启动${label}`;
+        const toggleIcon = running
+          ? '<svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="1.5"></rect></svg>'
+          : '<svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M7 5.5a1 1 0 0 1 1.53-.85l6 3.9a1 1 0 0 1 0 1.7l-6 3.9A1 1 0 0 1 7 13.3v-7.8z"></path></svg>';
+        row.className = "svc-row";
+        const restartTitle = component === "backend" ? "重启Backend（热更新）" : `重启${label}`;
+        row.innerHTML = `
+          <div class="svc-meta">
+            <span class="dot ${dotClass}" aria-hidden="true"></span>
+            <span class="svc-state">${label}: ${stateText}</span>
+            <span class="svc-port">:${port || "-"}</span>
+          </div>
+          <div class="svc-actions">
+            <button class="icon-btn ${running ? "danger" : "success"}" type="button" data-role="toggle" aria-label="${toggleTitle}" title="${toggleTitle}">
+              ${toggleIcon}
+            </button>
+            <button class="icon-btn" type="button" data-role="restart" aria-label="${restartTitle}" title="${restartTitle}">
+              <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M16 3v4h-4"></path>
+                <path d="M16 7a6 6 0 1 0 1.4 5.8"></path>
+              </svg>
+            </button>
+          </div>
+        `;
+        const toggleBtn = row.querySelector('button[data-role="toggle"]');
+        const restartBtn = row.querySelector('button[data-role="restart"]');
+        toggleBtn.disabled = !canControl;
+        restartBtn.disabled = !canControl;
+        toggleBtn.onclick = () => testSingleAction(project, component, running ? "stop" : "start").catch((e) => showError(String(e.message || e)));
+        restartBtn.onclick = () => testSingleAction(project, component, "restart").catch((e) => showError(String(e.message || e)));
+        return row;
+      }
+
+      async function load() {
+        showError("");
+        const res = await fetch("/api/projects");
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { showError(data.detail || `加载失败: HTTP ${res.status}`); return; }
+
+        const buckets = {
+          draft: document.getElementById("draft"),
+          in_progress: document.getElementById("in_progress"),
+          pending_acceptance: document.getElementById("pending_acceptance"),
+          online: document.getElementById("online")
+        };
+        Object.values(buckets).forEach((el) => (el.innerHTML = ""));
+
+        for (const p of data.projects) {
+          const k = buckets[p.plan_status] ? p.plan_status : "draft";
+          const card = document.createElement("div");
+          card.className = "card";
+          const canControl = p.plan_status === "pending_acceptance" || p.is_main_project;
+          const backendRunning = !!(p.services && p.services.backend_running);
+          const frontendRunning = !!(p.services && p.services.frontend_running);
+          card.innerHTML = `
+            <div class="field">
+              <div class="field-label">项目</div>
+              <div class="title">${p.plan_title || p.branch || p.path}<span class="status-tag">${p.plan_status_label}</span></div>
+              <div class="muted">${p.branch}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">计划文档</div>
+              <div class="field-value path">${p.plan_path || "未绑定 plan"}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">工作目录</div>
+              <div class="field-value path" title="${p.path}">${p.path}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">服务状态</div>
+              <div class="svc-grid"></div>
+            </div>
+            <div class="field">
+              <div class="field-label">快捷操作</div>
+              <div class="actions"></div>
+            </div>
+          `;
+          const svcGrid = card.querySelector(".svc-grid");
+          const services = p.services || {};
+          svcGrid.appendChild(renderServiceRow(p, "backend", backendRunning, services.backend_port, canControl));
+          svcGrid.appendChild(renderServiceRow(p, "frontend", frontendRunning, services.frontend_port, canControl));
+
+          const actions = card.querySelector(".actions");
+
+          if (!p.plan_path) {
+            const b = document.createElement("button");
+            b.className = "primary";
+            b.textContent = "绑定计划";
+            b.onclick = () => bindPlan(p).catch((e) => showError(String(e.message || e)));
+            actions.appendChild(b);
+          } else if (p.plan_status === "draft") {
+            const b = document.createElement("button");
+            b.className = "primary";
+            b.textContent = "开始开发";
+            b.onclick = () => setStatus(p, "in_progress").catch((e) => showError(String(e.message || e)));
+            actions.appendChild(b);
+          } else if (p.plan_status === "in_progress") {
+            const b = document.createElement("button");
+            b.className = "primary";
+            b.textContent = "标记待验收";
+            b.onclick = () => setStatus(p, "pending_acceptance").catch((e) => showError(String(e.message || e)));
+            actions.appendChild(b);
+          }
+
+          if (canControl) {
+            const running = backendRunning && frontendRunning;
+            const b = document.createElement("button");
+            b.className = "primary";
+            b.textContent = running ? "一键停止前后端" : "一键启动前后端";
+            b.onclick = () => testAction(p, running ? "stop" : "start").catch((e) => showError(String(e.message || e)));
+            actions.appendChild(b);
+
+            const restart = document.createElement("button");
+            restart.className = "secondary";
+            restart.textContent = "一键重启前后端";
+            restart.onclick = () => testAction(p, "restart").catch((e) => showError(String(e.message || e)));
+            actions.appendChild(restart);
+
+            if (p.services && p.services.frontend_port) {
+              const open = document.createElement("button");
+              open.className = "emphasis";
+              open.textContent = "打开测试页";
+              open.onclick = () => window.open(`http://127.0.0.1:${p.services.frontend_port}`, "_blank");
+              actions.prepend(open);
+            }
+          } else {
+            const tip = document.createElement("div");
+            tip.className = "muted";
+            tip.textContent = "仅「待验收」或主项目可启动测试服务";
+            actions.appendChild(tip);
+          }
+
+          buckets[k].appendChild(card);
+        }
+
+        for (const el of Object.values(buckets)) {
+          if (!el.children.length) {
+            const empty = document.createElement("div");
+            empty.className = "empty";
+            empty.textContent = "暂无项目";
+            el.appendChild(empty);
+          }
+        }
+      }
+
+      document.getElementById("refresh").addEventListener("click", load);
+      load();
+    </script>
+  </body>
+</html>

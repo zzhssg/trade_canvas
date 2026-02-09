@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .anchor_semantics import build_anchor_history_from_switches
+from .anchor_semantics import build_anchor_history_from_switches, normalize_anchor_ref
 from .factor_store import FactorStore
 from .schemas import FactorMetaV1, FactorSliceV1, GetFactorSlicesResponseV1
 from .store import CandleStore
@@ -316,6 +316,7 @@ def build_factor_slices(
                     "end_time": int(alive.end_time),
                     "zg": float(alive.zg),
                     "zd": float(alive.zd),
+                    "entry_direction": int(alive.entry_direction),
                     "formed_time": int(alive.formed_time),
                     "death_time": None,
                     "visible_time": int(alive.visible_time),
@@ -338,14 +339,14 @@ def build_factor_slices(
     # Anchor snapshot:
     # - history.switches: append-only stable switches from FactorStore
     # - head.current_anchor_ref: the latest switch new_anchor (if available)
-    # - head.reverse_anchor_ref: optional (candidate pen derived from pen head)
     if pen_confirmed or anchor_switches:
         history_anchors, history_switches = build_anchor_history_from_switches(anchor_switches)
+        pen_head_candidate = pen_head.get("candidate") if isinstance(pen_head.get("candidate"), dict) else None
         current_anchor_ref = None
         if history_switches:
             cur = history_switches[-1].get("new_anchor")
             if isinstance(cur, dict):
-                current_anchor_ref = cur
+                current_anchor_ref = normalize_anchor_ref(cur)
         elif pen_confirmed:
             last = pen_confirmed[-1]
             current_anchor_ref = {
@@ -355,23 +356,52 @@ def build_factor_slices(
                 "direction": int(last.get("direction") or 0),
             }
 
-        reverse_anchor_ref = None
-        pen_head_candidate = pen_head.get("candidate") if pen_head else None
+        candidate_ref = None
+        candidate_strength = -1.0
         if isinstance(pen_head_candidate, dict):
             try:
-                reverse_anchor_ref = {
-                    "kind": "candidate",
-                    "start_time": int(pen_head_candidate.get("start_time") or 0),
-                    "end_time": int(pen_head_candidate.get("end_time") or 0),
-                    "direction": int(pen_head_candidate.get("direction") or 0),
-                }
+                candidate_ref = normalize_anchor_ref(
+                    {
+                        "kind": "candidate",
+                        "start_time": int(pen_head_candidate.get("start_time") or 0),
+                        "end_time": int(pen_head_candidate.get("end_time") or 0),
+                        "direction": int(pen_head_candidate.get("direction") or 0),
+                    }
+                )
+                candidate_strength = abs(
+                    float(pen_head_candidate.get("end_price") or 0.0) - float(pen_head_candidate.get("start_price") or 0.0)
+                )
             except Exception:
-                reverse_anchor_ref = None
+                candidate_ref = None
+                candidate_strength = -1.0
+
+        def _ref_strength(ref: dict[str, int | str] | None) -> float:
+            if not isinstance(ref, dict):
+                return -1.0
+            st = int(ref.get("start_time") or 0)
+            direction = int(ref.get("direction") or 0)
+            if st <= 0 or direction not in {-1, 1}:
+                return -1.0
+            best = None
+            for pen in pen_confirmed:
+                if int(pen.get("start_time") or 0) == st and int(pen.get("direction") or 0) == direction:
+                    if best is None or int(best.get("end_time") or 0) <= int(pen.get("end_time") or 0):
+                        best = pen
+            if best is None:
+                return -1.0
+            return abs(float(best.get("end_price") or 0.0) - float(best.get("start_price") or 0.0))
+
+        current_strength = _ref_strength(current_anchor_ref)
+        if candidate_ref is not None:
+            current_start = int(current_anchor_ref.get("start_time") or 0) if isinstance(current_anchor_ref, dict) else 0
+            candidate_start = int(candidate_ref.get("start_time") or 0)
+            if current_anchor_ref is None or candidate_start == current_start or candidate_strength > current_strength:
+                current_anchor_ref = dict(candidate_ref)
 
         factors.append("anchor")
         snapshots["anchor"] = FactorSliceV1(
             history={"anchors": history_anchors, "switches": history_switches},
-            head={"current_anchor_ref": current_anchor_ref, "reverse_anchor_ref": reverse_anchor_ref},
+            head={"current_anchor_ref": current_anchor_ref},
             meta=FactorMetaV1(
                 series_id=series_id,
                 at_time=int(aligned),

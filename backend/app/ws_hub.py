@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from typing import Awaitable, Callable
 
 from fastapi import WebSocket
 
@@ -17,10 +18,17 @@ class _Subscription:
     supports_batch: bool
 
 
+GapBackfillHandler = Callable[[str, int, int], Awaitable[list[CandleClosed]]]
+
+
 class CandleHub:
-    def __init__(self) -> None:
+    def __init__(self, *, gap_backfill_handler: GapBackfillHandler | None = None) -> None:
         self._lock = asyncio.Lock()
         self._subs_by_ws: dict[WebSocket, dict[str, _Subscription]] = {}
+        self._gap_backfill_handler = gap_backfill_handler
+
+    def set_gap_backfill_handler(self, handler: GapBackfillHandler | None) -> None:
+        self._gap_backfill_handler = handler
 
     async def close_all(self, *, code: int = 1001, reason: str = "server_shutdown") -> None:
         """
@@ -49,6 +57,76 @@ class CandleHub:
         )
         async with self._lock:
             self._subs_by_ws.setdefault(ws, {})[series_id] = sub
+
+    @staticmethod
+    def _merge_candles(candles: list[CandleClosed]) -> list[CandleClosed]:
+        if not candles:
+            return []
+        dedup: dict[int, CandleClosed] = {}
+        for candle in candles:
+            dedup[int(candle.candle_time)] = candle
+        ordered = sorted(dedup.items(), key=lambda x: x[0])
+        return [c for _, c in ordered]
+
+    async def _recover_gap_candles(
+        self,
+        *,
+        series_id: str,
+        expected_next_time: int,
+        actual_time: int,
+    ) -> list[CandleClosed]:
+        handler = self._gap_backfill_handler
+        if handler is None:
+            return []
+        try:
+            recovered = await handler(str(series_id), int(expected_next_time), int(actual_time))
+        except Exception:
+            return []
+        out: list[CandleClosed] = []
+        for candle in recovered:
+            t = int(candle.candle_time)
+            if t < int(expected_next_time):
+                continue
+            if t >= int(actual_time):
+                continue
+            out.append(candle)
+        return self._merge_candles(out)
+
+    async def heal_catchup_gap(
+        self,
+        *,
+        series_id: str,
+        effective_since: int | None,
+        catchup: list[CandleClosed],
+    ) -> tuple[list[CandleClosed], dict | None]:
+        if effective_since is None or int(effective_since) <= 0 or not catchup:
+            return catchup, None
+
+        tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
+        expected_next = int(effective_since) + int(tf_s)
+        first_time = int(catchup[0].candle_time)
+        if first_time <= expected_next:
+            return catchup, None
+
+        recovered = await self._recover_gap_candles(
+            series_id=series_id,
+            expected_next_time=expected_next,
+            actual_time=first_time,
+        )
+        merged = self._merge_candles([*recovered, *catchup]) if recovered else catchup
+        if merged:
+            first_time = int(merged[0].candle_time)
+        if first_time > expected_next:
+            return (
+                merged,
+                {
+                    "type": "gap",
+                    "series_id": series_id,
+                    "expected_next_time": expected_next,
+                    "actual_time": first_time,
+                },
+            )
+        return merged, None
 
     async def publish_closed_batch(self, *, series_id: str, candles: list[CandleClosed]) -> None:
         if not candles:
@@ -82,14 +160,23 @@ class CandleHub:
 
                 first_time = int(sendable[0].candle_time)
                 if expected_next is not None and first_time > expected_next:
-                    await ws.send_json(
-                        {
-                            "type": "gap",
-                            "series_id": series_id,
-                            "expected_next_time": expected_next,
-                            "actual_time": first_time,
-                        }
+                    recovered = await self._recover_gap_candles(
+                        series_id=series_id,
+                        expected_next_time=expected_next,
+                        actual_time=first_time,
                     )
+                    if recovered:
+                        sendable = self._merge_candles([*recovered, *sendable])
+                        first_time = int(sendable[0].candle_time)
+                    if first_time > expected_next:
+                        await ws.send_json(
+                            {
+                                "type": "gap",
+                                "series_id": series_id,
+                                "expected_next_time": expected_next,
+                                "actual_time": first_time,
+                            }
+                        )
 
                 if sub.supports_batch:
                     await ws.send_json(
@@ -192,14 +279,33 @@ class CandleHub:
                     continue
 
                 if expected_next is not None and candle.candle_time > expected_next:
-                    await ws.send_json(
-                        {
-                            "type": "gap",
-                            "series_id": series_id,
-                            "expected_next_time": expected_next,
-                            "actual_time": candle.candle_time,
-                        }
+                    recovered = await self._recover_gap_candles(
+                        series_id=series_id,
+                        expected_next_time=int(expected_next),
+                        actual_time=int(candle.candle_time),
                     )
+                    for item in recovered:
+                        if sub.last_sent_time is not None and int(item.candle_time) <= int(sub.last_sent_time):
+                            continue
+                        await ws.send_json(
+                            {
+                                "type": "candle_closed",
+                                "series_id": series_id,
+                                "candle": item.model_dump(),
+                            }
+                        )
+                        sub.last_sent_time = int(item.candle_time)
+                    if sub.last_sent_time is not None:
+                        expected_next = int(sub.last_sent_time) + int(sub.timeframe_s)
+                    if expected_next is not None and int(candle.candle_time) > int(expected_next):
+                        await ws.send_json(
+                            {
+                                "type": "gap",
+                                "series_id": series_id,
+                                "expected_next_time": int(expected_next),
+                                "actual_time": int(candle.candle_time),
+                            }
+                        )
 
                 await ws.send_json(
                     {

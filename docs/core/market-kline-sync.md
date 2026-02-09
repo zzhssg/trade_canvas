@@ -2,7 +2,7 @@
 title: 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
 status: draft
 created: 2026-02-02
-updated: 2026-02-07
+updated: 2026-02-08
 ---
 
 # 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
@@ -92,16 +92,17 @@ Whitelist（白名单 `series_id` 列表）的真源位置：
 
 服务端可通过 `GET /api/market/whitelist` 暴露当前白名单（用于前端/运维自检）。
 
-白名单常驻 ingest（v1）默认关闭，通过环境变量启用：
+白名单常驻 ingest 通过环境变量启用：
 - `TRADE_CANVAS_ENABLE_WHITELIST_INGEST=1`
+- 当 `TRADE_CANVAS_ENABLE_WHITELIST_INGEST=0` 时，白名单币种在“被订阅”后会自动走 ondemand ingest（避免默认 BTC/USDT 出现“已订阅但不更新”）。
 
 ---
 
-## 3. Part B：非白名单币种（按需补齐 + WS 跟随）
+## 3. Part B：按需补齐 + WS 跟随（含白名单回退场景）
 
 ### 3.1 目标与边界
 
-对白名单外的 `(series_id)`：
+对“按需模式”中的 `(series_id)`（非白名单，或白名单但常驻 ingest 关闭）：
 - **不承诺后台持续实时 ingest**
 - 当且仅当“前端有人查看/订阅”时，触发补齐与短期实时跟随
 - 无人订阅时允许停更（节省资源）
@@ -203,6 +204,10 @@ Server → Client：
 - 或客户端订阅时 `since` 落后太多导致丢包风险
 
 服务端应发送 `gap`，客户端必须回退到 HTTP 增量补齐再继续订阅。
+
+可选增强（默认关闭，便于回滚）：
+- `TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL=1`：在 WS 订阅 catchup 发现 gap 时，服务端先做 best-effort 补齐，再决定是否发送 `gap`。
+- 与 `TRADE_CANVAS_ENABLE_CCXT_BACKFILL=1` 组合时，服务端会在本地/freqtrade 补齐不足时尝试 CCXT 回补缺口区间。
 
 ---
 

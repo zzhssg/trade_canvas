@@ -2,7 +2,7 @@
 title: Anchor Contract v1（锚：current + historical anchors + switches）
 status: draft
 created: 2026-02-02
-updated: 2026-02-07
+updated: 2026-02-08
 ---
 
 # Anchor Contract v1（锚：current + historical anchors + switches）
@@ -12,7 +12,7 @@ updated: 2026-02-07
 - 基于 `pen`（以及可选 `zhongshu`）在 closed-candle 增量链路中 **动态选锚/换锚**；
 - **锚本身只做“指针”**：指向某一根笔（confirmed 或 candidate），不复制笔的完整语义；
 - 将“稳定的换锚”以 **append-only 的事件流**落盘（用于 replay/解释/对拍）；
-- 在 `head` 暴露 t 时刻可用的 `current_anchor_ref`（以及可选 `reverse_anchor_ref`）供策略/背驰/趋势视图消费；
+- 在 `head` 暴露 t 时刻可用的 `current_anchor_ref` 供策略/背驰/趋势视图消费；
 - 满足 `seed ≡ incremental`，避免“末态倒推历史”。
 
 依赖（DAG）：
@@ -49,6 +49,7 @@ type PenRefV1 = {
 - `end_time <= at_time`（head/current_anchor_ref 的可见性门禁）
 - `kind=="candidate"` 时，`end_time` 通常等于 `at_time`（表示“以 t 为止的候选末笔”）；允许随着 t 推进重绘。
 - `kind=="confirmed"` 时，该 ref 必须能在 `pen.history.confirmed`（或等价字段）中唯一匹配。
+- **锚指针 id 取 `start_time`**：同一根笔在“延伸→确认”过程中 `end_time/kind` 可变化，但指针 id 不变。
 
 ### 1.2 AnchorSwitch（稳定换锚事件，history）
 
@@ -84,7 +85,6 @@ type AnchorSliceV1 = FactorSliceV1 & {
   }
   head: {
     current_anchor_ref: PenRefV1 | null
-    reverse_anchor_ref?: PenRefV1 | null
   }
 }
 ```
@@ -97,8 +97,11 @@ type AnchorSliceV1 = FactorSliceV1 & {
 2) **history 纯切片**：`history.switches` 只能按 `switch_time<=t` 过滤，禁止重算。
    - `history.anchors` 必须与 `history.switches` 在同一可见性口径下过滤；
    - 过滤后强约束：`len(anchors) == len(switches)`，且第 i 个 anchor 必须等于第 i 个 switch 的 `new_anchor`。
+   - 若存量事件存在“同 `switch_time` 多条 switch”（历史脏数据），切片层必须仅保留该时刻的最后一条；
+   - 再按指针 id（`start_time`）去重：同 `start_time` 的重复 switch（仅终点变化）仅保留首次换锚事件。
 3) **head 无未来函数**：
    - `head.current_anchor_ref` 必须满足 `end_time<=t`；
+   - 仅 `head.current_anchor_ref` 允许随同一指针 id 的笔延伸而更新 `end_time/kind`；该更新不得追加 history switch；
    - 若候选锚的确认需要上游事件（例如新 pen.confirmed 出现），则 `switch_time` 必须取“确认可见”时刻，而不是结构发生的更早时刻。
 4) **seed ≡ incremental**：同一段输入在新 DB 重跑，固定 `t` 下：
    - `switches` 的 `(count,last_switch_time)` 一致；

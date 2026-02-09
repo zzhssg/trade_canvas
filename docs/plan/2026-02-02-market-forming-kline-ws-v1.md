@@ -3,7 +3,7 @@ title: 市场 K 线：一次加载历史 + WS 推送 forming（未收线跳动�
 status: 草稿
 owner: rick
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-08
 ---
 
 ## 背景
@@ -61,13 +61,11 @@ updated: 2026-02-02
   - `candle` 结构与 `CandleClosed` 一致（`candle_time/open/high/low/close/volume`），但语义是“未闭合/可变”。
   - forming 不写入 SQLite，仅广播给订阅者。
 
-forming 数据来源策略（v1）：
+forming 数据来源策略（v1，2026-02-08 后）：
 
-- 当 `TRADE_CANVAS_MARKET_REALTIME_SOURCE=binance_ws` 时：
-  - 扩展 `backend/app/ingest_binance_ws.py`：解析 Binance kline payload 中 `x=false` 的更新（未闭合 kline），并作为 forming 广播。
+- 当前仅保留 `backend/app/ingest_binance_ws.py` 实时链路：
+  - 解析 Binance kline payload 中 `x=false` 的更新（未闭合 kline），并作为 forming 广播。
   - `x=true`（闭合）仍走现有闭合逻辑：落库 + `candle_closed` 广播。
-- 当 `TRADE_CANVAS_MARKET_REALTIME_SOURCE=ccxt` 时：
-  - ccxt 轮询只 ingest closed candles（现状不变）；forming 不可用，前端自然降级为“只在收线更新”。
 
 节流（必须）：
 
@@ -122,7 +120,7 @@ forming 数据来源策略（v1）：
   - `backend/app/main.py`：WS 协议文档化（必要时补充错误码/兼容）。
   - `backend/app/schemas.py`：如需，新增 `CandleForming`（或复用 `CandleClosed` 作为 payload 结构）。
 - **怎么验收**
-  - 在 `TRADE_CANVAS_MARKET_REALTIME_SOURCE=binance_ws` 下，WS 能收到 `candle_forming`，且同一 `candle_time` 的 `close/high/low/volume` 会变化。
+  - 在当前默认运行方式下，WS 能收到 `candle_forming`，且同一 `candle_time` 的 `close/high/low/volume` 会变化。
   - 节流生效：在图表上不会出现“每毫秒刷新”的抖动（或通过日志统计推送频率）。
 - **怎么回滚**
   - 保留 `candle_closed` 逻辑不动；撤销新增的 forming 解析与 hub 广播即可。

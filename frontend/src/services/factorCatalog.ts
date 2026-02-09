@@ -31,9 +31,9 @@ export const FACTOR_CATALOG: FactorSpec[] = [
     label: "Pen",
     default_visible: true,
     sub_features: [
-      { key: "pen.confirmed", label: "Confirmed", default_visible: false },
-      { key: "pen.extending", label: "Extending", default_visible: false },
-      { key: "pen.candidate", label: "Candidate", default_visible: false }
+      { key: "pen.confirmed", label: "Confirmed", default_visible: true },
+      { key: "pen.extending", label: "Extending", default_visible: true },
+      { key: "pen.candidate", label: "Candidate", default_visible: true }
     ]
   },
   {
@@ -51,25 +51,24 @@ export const FACTOR_CATALOG: FactorSpec[] = [
     default_visible: true,
     sub_features: [
       { key: "anchor.current", label: "Current", default_visible: true },
-      { key: "anchor.history", label: "History", default_visible: false },
-      { key: "anchor.reverse", label: "Reverse", default_visible: false },
-      { key: "anchor.switch", label: "Switches", default_visible: false }
+      { key: "anchor.history", label: "History", default_visible: true },
+      { key: "anchor.switch", label: "Switches", default_visible: true }
     ]
   },
   {
     key: "sma",
     label: "SMA",
-    default_visible: true,
+    default_visible: false,
     sub_features: [
-      { key: "sma_5", label: "SMA 5", default_visible: true },
-      { key: "sma_20", label: "SMA 20", default_visible: true }
+      { key: "sma_5", label: "SMA 5", default_visible: false },
+      { key: "sma_20", label: "SMA 20", default_visible: false }
     ]
   },
   {
     key: "signal",
     label: "Signals",
-    default_visible: true,
-    sub_features: [{ key: "signal.entry", label: "Entry", default_visible: true }]
+    default_visible: false,
+    sub_features: [{ key: "signal.entry", label: "Entry", default_visible: false }]
   }
 ];
 

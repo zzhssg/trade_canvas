@@ -1,16 +1,16 @@
 ---
-title: 市场 K 线 Fastpath v2（freqtrade 数据复用 + 批量落库 + 可插拔实时源）
+title: 市场 K 线 Fastpath v2（freqtrade 数据复用 + 批量落库 + 单一实时源）
 status: 草稿
 owner:
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-08
 ---
 
 ## 背景
 
 现状（trade_canvas）：
 - 前端通过 `GET /api/market/candles` 拉历史（`CandleStore`/SQLite），再通过 `WS /ws/market` 跟随实时。
-- 后端 ingest 目前主要靠 `ccxt.fetch_ohlcv` 轮询闭合 K 线并逐根写入 SQLite。
+- 实时 ingest 已统一到 Binance kline WS；ccxt 仅保留为 replay coverage 的辅助拉取能力（`backend/app/ccxt_client.py`）。
 
 已观测问题：
 - ingest 性能慢的主要根因不是网络/交易所限速，而是 **逐根 candle 建连 + commit**（每批 N 根会产生 N 次 SQLite connect/commit）。
@@ -28,14 +28,14 @@ trade_system 参考：
 
 - **性能**：白名单/按需 ingest 的写入从“逐根 commit”升级为“批量 upsert + 单次 commit”，显著降低延迟。
 - **复用**：可选复用 `freqtrade datadir` 作为历史真源/快速 bootstrap，减少 backfill 时间。
-- **可插拔**：实时源可选择 `ccxt 轮询`（保底）或 `Binance kline WS`（更快，finalized-only）。
+- **单一实时源**：实时 ingest 统一为 `Binance kline WS`（finalized + forming）。
 - **不破坏前端**：保持 `GET /api/market/candles` + `WS /ws/market` 协议不变（或仅增加可选字段/开关）。
 - **可观测**：能看到每个 `series_id` 的 ingest 速率、写库耗时、head_time 推进情况。
 
 ### 非目标（Don’t / v2 不做）
 
 - 完整对齐 trade_system 的 factor2 finalized ingest / overlay diff 直返（属于更大范围的产品链路）。
-- 多交易所通用 WS（v2 优先 Binance；其他交易所继续用 ccxt 轮询）。
+- 多交易所通用 WS（v2 仍优先 Binance；ccxt 不再承担实时 ingest）。
 - 复杂“历史修订/epoch 强失效”机制（先保证闭合 K 的顺序与幂等）。
 
 ## 方案概述（推荐架构）
@@ -54,21 +54,19 @@ trade_system 参考：
 
 这样可以把“首次打开一个新币种”从“ccxt 大量分页回补 + 逐根 commit”变成“本地文件导入（快）+ 少量追尾实时（小）”。
 
-### 3) 实时源（可插拔）
+### 3) 实时源（单一）
 
-提供两种实现（同一接口）：
-
-- **PollIngestor（保底）**：沿用 `ccxt.fetch_ohlcv` 轮询闭合 K（现有 `ingest_ccxt.py`），但改为：
-  - 批量 upsert（单连接/单事务/单 commit）
-  - 批量 publish（按时间顺序 publish，避免过多 await 循环）
-- **BinanceWsIngestor（推荐）**：直接订阅 Binance kline WS（spot/futures 不同 endpoint），只处理 finalized（`k.x = true`），并写入/广播。
+当前仅保留 **BinanceWsIngestor**：
+- 直接订阅 Binance kline WS（spot/futures 不同 endpoint），处理 finalized（`k.x = true`）并写入/广播。
+- forming（`k.x = false`）只用于 WS 展示，不落库。
+- 历史上的 ccxt PollIngestor 已删除（2026-02-08）。
 
 注意：无论哪种实时源，对外只输出 **closed candle**（与现有契约一致）。
 
 ### 4) 与现有 Supervisor/WS 逻辑的衔接
 
 - `IngestSupervisor` 仍负责 whitelist 常驻与 on-demand 订阅计数/idle 回收。
-- 但它启动的 job 从“run_whitelist_ingest_loop(ccxt)”升级为“run_ingest_job(series_id, source=...)”：
+- 但它启动的 job 已统一为 `run_binance_ws_ingest_loop(series_id)`：
   - startup：先 `bootstrap_if_needed(series_id)`
   - live：启动 realtime（poll 或 ws）
   - shutdown：尊重 idle_ttl
@@ -85,14 +83,14 @@ trade_system 参考：
 
 - [x] M0：完成（批量 upsert + 单次 commit）
 - [x] M1：完成（freqtrade feather tail 导入 SQLite，`TRADE_CANVAS_MARKET_HISTORY_SOURCE=freqtrade`）
-- [x] M2：完成（Binance kline WS finalized-only realtime source，`TRADE_CANVAS_MARKET_REALTIME_SOURCE=binance_ws`）
+- [x] M2：完成（Binance kline WS realtime source）
 - [x] M3：完成（观测/自检/限流：debug endpoint、on-demand 容量上限、批处理日志）
 - [x] M4：完成（FE/BE 联调 Playwright E2E gate 通过）
 
 可用开关：
 - `TRADE_CANVAS_MARKET_HISTORY_SOURCE=freqtrade`：空库时尝试从 freqtrade datadir 导入（tail）
 - `TRADE_CANVAS_FREQTRADE_DATADIR=/abs/path/to/user_data/data/binance`：显式指定 datadir（优先于 config 推导）
-- `TRADE_CANVAS_MARKET_REALTIME_SOURCE=binance_ws`：使用 Binance kline WS（finalized-only）；默认 `ccxt`
+- realtime ingest 无二选一开关：默认且唯一为 Binance kline WS
 - `TRADE_CANVAS_ONDEMAND_MAX_JOBS=<n>`：非白名单按需 ingest 的最大并发 job 数（满了会优先驱逐 idle job；否则 WS 会收到 `error code=capacity`，订阅失败且不会推送 catchup/stream）
 - `TRADE_CANVAS_ENABLE_DEBUG_API=1`：开启 `GET /api/market/debug/ingest_state`
 - `TRADE_CANVAS_BINANCE_WS_BATCH_MAX=<n>` / `TRADE_CANVAS_BINANCE_WS_FLUSH_S=<seconds>`：Binance WS ingest 的批量落库阈值
@@ -104,17 +102,17 @@ E2E 证据（2026-02-02）：
 
 ## 任务拆解（每步：改什么 / 怎么验收 / 怎么回滚）
 
-### M0：ccxt ingest 批量写库（必须先做）
+### M0：ccxt 批量写库（历史里程碑，已清理 realtime 入口）
 
 - 改什么：
-  - `backend/app/ingest_ccxt.py`：把逐根 `store.upsert_closed()` 改为 `store.connect()` + `upsert_many_closed_in_conn()` + `commit()`（每批最多 1 次 commit）。
-  - （可选）`backend/app/store.py`：补充 `upsert_many_closed()` 便捷方法或更清晰的事务封装。
+  - 历史上在 `backend/app/ingest_ccxt.py` 完成过批量写库优化；当前 realtime loop 已删除，ccxt helper 位于 `backend/app/ccxt_client.py`。
+  - `backend/app/store.py` 的批量 upsert 能力仍被 realtime/replay 复用。
 - 怎么验收：
-  - `python -m pytest backend/tests/test_ingest_ccxt_loop_mapping.py -q`
+  - `python -m pytest backend/tests/test_ingest_ccxt_symbol.py -q`
+  - `python -m pytest backend/tests/test_ingest_ccxt_timeout_option.py -q`
   - `python -m pytest backend/tests/test_e2e_user_story_market_sync.py -q`
-  - 本地运行观察：同一 `series_id` backfill 时日志中 “commit 次数/耗时”明显下降（可新增简单日志）。
 - 怎么回滚：
-  - 直接 revert `ingest_ccxt.py` 的批量事务改动（仍可工作，只是慢）。
+  - revert `backend/app/ccxt_client.py` 与 replay coverage 相关改动，不影响 realtime 主链路。
 
 ### M1：freqtrade datadir → SQLite bootstrap（建议）
 
@@ -138,13 +136,13 @@ E2E 证据（2026-02-02）：
 
 - 改什么：
   - 新增：`backend/app/ingest_binance_ws.py`（仅 Binance；spot/futures 两套 URL）
-  - `IngestSupervisor` 支持选择 realtime 源：`TRADE_CANVAS_MARKET_REALTIME_SOURCE=ccxt|binance_ws`（默认 ccxt）
+  - `IngestSupervisor` 统一调用 `run_binance_ws_ingest_loop`（单一 realtime 模式）
   - 与 `CandleHub`/`WS /ws/market` 的 `gap` 逻辑保持一致（按 timeframe 推进）。
 - 怎么验收：
   - 单元测试：解析 payload + URL 拼接（可纯本地，不连网）。
   - 集成测试（可跳过外网）：通过 `POST /api/market/ingest/candle_closed` 模拟 finalized 写入，验证 WS 推送与 HTTP 增量读取（复用现有 `test_market_ws.py`/`test_market_e2e_frontend_contract.py`）。
 - 怎么回滚：
-  - 环境变量切回 `ccxt`；删除/停用 ws ingestor，不影响主链路。
+  - revert `ingest_supervisor` + `ingest_binance_ws` 改动；保持对外 HTTP/WS 契约不变。
 
 ### M3：观测与限流（建议）
 
@@ -175,12 +173,12 @@ E2E 证据（2026-02-02）：
 
 - 引入 freqtrade/pyarrow 依赖导致部署复杂度上升（需明确：fastpath 可选开关，默认不启用）。
 - datadir 命名/市场模式（spot/futures、`:USDT`）映射错误导致读不到数据（需要严格的映射与 fallback）。
-- 引入 Binance WS 需要网络稳定与重连策略（需有 ccxt 轮询兜底）。
+- 引入 Binance WS 需要网络稳定与重连策略（通过重连与 gap 补齐保障，不再依赖 ccxt 轮询兜底）。
 
 ### 回滚
 
 - 全量回滚到 v1：只保留 M0 的批量写库优化（对外契约不变）。
-- fastpath 通过 env 开关控制：`HISTORY_SOURCE=off`、`REALTIME_SOURCE=ccxt`。
+- fastpath 通过 env 开关控制：`HISTORY_SOURCE=off`（realtime 始终走 Binance WS）。
 
 ## 验收标准
 
@@ -250,7 +248,7 @@ E2E 证据（2026-02-02）：
   - Expected: exit code 0（产生 playwright trace）
 
 ### Rollback（回滚）
-- 最短回滚方式：关闭 fastpath env（`TRADE_CANVAS_MARKET_HISTORY_SOURCE=off`、`TRADE_CANVAS_MARKET_REALTIME_SOURCE=ccxt`），保留 v1 逻辑与对外契约不变。
+- 最短回滚方式：关闭 fastpath history env（`TRADE_CANVAS_MARKET_HISTORY_SOURCE=off`），并 revert realtime 改动提交，保留对外契约不变。
 
 ## 变更记录
 - 2026-02-02: 创建（草稿）

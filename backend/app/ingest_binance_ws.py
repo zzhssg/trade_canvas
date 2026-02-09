@@ -14,6 +14,7 @@ from .store import CandleStore
 from .ws_hub import CandleHub
 from .factor_orchestrator import FactorOrchestrator
 from .overlay_orchestrator import OverlayOrchestrator
+from .ingest_settings import WhitelistIngestSettings
 from .derived_timeframes import DerivedTimeframeFanout, derived_enabled, derived_base_timeframe, derived_timeframes
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ async def run_binance_ws_ingest_loop(
     hub: CandleHub,
     factor_orchestrator: FactorOrchestrator | None,
     overlay_orchestrator: OverlayOrchestrator | None = None,
-    settings: object,  # keep signature compatible with supervisor (WhitelistIngestSettings)
+    settings: WhitelistIngestSettings,
     stop: asyncio.Event,
 ) -> None:
     series = parse_series_id(series_id)

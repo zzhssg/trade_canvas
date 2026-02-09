@@ -4,10 +4,12 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
+from backend.app.schemas import CandleClosed
 
 
 class MarketWebSocketTests(unittest.TestCase):
@@ -36,6 +38,7 @@ class MarketWebSocketTests(unittest.TestCase):
         os.environ.pop("TRADE_CANVAS_WHITELIST_PATH", None)
         os.environ.pop("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST", None)
         os.environ.pop("TRADE_CANVAS_ONDEMAND_MAX_JOBS", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL", None)
 
     def test_ws_subscribe_catchup_and_stream(self) -> None:
         with self.client.websocket_connect("/ws/market") as ws:
@@ -126,3 +129,37 @@ class MarketWebSocketTests(unittest.TestCase):
             ws.close()
             t.join(timeout=1.0)
             self.assertNotIn("msg", got)
+
+    def test_ws_subscribe_gap_backfill_enabled_rehydrates_missing_candles(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL"] = "1"
+        series_gap = "binance:futures:ETH/USDT:1m"
+
+        for t in (100, 220):
+            self.client.post(
+                "/api/market/ingest/candle_closed",
+                json={
+                    "series_id": series_gap,
+                    "candle": {"candle_time": t, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10},
+                },
+            )
+
+        def fake_backfill(*, store, series_id, expected_next_time, actual_time):
+            self.assertEqual(series_id, series_gap)
+            self.assertEqual(expected_next_time, 160)
+            self.assertEqual(actual_time, 220)
+            with store.connect() as conn:
+                store.upsert_closed_in_conn(
+                    conn,
+                    series_gap,
+                    CandleClosed(candle_time=160, open=1, high=2, low=0.5, close=1.5, volume=10),
+                )
+                conn.commit()
+            return 1
+
+        with mock.patch("backend.app.main.backfill_market_gap_best_effort", side_effect=fake_backfill) as patched:
+            with self.client.websocket_connect("/ws/market") as ws:
+                ws.send_json({"type": "subscribe", "series_id": series_gap, "since": 100, "supports_batch": True})
+                msg = ws.receive_json()
+                self.assertEqual(msg["type"], "candles_batch")
+                self.assertEqual([c["candle_time"] for c in msg.get("candles", [])], [160, 220])
+                patched.assert_called_once()

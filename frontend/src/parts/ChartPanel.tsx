@@ -127,9 +127,6 @@ export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
             >
               mode:{replayMode}
             </button>
-            <div className="rounded-md border border-white/10 bg-black/20 px-2 py-1 font-mono text-[11px] text-white/60">
-              candle_id: —
-            </div>
           </div>
         </div>
         <FactorPanel />

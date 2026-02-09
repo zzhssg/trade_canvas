@@ -2,7 +2,7 @@
 title: API v1 · Market WS
 status: draft
 created: 2026-02-03
-updated: 2026-02-03
+updated: 2026-02-08
 ---
 
 # API v1 · Market WS
@@ -28,6 +28,7 @@ wscat -c "ws://127.0.0.1:8000/ws/market"
 - `since`（可选）用于 catchup：服务端会先推送历史 closed candles，再继续推送实时 closed/forming。
 - `supports_batch=true` 时，catchup 会用 `candles_batch` 一次性下发；否则逐根下发 `candle_closed`。
 - gap 检测：若发现时间跳跃，服务端会发送 `{"type":"gap",...}`，用于提示前端补拉/重连。
+- 若开启 `TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL=1`，服务端在订阅 catchup 发现 gap 时会先尝试回补（best-effort），无法补齐才发送 `gap`。
 
 ### 服务端下行消息示例（json）
 
@@ -46,4 +47,3 @@ wscat -c "ws://127.0.0.1:8000/ws/market"
 ```json
 {"type":"gap","series_id":"binance:futures:BTC/USDT:1m","expected_next_time":1700000120,"actual_time":1700000240}
 ```
-

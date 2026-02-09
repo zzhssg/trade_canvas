@@ -13,12 +13,12 @@ from backend.app.main import create_app
 
 class MarketWebSocketDisconnectReleasesOndemandTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._orig_ingest_loop = ingest_supervisor_mod.run_whitelist_ingest_loop
+        self._orig_ingest_loop = ingest_supervisor_mod.run_binance_ws_ingest_loop
 
         async def _dummy_ingest_loop(*, stop, **_kwargs):  # type: ignore[no-untyped-def]
             await stop.wait()
 
-        ingest_supervisor_mod.run_whitelist_ingest_loop = _dummy_ingest_loop
+        ingest_supervisor_mod.run_binance_ws_ingest_loop = _dummy_ingest_loop
 
         self.tmpdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmpdir.name) / "market.db"
@@ -34,7 +34,7 @@ class MarketWebSocketDisconnectReleasesOndemandTests(unittest.TestCase):
         self.series_id = "binance:futures:BTC/USDT:1m"
 
     def tearDown(self) -> None:
-        ingest_supervisor_mod.run_whitelist_ingest_loop = self._orig_ingest_loop
+        ingest_supervisor_mod.run_binance_ws_ingest_loop = self._orig_ingest_loop
         self.tmpdir.cleanup()
         os.environ.pop("TRADE_CANVAS_DB_PATH", None)
         os.environ.pop("TRADE_CANVAS_WHITELIST_PATH", None)
@@ -57,4 +57,3 @@ class MarketWebSocketDisconnectReleasesOndemandTests(unittest.TestCase):
 
         # After websocket disconnect, backend must release the ondemand ingest refcount.
         self.assertEqual(self._refcount(), 0)
-

@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from .factor_slices_service import FactorSlicesService
 from .factor_store import FactorStore
 from .history_bootstrapper import backfill_tail_from_freqtrade
-from .ingest_ccxt import _make_exchange_client, ccxt_symbol_for_series
+from .market_backfill import backfill_from_ccxt_range
 from .replay_package_builder_v1 import ReplayBuildParamsV1, build_replay_package_v1, stable_json_dumps
 from .replay_package_protocol_v1 import (
     ReplayCoverageV1,
@@ -27,7 +27,6 @@ from .replay_package_protocol_v1 import (
 from .overlay_store import OverlayStore
 from .overlay_replay_protocol_v1 import OverlayReplayCheckpointV1, OverlayReplayDiffV1
 from .schemas import OverlayInstructionPatchItemV1
-from .series_id import parse_series_id
 from .sqlite_util import connect as sqlite_connect
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
@@ -646,11 +645,11 @@ class ReplayPackageServiceV1:
             try:
                 backfill_tail_from_freqtrade(self._candle_store, series_id=series_id, limit=int(target_candles))
                 if _truthy_flag(os.environ.get("TRADE_CANVAS_ENABLE_CCXT_BACKFILL")):
-                    _backfill_from_ccxt(
+                    backfill_from_ccxt_range(
                         candle_store=self._candle_store,
                         series_id=series_id,
-                        to_time=int(to_time or 0),
-                        target_candles=int(target_candles),
+                        start_time=int(int(to_time or 0) - int(target_candles) * int(tf_s) - int(tf_s)),
+                        end_time=int(to_time or 0),
                     )
 
                 if factor_orchestrator is not None:
@@ -712,64 +711,3 @@ def _hash_short(payload: str) -> str:
     h = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return h[:24]
 
-
-def _backfill_from_ccxt(*, candle_store: CandleStore, series_id: str, to_time: int, target_candles: int) -> int:
-    try:
-        series = parse_series_id(series_id)
-    except Exception:
-        return 0
-    exchange = _make_exchange_client(series)
-    symbol = ccxt_symbol_for_series(series)
-    tf_s = timeframe_to_seconds(series.timeframe)
-    if int(to_time) <= 0:
-        to_time = int(time.time() // int(tf_s) * int(tf_s))
-
-    since_ms = int((int(to_time) - int(target_candles) * int(tf_s) - int(tf_s)) * 1000)
-    if since_ms < 0:
-        since_ms = 0
-
-    total_written = 0
-    try:
-        while True:
-            rows = exchange.fetch_ohlcv(symbol, series.timeframe, since_ms, 1000)
-            if not rows:
-                break
-            to_write = []
-            max_open_time_s = None
-            for row in rows:
-                open_time_s = int(row[0] // 1000)
-                max_open_time_s = open_time_s if max_open_time_s is None else max(max_open_time_s, open_time_s)
-                if open_time_s > int(to_time):
-                    continue
-                to_write.append(
-                    {
-                        "candle_time": open_time_s,
-                        "open": float(row[1]),
-                        "high": float(row[2]),
-                        "low": float(row[3]),
-                        "close": float(row[4]),
-                        "volume": float(row[5]),
-                    }
-                )
-            if not to_write:
-                break
-            from .schemas import CandleClosed
-
-            candles = [CandleClosed(**c) for c in to_write]
-            with candle_store.connect() as conn:
-                candle_store.upsert_many_closed_in_conn(conn, series_id, candles)
-                conn.commit()
-            total_written += len(candles)
-            if max_open_time_s is None:
-                break
-            since_ms = int(max_open_time_s * 1000)
-            if max_open_time_s >= int(to_time):
-                break
-    finally:
-        try:
-            close = getattr(exchange, "close", None)
-            if callable(close):
-                close()
-        except Exception:
-            pass
-    return total_written

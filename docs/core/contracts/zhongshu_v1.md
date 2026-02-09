@@ -2,7 +2,7 @@
 title: Zhongshu Contract v1（中枢：dead + alive）
 status: draft
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-08
 ---
 
 # Zhongshu Contract v1（中枢：dead + alive）
@@ -72,13 +72,21 @@ type ZhongshuSliceV1 = FactorSliceV1 & {
 
 ## 3) 最小算法口径（v1 推荐，确定性且保守）
 
-v1 推荐使用“3 笔重叠形成 + 交集推进 + 交集破坏死亡”的保守语义（trade_system-aligned 的简化版）：
+v1 使用“前向生长”的 4 笔语义（进入笔 + 构成三笔）：
 
-- 形成：当最近 3 个 confirmed pen 的价格区间存在交集（intersection 非空）时形成；
-- 存活推进：每出现一根新 confirmed pen，用其区间与当前交集取交，更新 `zg/zd`；
-- 死亡：当交集变为空时，产生一个 `dead` 事件，`death_time=visible_time=current_pen.visible_time`。
+- **形成窗口**：从最早可见 confirmed pen 开始，按时间前向扫描任意连续 4 笔 `P1,P2,P3,P4`。
+  - `P1` 是进入笔；
+  - `P2,P3,P4` 是构成段。
+- **形成条件**：`P1~P4` 这 4 笔必须存在公共重叠区间（即四笔交集非空），否则该 4 笔窗口不形成中枢，继续向前滑动窗口。
+- **中枢区间计算**：一旦形成，`zg/zd` 只由 `P2,P3,P4` 决定：
+  - `zg = min(high(P2), high(P3), high(P4))`（高点中取最低）
+  - `zd = max(low(P2), low(P3), low(P4))`（低点中取最高）
+- **存活推进**：中枢形成后 `zg/zd` 固定不变；后续笔仅推进 `end_time`，不允许“越走越窄”。
+- **死亡条件**（同侧脱离）：任意后续笔若整体落在中枢上方或下方即死亡：
+  - `pen_high < zd`（整笔在下方）或 `pen_low > zg`（整笔在上方）。
+  - 该笔对应 `death_time=visible_time=current_pen.visible_time`。
+- **下一中枢**：死亡后继续沿时间向前扫描，按同一规则寻找下一个“进入笔 + 三笔构成段”。
 
 说明：
-- 该口径确保 deterministic 且天然避免未来函数（仅依赖 confirmed pens 的 `visible_time` 顺序）。
+- 该口径满足“从前往后生长”，并保持 replay/live 一致（仅依赖 confirmed pens 的 `visible_time` 顺序）。
 - 后续若要升级为更丰富的中枢语义（多级别/多段），应以版本化方式扩展（`schema_version` 升级或新增字段），不要静默改口径。
-

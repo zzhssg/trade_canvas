@@ -33,6 +33,42 @@ class AnchorSemanticsTests(unittest.TestCase):
         self.assertEqual(anchors[0], switches[0]["new_anchor"])
         self.assertEqual(anchors[1], switches[1]["new_anchor"])
 
+    def test_history_suppresses_same_pointer_id_even_if_end_changes(self) -> None:
+        switches = [
+            {
+                "switch_time": 120,
+                "reason": "strong_pen",
+                "new_anchor": {"kind": "candidate", "start_time": 60, "end_time": 120, "direction": 1},
+            },
+            {
+                "switch_time": 180,
+                "reason": "strong_pen",
+                "new_anchor": {"kind": "candidate", "start_time": 60, "end_time": 180, "direction": 1},
+            },
+        ]
+        anchors, filtered = build_anchor_history_from_switches(switches)
+        self.assertEqual(len(anchors), 1)
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(int(anchors[0]["start_time"]), 60)
+
+    def test_history_keeps_latest_switch_for_same_switch_time(self) -> None:
+        switches = [
+            {
+                "switch_time": 120,
+                "reason": "strong_pen",
+                "new_anchor": {"kind": "confirmed", "start_time": 30, "end_time": 90, "direction": -1},
+            },
+            {
+                "switch_time": 120,
+                "reason": "strong_pen",
+                "new_anchor": {"kind": "candidate", "start_time": 60, "end_time": 120, "direction": 1},
+            },
+        ]
+        anchors, filtered = build_anchor_history_from_switches(switches)
+        self.assertEqual(len(anchors), 1)
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(int(anchors[0]["start_time"]), 60)
+
 
 if __name__ == "__main__":
     unittest.main()

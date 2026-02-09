@@ -39,12 +39,38 @@ export const useFactorStore = create<FactorState>()(
     }),
     {
       name: "trade-canvas-factors",
-      version: 2,
+      version: 4,
       migrate: (persistedState: unknown, version) => {
         const state = (persistedState as { visibleFeatures?: Record<string, boolean> } | undefined) ?? {};
         const visibleFeatures = { ...(state.visibleFeatures ?? {}) };
         if (version < 2) {
           visibleFeatures["zhongshu.dead"] = true;
+        }
+        if (version < 3) {
+          Object.assign(visibleFeatures, {
+            pivot: true,
+            "pivot.major": true,
+            "pivot.minor": false,
+            pen: true,
+            "pen.confirmed": true,
+            "pen.extending": true,
+            "pen.candidate": true,
+            zhongshu: true,
+            "zhongshu.alive": true,
+            "zhongshu.dead": true,
+            anchor: true,
+            "anchor.current": true,
+            "anchor.history": true,
+            "anchor.switch": true,
+            sma: false,
+            sma_5: false,
+            sma_20: false,
+            signal: false,
+            "signal.entry": false
+          });
+        }
+        if (version < 4) {
+          delete visibleFeatures["anchor.reverse"];
         }
         return { ...state, visibleFeatures };
       }

@@ -58,6 +58,7 @@ import { useReplayPackage } from "./chart/useReplayPackage";
 const INITIAL_TAIL_LIMIT = 2000;
 const ENABLE_REPLAY_V1 = String(import.meta.env.VITE_ENABLE_REPLAY_V1 ?? "1") === "1";
 const ENABLE_PEN_SEGMENT_COLOR = import.meta.env.VITE_ENABLE_PEN_SEGMENT_COLOR === "1";
+const ENABLE_ANCHOR_TOP_LAYER = String(import.meta.env.VITE_ENABLE_ANCHOR_TOP_LAYER ?? "1") === "1";
 // Default to enabled (unless explicitly disabled) to avoid "delta + slices" double-fetch loops in live mode.
 const ENABLE_WORLD_FRAME = String(import.meta.env.VITE_ENABLE_WORLD_FRAME ?? "1") === "1";
 const PEN_SEGMENT_RENDER_LIMIT = 200;
@@ -65,6 +66,16 @@ const ENABLE_DRAW_TOOLS = String(import.meta.env.VITE_ENABLE_DRAW_TOOLS ?? "1") 
 const REPLAY_WINDOW_CANDLES = 2000;
 const REPLAY_WINDOW_SIZE = 500;
 const REPLAY_SNAPSHOT_INTERVAL = 25;
+type PenLinePoint = { time: UTCTimestamp; value: number };
+type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
+type OverlayPath = {
+  id: string;
+  feature: string;
+  points: PenLinePoint[];
+  color: string;
+  lineWidth: LineWidth;
+  lineStyle: LineStyle;
+};
 
 export function ChartView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -332,7 +343,7 @@ export function ChartView() {
   }, []);
 
   const penSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const penPointsRef = useRef<Array<{ time: UTCTimestamp; value: number }>>([]);
+  const penPointsRef = useRef<PenLinePoint[]>([]);
   const [penPointCount, setPenPointCount] = useState(0);
   const [anchorHighlightEpoch, setAnchorHighlightEpoch] = useState(0);
 
@@ -340,18 +351,30 @@ export function ChartView() {
   const penSegmentsRef = useRef<
     Array<{
       key: string;
-      points: Array<{ time: UTCTimestamp; value: number }>;
+      points: PenLinePoint[];
       highlighted: boolean;
     }>
   >([]);
 
   const anchorPenSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const anchorPenPointsRef = useRef<Array<{ time: UTCTimestamp; value: number }> | null>(null);
+  const anchorPenPointsRef = useRef<PenLinePoint[] | null>(null);
   const anchorPenIsDashedRef = useRef<boolean>(false);
+  const replayPenPreviewSeriesByFeatureRef = useRef<Record<ReplayPenPreviewFeature, ISeriesApi<"Line"> | null>>({
+    "pen.extending": null,
+    "pen.candidate": null
+  });
+  const replayPenPreviewPointsRef = useRef<Record<ReplayPenPreviewFeature, PenLinePoint[]>>({
+    "pen.extending": [],
+    "pen.candidate": []
+  });
   const factorPullInFlightRef = useRef(false);
+  const factorPullPendingTimeRef = useRef<number | null>(null);
   const lastFactorAtTimeRef = useRef<number | null>(null);
   const zhongshuRectCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const anchorTopLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const anchorTopLayerPathsRef = useRef<OverlayPath[]>([]);
   const [overlayPaintEpoch, setOverlayPaintEpoch] = useState(0);
+  const [anchorTopLayerPathCount, setAnchorTopLayerPathCount] = useState(0);
 
   const { chartRef, candleSeriesRef: seriesRef, markersApiRef, chartEpoch } = useLightweightChart({
     containerRef,
@@ -381,17 +404,28 @@ export function ChartView() {
       anchorPenPointsRef.current = null;
       anchorPenIsDashedRef.current = false;
       anchorPenSeriesRef.current = null;
+      for (const feature of ["pen.extending", "pen.candidate"] as ReplayPenPreviewFeature[]) {
+        const series = replayPenPreviewSeriesByFeatureRef.current[feature];
+        if (series) chartRef.current?.removeSeries(series);
+        replayPenPreviewSeriesByFeatureRef.current[feature] = null;
+        replayPenPreviewPointsRef.current[feature] = [];
+      }
       for (const s of penSegmentSeriesByKeyRef.current.values()) chartRef.current?.removeSeries(s);
       penSegmentSeriesByKeyRef.current.clear();
       penSegmentsRef.current = [];
       overlayPullInFlightRef.current = false;
       factorPullInFlightRef.current = false;
+      factorPullPendingTimeRef.current = null;
       lastFactorAtTimeRef.current = null;
       entryEnabledRef.current = false;
       appliedRef.current = { len: 0, lastTime: null };
       const rectCanvas = zhongshuRectCanvasRef.current;
       if (rectCanvas && rectCanvas.parentElement) rectCanvas.parentElement.removeChild(rectCanvas);
       zhongshuRectCanvasRef.current = null;
+      const anchorCanvas = anchorTopLayerCanvasRef.current;
+      if (anchorCanvas && anchorCanvas.parentElement) anchorCanvas.parentElement.removeChild(anchorCanvas);
+      anchorTopLayerCanvasRef.current = null;
+      anchorTopLayerPathsRef.current = [];
     }
   });
 
@@ -903,6 +937,7 @@ export function ChartView() {
       string,
       { points: Array<{ time: UTCTimestamp; value: number }>; color: string; lineWidth: LineWidth; lineStyle: LineStyle }
     >();
+    const anchorTopLayerPaths: OverlayPath[] = [];
     let nextZhongshu = 0;
     let nextAnchor = 0;
 
@@ -935,7 +970,18 @@ export function ChartView() {
       const lineStyleRaw = String(def["lineStyle"] ?? "");
       const lineStyle = lineStyleRaw === "dashed" ? LineStyle.Dashed : LineStyle.Solid;
 
-      want.set(id, { points, color, lineWidth, lineStyle });
+      if (ENABLE_ANCHOR_TOP_LAYER && feature.startsWith("anchor.")) {
+        anchorTopLayerPaths.push({
+          id,
+          feature,
+          points,
+          color,
+          lineWidth,
+          lineStyle
+        });
+      } else {
+        want.set(id, { points, color, lineWidth, lineStyle });
+      }
       if (feature.startsWith("zhongshu.")) nextZhongshu += 1;
       if (feature.startsWith("anchor.")) nextAnchor += 1;
     }
@@ -969,6 +1015,8 @@ export function ChartView() {
       series.setData(item.points);
     }
 
+    anchorTopLayerPathsRef.current = anchorTopLayerPaths;
+    setAnchorTopLayerPathCount(anchorTopLayerPaths.length);
     setZhongshuCount(nextZhongshu);
     setAnchorCount(nextAnchor);
     setOverlayPaintEpoch((v) => v + 1);
@@ -1029,6 +1077,7 @@ export function ChartView() {
         feature: string;
         top?: Edge;
         bottom?: Edge;
+        entryDirection?: number;
       };
       const rectMap = new Map<string, RectSeed>();
       for (const instructionId of overlayActiveIdsRef.current) {
@@ -1038,6 +1087,8 @@ export function ChartView() {
         const feature = String(def["feature"] ?? "");
         if (!(feature === "zhongshu.alive" || feature === "zhongshu.dead")) continue;
         if (!effectiveVisible(feature)) continue;
+        const rawEntryDirection = Number(def["entryDirection"]);
+        const entryDirection = Number.isFinite(rawEntryDirection) && rawEntryDirection !== 0 ? (rawEntryDirection > 0 ? 1 : -1) : 0;
         const isTop = instructionId.endsWith(":top");
         const isBottom = instructionId.endsWith(":bottom");
         if (!isTop && !isBottom) continue;
@@ -1061,6 +1112,7 @@ export function ChartView() {
         const seed = rectMap.get(key) ?? { feature };
         if (isTop) seed.top = edge;
         else seed.bottom = edge;
+        if (entryDirection !== 0) seed.entryDirection = entryDirection;
         rectMap.set(key, seed);
       }
 
@@ -1089,8 +1141,22 @@ export function ChartView() {
         if (width <= 0 || height <= 0) continue;
 
         const isAlive = seed.feature === "zhongshu.alive";
-        const fillColor = isAlive ? "rgba(34, 197, 94, 0.15)" : "rgba(128, 128, 128, 0.08)";
-        const borderColor = isAlive ? "rgba(34, 197, 94, 0.6)" : "rgba(148, 163, 184, 0.7)";
+        const entryDirection = seed.entryDirection ?? (isAlive ? 1 : -1);
+        const isUpEntry = entryDirection >= 0;
+        const fillColor = isAlive
+          ? isUpEntry
+            ? "rgba(22, 163, 74, 0.2)"
+            : "rgba(220, 38, 38, 0.18)"
+          : isUpEntry
+            ? "rgba(74, 222, 128, 0.12)"
+            : "rgba(248, 113, 113, 0.1)";
+        const borderColor = isAlive
+          ? isUpEntry
+            ? "rgba(22, 163, 74, 0.72)"
+            : "rgba(220, 38, 38, 0.72)"
+          : isUpEntry
+            ? "rgba(74, 222, 128, 0.58)"
+            : "rgba(248, 113, 113, 0.58)";
 
         ctx.save();
         ctx.beginPath();
@@ -1099,12 +1165,116 @@ export function ChartView() {
         ctx.fill();
         ctx.strokeStyle = borderColor;
         ctx.lineWidth = 1;
-        if (isAlive) {
-          ctx.setLineDash([]);
-        } else {
-          ctx.setLineDash([6, 4]);
-        }
+        ctx.setLineDash([]);
         ctx.stroke();
+        ctx.restore();
+      }
+    };
+
+    const ro = new ResizeObserver(() => draw());
+    ro.observe(container);
+    const timeScale = chart.timeScale();
+    const onRangeChange = () => draw();
+    timeScale.subscribeVisibleTimeRangeChange(onRangeChange);
+    draw();
+
+    return () => {
+      ro.disconnect();
+      timeScale.unsubscribeVisibleTimeRangeChange(onRangeChange);
+    };
+  }, [chartEpoch, chartRef, effectiveVisible, overlayPaintEpoch, seriesRef]);
+
+  useEffect(() => {
+    if (!ENABLE_ANCHOR_TOP_LAYER) return;
+
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    const container = containerRef.current;
+    if (!chart || !series || !container) return;
+
+    const ensureCanvas = () => {
+      let canvas = anchorTopLayerCanvasRef.current;
+      if (!canvas) {
+        canvas = document.createElement("canvas");
+        canvas.className = "pointer-events-none absolute inset-0 z-[8]";
+        container.appendChild(canvas);
+        anchorTopLayerCanvasRef.current = canvas;
+      } else if (canvas.parentElement !== container) {
+        container.appendChild(canvas);
+      }
+      return canvas;
+    };
+
+    const resizeCanvas = (canvas: HTMLCanvasElement) => {
+      const dpr = window.devicePixelRatio || 1;
+      const widthPx = Math.max(1, Math.floor(container.clientWidth));
+      const heightPx = Math.max(1, Math.floor(container.clientHeight));
+      const nextWidth = Math.floor(widthPx * dpr);
+      const nextHeight = Math.floor(heightPx * dpr);
+      if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
+        canvas.width = nextWidth;
+        canvas.height = nextHeight;
+      }
+      canvas.style.width = `${widthPx}px`;
+      canvas.style.height = `${heightPx}px`;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return ctx;
+    };
+
+    const draw = () => {
+      const canvas = ensureCanvas();
+      const ctx = resizeCanvas(canvas);
+      if (!ctx) return;
+      ctx.clearRect(0, 0, container.clientWidth, container.clientHeight);
+
+      const paths = anchorTopLayerPathsRef.current;
+      if (!paths.length) return;
+
+      const timeScale = chart.timeScale();
+      const visible = timeScale.getVisibleRange();
+      const visibleFrom = visible ? normalizeTimeToSec(visible.from as Time) : null;
+      const visibleTo = visible ? normalizeTimeToSec(visible.to as Time) : null;
+      const visibleFromX = visibleFrom != null ? timeScale.timeToCoordinate(visibleFrom as UTCTimestamp) : null;
+      const visibleToX = visibleTo != null ? timeScale.timeToCoordinate(visibleTo as UTCTimestamp) : null;
+
+      const clampTimeCoord = (t: number) => {
+        let x = timeScale.timeToCoordinate(t as UTCTimestamp);
+        if (x != null && Number.isFinite(x)) return x;
+        if (visibleFrom == null || visibleTo == null) return null;
+        if (t < visibleFrom && visibleFromX != null && Number.isFinite(visibleFromX)) return visibleFromX;
+        if (t > visibleTo && visibleToX != null && Number.isFinite(visibleToX)) return visibleToX;
+        return null;
+      };
+
+      for (const item of paths) {
+        if (!effectiveVisible(item.feature)) continue;
+        if (item.points.length < 2) continue;
+        ctx.save();
+        ctx.beginPath();
+        ctx.strokeStyle = item.color;
+        ctx.lineWidth = item.lineWidth;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        if (item.lineStyle === LineStyle.Dashed) ctx.setLineDash([6, 6]);
+        else ctx.setLineDash([]);
+        let hasPoint = false;
+        for (const point of item.points) {
+          const x = clampTimeCoord(Number(point.time));
+          const y = series.priceToCoordinate(point.value);
+          if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) {
+            hasPoint = false;
+            continue;
+          }
+          if (!hasPoint) {
+            ctx.moveTo(x, y);
+            hasPoint = true;
+            continue;
+          }
+          ctx.lineTo(x, y);
+        }
+        if (hasPoint) ctx.stroke();
         ctx.restore();
       }
     };
@@ -1132,7 +1302,6 @@ export function ChartView() {
 
       const head = (anchor?.head ?? {}) as Record<string, unknown>;
       const cur = head["current_anchor_ref"];
-      const rev = head["reverse_anchor_ref"];
 
       const pickRef = (v: unknown) => {
         if (!v || typeof v !== "object") return null;
@@ -1145,80 +1314,101 @@ export function ChartView() {
         return { kind, start_time: Math.floor(st), end_time: Math.floor(et), direction: Math.floor(dir) };
       };
 
-      const setHighlight = (pts: Array<{ time: UTCTimestamp; value: number }> | null, opts?: { dashed?: boolean }) => {
+      const pickHeadPen = (v: unknown): { start_time: number; end_time: number; direction: number; points: PenLinePoint[] } | null => {
+        if (!v || typeof v !== "object") return null;
+        const d = v as Record<string, unknown>;
+        const st = Math.floor(Number(d["start_time"]));
+        const et = Math.floor(Number(d["end_time"]));
+        const sp = Number(d["start_price"]);
+        const ep = Number(d["end_price"]);
+        const dir = Math.floor(Number(d["direction"]));
+        if (!Number.isFinite(st) || !Number.isFinite(et) || !Number.isFinite(sp) || !Number.isFinite(ep) || !Number.isFinite(dir))
+          return null;
+        if (st <= 0 || et <= 0 || st >= et) return null;
+        if (minTime != null && maxTime != null && (st < minTime || et > maxTime)) return null;
+        return {
+          start_time: st,
+          end_time: et,
+          direction: dir,
+          points: [
+            { time: st as UTCTimestamp, value: sp },
+            { time: et as UTCTimestamp, value: ep }
+          ]
+        };
+      };
+
+      const setHighlight = (pts: PenLinePoint[] | null, opts?: { dashed?: boolean }) => {
         anchorPenPointsRef.current = pts;
         anchorPenIsDashedRef.current = Boolean(opts?.dashed);
       };
 
       const curRef = pickRef(cur);
-      const revRef = pickRef(rev);
 
       // Segment coloring: highlight the stable confirmed anchor when available.
       const confirmedHighlightKey =
         curRef?.kind === "confirmed" ? `pen:${curRef.start_time}:${curRef.end_time}:${curRef.direction}` : null;
 
-      const confirmedPens = (pen?.history as Record<string, unknown> | undefined)?.["confirmed"];
-      const segments: Array<{ key: string; points: Array<{ time: UTCTimestamp; value: number }>; highlighted: boolean }> =
-        [];
-      if (Array.isArray(confirmedPens)) {
-        const tail = confirmedPens.slice(Math.max(0, confirmedPens.length - PEN_SEGMENT_RENDER_LIMIT));
-        for (const item of tail) {
-          if (!item || typeof item !== "object") continue;
-          const p = item as Record<string, unknown>;
-          const st = Math.floor(Number(p["start_time"]));
-          const et = Math.floor(Number(p["end_time"]));
-          const sp = Number(p["start_price"]);
-          const ep = Number(p["end_price"]);
-          const dir = Math.floor(Number(p["direction"]));
-          if (!Number.isFinite(st) || !Number.isFinite(et) || !Number.isFinite(sp) || !Number.isFinite(ep) || !Number.isFinite(dir))
-            continue;
-          if (st <= 0 || et <= 0 || st >= et) continue;
-          if (minTime != null && maxTime != null && (st < minTime || et > maxTime)) continue;
-          const key = `pen:${st}:${et}:${dir}`;
-          segments.push({
-            key,
-            points: [
-              { time: st as UTCTimestamp, value: sp },
-              { time: et as UTCTimestamp, value: ep }
-            ],
-            highlighted: confirmedHighlightKey != null && key === confirmedHighlightKey
-          });
-        }
-      }
-      penSegmentsRef.current = segments;
+      const confirmedPensRaw = (pen?.history as Record<string, unknown> | undefined)?.["confirmed"];
+      const confirmedPens = Array.isArray(confirmedPensRaw)
+        ? confirmedPensRaw.slice().sort((a, b) => {
+            const aa = a && typeof a === "object" ? (a as Record<string, unknown>) : {};
+            const bb = b && typeof b === "object" ? (b as Record<string, unknown>) : {};
+            const stA = Math.floor(Number(aa["start_time"]));
+            const stB = Math.floor(Number(bb["start_time"]));
+            if (stA !== stB) return stA - stB;
+            return Math.floor(Number(aa["end_time"])) - Math.floor(Number(bb["end_time"]));
+          })
+        : [];
 
-      // Candidate highlight: prefer reverse_anchor_ref when it's a candidate; draw it as a separate segment.
-      if (revRef?.kind === "candidate") {
-        const ph = (pen?.head ?? {}) as Record<string, unknown>;
-        const cand = ph["candidate"];
+      const confirmedLinePoints: PenLinePoint[] = [];
+      const allSegments: Array<{ key: string; points: PenLinePoint[]; highlighted: boolean }> = [];
+      for (const item of confirmedPens) {
+        if (!item || typeof item !== "object") continue;
+        const p = item as Record<string, unknown>;
+        const st = Math.floor(Number(p["start_time"]));
+        const et = Math.floor(Number(p["end_time"]));
+        const sp = Number(p["start_price"]);
+        const ep = Number(p["end_price"]);
+        const dir = Math.floor(Number(p["direction"]));
+        if (!Number.isFinite(st) || !Number.isFinite(et) || !Number.isFinite(sp) || !Number.isFinite(ep) || !Number.isFinite(dir)) continue;
+        if (st <= 0 || et <= 0 || st >= et) continue;
+        if (minTime != null && maxTime != null && (st < minTime || et > maxTime)) continue;
+        const startPt: PenLinePoint = { time: st as UTCTimestamp, value: sp };
+        const endPt: PenLinePoint = { time: et as UTCTimestamp, value: ep };
+        if (!confirmedLinePoints.length || Number(confirmedLinePoints[confirmedLinePoints.length - 1]!.time) !== st) {
+          confirmedLinePoints.push(startPt);
+        }
+        confirmedLinePoints.push(endPt);
+        const key = `pen:${st}:${et}:${dir}`;
+        allSegments.push({
+          key,
+          points: [startPt, endPt],
+          highlighted: confirmedHighlightKey != null && key === confirmedHighlightKey
+        });
+      }
+      penSegmentsRef.current = allSegments.slice(Math.max(0, allSegments.length - PEN_SEGMENT_RENDER_LIMIT));
+      if (replayEnabled) penPointsRef.current = confirmedLinePoints;
+
+      const penHead = (pen?.head ?? {}) as Record<string, unknown>;
+      const extendingPen = pickHeadPen(penHead["extending"]);
+      const candidatePen = pickHeadPen(penHead["candidate"]);
+      replayPenPreviewPointsRef.current["pen.extending"] = replayEnabled && extendingPen ? extendingPen.points : [];
+      replayPenPreviewPointsRef.current["pen.candidate"] = replayEnabled && candidatePen ? candidatePen.points : [];
+
+      if (curRef?.kind === "candidate" && candidatePen) {
         if (
-          cand &&
-          typeof cand === "object" &&
-          revRef.start_time > 0 &&
-          revRef.end_time > revRef.start_time &&
-          (minTime == null || maxTime == null || (revRef.start_time >= minTime && revRef.end_time <= maxTime))
+          candidatePen.start_time === curRef.start_time &&
+          candidatePen.end_time === curRef.end_time &&
+          candidatePen.direction === curRef.direction
         ) {
-          const c = cand as Record<string, unknown>;
-          const sp = Number(c["start_price"]);
-          const ep = Number(c["end_price"]);
-          if (Number.isFinite(sp) && Number.isFinite(ep)) {
-            setHighlight(
-              [
-                { time: revRef.start_time as UTCTimestamp, value: sp },
-                { time: revRef.end_time as UTCTimestamp, value: ep }
-              ],
-              { dashed: true }
-            );
-          } else {
-            setHighlight(null);
-          }
+          setHighlight(candidatePen.points, { dashed: true });
         } else {
           setHighlight(null);
         }
       } else {
         // Confirmed anchor highlight: only draw a separate segment when we're NOT doing segmented pen coloring.
         if (!ENABLE_PEN_SEGMENT_COLOR && confirmedHighlightKey) {
-          const hit = segments.find((s) => s.key === confirmedHighlightKey);
+          const hit = allSegments.find((s) => s.key === confirmedHighlightKey);
           if (hit) setHighlight(hit.points, { dashed: false });
           else setHighlight(null);
         } else {
@@ -1228,27 +1418,33 @@ export function ChartView() {
 
       setAnchorHighlightEpoch((v) => v + 1);
     },
-    [setAnchorHighlightEpoch]
+    [replayEnabled, setAnchorHighlightEpoch]
   );
 
   const fetchAndApplyAnchorHighlightAtTime = useCallback(
     async (t: number) => {
       const at = Math.max(0, Math.floor(t));
       if (at <= 0) return;
+      factorPullPendingTimeRef.current = at;
       if (factorPullInFlightRef.current) return;
-      if (lastFactorAtTimeRef.current === at) return;
       factorPullInFlightRef.current = true;
       try {
-        const slices = await fetchFactorSlices({ seriesId, atTime: at, windowCandles: INITIAL_TAIL_LIMIT });
-        lastFactorAtTimeRef.current = at;
-        applyPenAndAnchorFromFactorSlices(slices);
+        while (factorPullPendingTimeRef.current != null) {
+          const next = factorPullPendingTimeRef.current;
+          factorPullPendingTimeRef.current = null;
+          if (lastFactorAtTimeRef.current === next) continue;
+          const slices = await fetchFactorSlices({ seriesId, atTime: next, windowCandles: INITIAL_TAIL_LIMIT });
+          lastFactorAtTimeRef.current = next;
+          applyPenAndAnchorFromFactorSlices(slices);
+          if (replayEnabled) setReplaySlices(slices);
+        }
       } catch {
         // ignore (best-effort)
       } finally {
         factorPullInFlightRef.current = false;
       }
     },
-    [applyPenAndAnchorFromFactorSlices, seriesId]
+    [applyPenAndAnchorFromFactorSlices, replayEnabled, seriesId, setReplaySlices]
   );
 
   const applyWorldFrame = useCallback(
@@ -1544,7 +1740,9 @@ export function ChartView() {
         .filter(Boolean) as OverlayInstructionPatchItemV1[];
       setReplayDrawInstructions(activeInstructions);
       rebuildPivotMarkersFromOverlay();
+      rebuildAnchorSwitchMarkersFromOverlay();
       rebuildPenPointsFromOverlay();
+      rebuildOverlayPolylinesFromOverlay();
       if (effectiveVisible("pen.confirmed") && penSeriesRef.current) {
         penSeriesRef.current.setData(penPointsRef.current);
       }
@@ -1554,8 +1752,10 @@ export function ChartView() {
     },
     [
       effectiveVisible,
+      rebuildOverlayPolylinesFromOverlay,
       rebuildPenPointsFromOverlay,
       rebuildPivotMarkersFromOverlay,
+      rebuildAnchorSwitchMarkersFromOverlay,
       resolveReplayActiveIds,
       setReplayDrawInstructions,
       setPenPointCount,
@@ -1744,6 +1944,13 @@ export function ChartView() {
     const showPenConfirmed = effectiveVisible("pen.confirmed");
     const penPointTotal =
       ENABLE_PEN_SEGMENT_COLOR && !replayEnabled ? penSegmentsRef.current.length * 2 : penPointsRef.current.length;
+    const clearReplayPenPreviewSeries = () => {
+      for (const feature of ["pen.extending", "pen.candidate"] as ReplayPenPreviewFeature[]) {
+        const s = replayPenPreviewSeriesByFeatureRef.current[feature];
+        if (s) chart.removeSeries(s);
+        replayPenPreviewSeriesByFeatureRef.current[feature] = null;
+      }
+    };
     if (!showPenConfirmed) {
       if (penSeriesRef.current) {
         chart.removeSeries(penSeriesRef.current);
@@ -1755,6 +1962,7 @@ export function ChartView() {
         chart.removeSeries(anchorPenSeriesRef.current);
         anchorPenSeriesRef.current = null;
       }
+      clearReplayPenPreviewSeries();
     } else {
       if (ENABLE_PEN_SEGMENT_COLOR && !replayEnabled) {
         if (penSeriesRef.current) {
@@ -1818,6 +2026,39 @@ export function ChartView() {
         }
         anchorPenSeriesRef.current.setData(anchorPts);
       }
+
+      const previewDefs: Array<{ feature: ReplayPenPreviewFeature; lineStyle: LineStyle }> = [
+        { feature: "pen.extending", lineStyle: LineStyle.Dashed },
+        { feature: "pen.candidate", lineStyle: LineStyle.Dashed }
+      ];
+      for (const item of previewDefs) {
+        const points = replayPenPreviewPointsRef.current[item.feature];
+        const shouldShow = replayEnabled && effectiveVisible(item.feature) && points.length >= 2;
+        const existing = replayPenPreviewSeriesByFeatureRef.current[item.feature];
+        if (!shouldShow) {
+          if (existing) chart.removeSeries(existing);
+          replayPenPreviewSeriesByFeatureRef.current[item.feature] = null;
+          continue;
+        }
+        if (!existing) {
+          replayPenPreviewSeriesByFeatureRef.current[item.feature] = chart.addSeries(LineSeries, {
+            color: "#ffffff",
+            lineWidth: 2,
+            lineStyle: item.lineStyle,
+            priceLineVisible: false,
+            lastValueVisible: false
+          });
+        } else {
+          existing.applyOptions({
+            color: "#ffffff",
+            lineWidth: 2,
+            lineStyle: item.lineStyle,
+            priceLineVisible: false,
+            lastValueVisible: false
+          });
+        }
+        replayPenPreviewSeriesByFeatureRef.current[item.feature]?.setData(points);
+      }
     }
 
     setPenPointCount(penPointTotal);
@@ -1826,6 +2067,7 @@ export function ChartView() {
     anchorHighlightEpoch,
     chartEpoch,
     effectiveVisible,
+    replayEnabled,
     rebuildOverlayPolylinesFromOverlay,
     rebuildPivotMarkersFromOverlay,
     rebuildAnchorSwitchMarkersFromOverlay,
@@ -1856,6 +2098,11 @@ export function ChartView() {
         overlayPullInFlightRef.current = false;
         if (chart) {
           for (const series of overlayPolylineSeriesByIdRef.current.values()) chart.removeSeries(series);
+          for (const feature of ["pen.extending", "pen.candidate"] as ReplayPenPreviewFeature[]) {
+            const series = replayPenPreviewSeriesByFeatureRef.current[feature];
+            if (series) chart.removeSeries(series);
+            replayPenPreviewSeriesByFeatureRef.current[feature] = null;
+          }
         }
         overlayPolylineSeriesByIdRef.current.clear();
         setZhongshuCount(0);
@@ -1867,6 +2114,9 @@ export function ChartView() {
         }
         penSegmentsRef.current = [];
         anchorPenPointsRef.current = null;
+        replayPenPreviewPointsRef.current["pen.extending"] = [];
+        replayPenPreviewPointsRef.current["pen.candidate"] = [];
+        factorPullPendingTimeRef.current = null;
         lastFactorAtTimeRef.current = null;
         setAnchorHighlightEpoch((v) => v + 1);
         setPivotCount(0);
@@ -2204,6 +2454,9 @@ export function ChartView() {
             overlayActiveIdsRef.current.clear();
             overlayCursorVersionRef.current = 0;
             anchorPenPointsRef.current = null;
+            replayPenPreviewPointsRef.current["pen.extending"] = [];
+            replayPenPreviewPointsRef.current["pen.candidate"] = [];
+            factorPullPendingTimeRef.current = null;
             setAnchorHighlightEpoch((v) => v + 1);
             lastFactorAtTimeRef.current = null;
             if (ENABLE_WORLD_FRAME && !replayEnabled && worldFrameHealthyRef.current) {
@@ -2304,6 +2557,9 @@ export function ChartView() {
     overlayPullInFlightRef.current = false;
     penSegmentsRef.current = [];
     anchorPenPointsRef.current = null;
+    replayPenPreviewPointsRef.current["pen.extending"] = [];
+    replayPenPreviewPointsRef.current["pen.candidate"] = [];
+    factorPullPendingTimeRef.current = null;
     lastFactorAtTimeRef.current = null;
     setAnchorHighlightEpoch((v) => v + 1);
     setPivotCount(0);
@@ -2435,9 +2691,11 @@ export function ChartView() {
     const time = all[clamped]!.time as number;
     setReplayFocusTime(time);
     applyReplayOverlayAtTime(time);
+    void fetchAndApplyAnchorHighlightAtTime(time);
     void requestReplayFrameAtTime(time);
   }, [
     applyReplayOverlayAtTime,
+    fetchAndApplyAnchorHighlightAtTime,
     replayEnabled,
     replayIndex,
     replayPackageEnabled,
@@ -2478,6 +2736,8 @@ export function ChartView() {
       data-anchor-count={String(anchorCount)}
       data-anchor-switch-count={String(anchorSwitchCount)}
       data-anchor-on={anchorCount > 0 ? "1" : "0"}
+      data-anchor-top-layer={ENABLE_ANCHOR_TOP_LAYER ? "1" : "0"}
+      data-anchor-top-layer-path-count={String(anchorTopLayerPathCount)}
       data-replay-mode={replayEnabled ? "replay" : "live"}
       data-replay-index={String(replayIndex)}
       data-replay-total={String(replayTotal)}

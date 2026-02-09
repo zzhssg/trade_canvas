@@ -158,12 +158,121 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(res_late.status_code, 409, res_late.text)
         self.assertIn("ledger_out_of_sync", res_late.text)
 
+    def test_anchor_history_polyline_uses_blue_color(self) -> None:
+        base = 60
+        prices = [
+            1,
+            2,
+            10,
+            2,
+            1,
+            2,
+            9,
+            2,
+            1,
+            2,
+            8,
+            2,
+            1,
+            20,
+            22,
+            20,
+            15,
+            20,
+            23,
+            20,
+            16,
+            20,
+            24,
+            20,
+            17,
+            20,
+            25,
+            20,
+            18,
+            20,
+        ]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        res_draw = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(res_draw.status_code, 200, res_draw.text)
+        draw = res_draw.json()
+
+        anchor_history: list[dict] = []
+        for item in draw.get("instruction_catalog_patch") or []:
+            if not isinstance(item, dict) or item.get("kind") != "polyline":
+                continue
+            definition = item.get("definition")
+            if not isinstance(definition, dict):
+                continue
+            if definition.get("feature") == "anchor.history":
+                anchor_history.append(definition)
+
+        self.assertTrue(anchor_history, "expected anchor.history polyline in draw delta")
+        self.assertEqual(str(anchor_history[0].get("color")), "rgba(59,130,246,0.55)")
+
     def test_old_plot_and_overlay_delta_endpoints_are_removed(self) -> None:
         res_plot = self.client.get("/api/plot/delta", params={"series_id": self.series_id})
         self.assertEqual(res_plot.status_code, 404, res_plot.text)
 
         res_overlay = self.client.get("/api/overlay/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
         self.assertEqual(res_overlay.status_code, 404, res_overlay.text)
+
+    def test_draw_delta_rebuilds_overlay_when_anchor_current_missing(self) -> None:
+        base = 60
+        prices = [
+            1,
+            2,
+            10,
+            2,
+            1,
+            2,
+            9,
+            2,
+            1,
+            2,
+            8,
+            2,
+            1,
+            20,
+            22,
+            20,
+            15,
+            20,
+            23,
+            20,
+            16,
+            20,
+            24,
+            20,
+            17,
+            20,
+            25,
+            20,
+            18,
+            20,
+        ]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        first = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertIn("anchor.current", first.json().get("active_ids") or [])
+
+        overlay_store = self.client.app.state.overlay_store
+        with overlay_store.connect() as conn:
+            conn.execute(
+                "DELETE FROM overlay_instruction_versions WHERE series_id = ? AND instruction_id = ?",
+                (self.series_id, "anchor.current"),
+            )
+            conn.commit()
+
+        repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(repaired.status_code, 200, repaired.text)
+        self.assertIn("anchor.current", repaired.json().get("active_ids") or [])
 
 
 if __name__ == "__main__":

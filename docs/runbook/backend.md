@@ -15,7 +15,7 @@ bash scripts/dev_backend.sh
 
 Whitelist 真源：`backend/config/market_whitelist.json`。
 
-### 可选：启用 ingest（Whitelist / On-demand）
+### ingest 运行模式（单一 realtime：binance_ws）
 
 ```bash
 export TRADE_CANVAS_ENABLE_WHITELIST_INGEST=1
@@ -25,6 +25,10 @@ export TRADE_CANVAS_ONDEMAND_MAX_JOBS=8  # 避免同时订阅过多标的导致�
 export TRADE_CANVAS_SQLITE_TIMEOUT_S=5   # sqlite 连接 busy 超时（秒）
 bash scripts/dev_backend.sh
 ```
+
+说明：
+- realtime ingest 仅使用 Binance WS（`binance_ws`）；不再提供 `ccxt|binance_ws` 二选一模式。
+- 当 `TRADE_CANVAS_ENABLE_WHITELIST_INGEST=0` 时，白名单币种在被前端订阅后会自动回退到 ondemand ingest（避免“默认币种不跳动”）。
 
 ## 回测（freqtrade backtesting）
 

@@ -194,6 +194,22 @@ def _is_port_listening(port: int) -> bool:
     return res.returncode == 0 and bool(res.stdout.strip())
 
 
+def _start_backend_service(worktree_path: str, backend_port: int, *, hot_reload: bool) -> int:
+    cmd = ["bash", "scripts/dev_backend.sh", "--host", "127.0.0.1", "--port", str(backend_port)]
+    if not hot_reload:
+        cmd.insert(2, "--no-reload")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=worktree_path,
+        env=os.environ.copy(),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    time.sleep(0.5)
+    return int(proc.pid)
+
+
 def list_projects(repo_root: Path) -> list[ProjectRow]:
     res = subprocess.run(
         ["git", "worktree", "list", "--porcelain"],
@@ -367,16 +383,7 @@ def start_test_services(repo_root: Path, worktree_id: str, restart: bool = False
         b_pid = None
         f_pid = None
     if not _is_process_running(b_pid):
-        proc = subprocess.Popen(
-            ["bash", "scripts/dev_backend.sh", "--no-reload", "--host", "127.0.0.1", "--port", str(b_port)],
-            cwd=project.path,
-            env=os.environ.copy(),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        b_pid = proc.pid
-        time.sleep(0.5)
+        b_pid = _start_backend_service(project.path, b_port, hot_reload=True)
     if not _is_process_running(f_pid):
         env = os.environ.copy()
         env["VITE_API_BASE_URL"] = f"http://127.0.0.1:{b_port}"
@@ -409,4 +416,86 @@ def stop_test_services(repo_root: Path, worktree_id: str) -> ServiceState:
     if worktree_id in (index.get("active_services") or {}):
         del index["active_services"][worktree_id]
         _write_index(repo_root, index)
+    return get_service_state(repo_root, worktree_id)
+
+
+def start_single_service(
+    repo_root: Path,
+    worktree_id: str,
+    component: str,
+    restart: bool = False,
+) -> ServiceState:
+    project = _find_project(repo_root, worktree_id)
+    is_main_project = project.is_main or project.branch == "main"
+    if not is_main_project and project.plan_status != "pending_acceptance":
+        raise ValueError("only pending_acceptance projects can start test services")
+    if component not in {"backend", "frontend"}:
+        raise ValueError(f"invalid component: {component}")
+
+    b_port, f_port = _ensure_ports(repo_root, worktree_id, project.path)
+    index = _read_index(repo_root)
+    active = (index.get("active_services") or {}).get(worktree_id) or {}
+    b_pid = active.get("backend_pid")
+    f_pid = active.get("frontend_pid")
+
+    if component == "backend":
+        if restart:
+            _kill_process_group(b_pid)
+            _kill_port(b_port)
+            b_pid = None
+        if not _is_process_running(b_pid):
+            b_pid = _start_backend_service(project.path, b_port, hot_reload=True)
+    else:
+        if restart:
+            _kill_process_group(f_pid)
+            _kill_port(f_port)
+            f_pid = None
+        if not _is_process_running(f_pid):
+            env = os.environ.copy()
+            env["VITE_API_BASE_URL"] = f"http://127.0.0.1:{b_port}"
+            proc = subprocess.Popen(
+                ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", str(f_port)],
+                cwd=Path(project.path) / "frontend",
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            f_pid = proc.pid
+            time.sleep(0.5)
+
+    index.setdefault("active_services", {})
+    index["active_services"][worktree_id] = {"backend_pid": b_pid, "frontend_pid": f_pid}
+    _write_index(repo_root, index)
+    return get_service_state(repo_root, worktree_id)
+
+
+def stop_single_service(repo_root: Path, worktree_id: str, component: str) -> ServiceState:
+    if component not in {"backend", "frontend"}:
+        raise ValueError(f"invalid component: {component}")
+
+    project = _find_project(repo_root, worktree_id)
+    index = _read_index(repo_root)
+    active = (index.get("active_services") or {}).get(worktree_id) or {}
+    b_pid = active.get("backend_pid")
+    f_pid = active.get("frontend_pid")
+    state = get_service_state(repo_root, worktree_id)
+
+    if component == "backend":
+        _kill_process_group(b_pid)
+        if project.is_main or project.branch == "main":
+            _kill_port(state.backend_port)
+        b_pid = None
+    else:
+        _kill_process_group(f_pid)
+        if project.is_main or project.branch == "main":
+            _kill_port(state.frontend_port)
+        f_pid = None
+
+    if b_pid or f_pid:
+        index.setdefault("active_services", {})
+        index["active_services"][worktree_id] = {"backend_pid": b_pid, "frontend_pid": f_pid}
+    elif worktree_id in (index.get("active_services") or {}):
+        del index["active_services"][worktree_id]
+    _write_index(repo_root, index)
     return get_service_state(repo_root, worktree_id)

@@ -107,6 +107,22 @@ class WorldStateFrameApiTests(unittest.TestCase):
         self.assertEqual(payload["factor_slices"]["candle_id"], f"{self.series_id}:{times[-1]}")
         self.assertEqual(payload["draw_state"]["to_candle_id"], f"{self.series_id}:{times[-1]}")
 
+    def test_frame_at_time_debug_mode_no_name_error(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
+        try:
+            base = 60
+            prices = [1, 2, 5, 2, 1, 2, 5, 2, 1]
+            times = [base * (i + 1) for i in range(len(prices))]
+            for t, p in zip(times, prices, strict=True):
+                self._ingest(t, float(p))
+
+            res = self.client.get("/api/frame/at_time", params={"series_id": self.series_id, "at_time": 301, "window_candles": 2000})
+            self.assertEqual(res.status_code, 200, res.text)
+            payload = res.json()
+            self.assertEqual(int(payload["time"]["aligned_time"]), 300)
+        finally:
+            os.environ.pop("TRADE_CANVAS_ENABLE_DEBUG_API", None)
+
 
 if __name__ == "__main__":
     unittest.main()
