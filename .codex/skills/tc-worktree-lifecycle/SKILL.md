@@ -67,6 +67,9 @@ curl -X POST http://localhost:8000/api/dev/worktrees \
 - 遵循 `tc-e2e-gate` 的 E2E 用户故事门禁
 - 保持 worktree 元数据更新（如 plan 路径变更）
 - 定期同步 main 分支避免冲突
+- **状态联动（必须）**：
+  - 开始开发时执行：`bash scripts/worktree_plan_ctl.sh status 开发中`
+  - 开发完成准备提测时执行：`bash scripts/worktree_plan_ctl.sh status 待验收`
 
 ### 2.2 服务管理
 
@@ -93,7 +96,7 @@ Worktree #2:       Backend 8002, Frontend 5175
 
 - [ ] E2E 用户故事通过（`tc-e2e-gate`）
 - [ ] Code Review 完成
-- [ ] Plan 状态更新为 "done"
+- [ ] Plan 状态已更新为“待验收”
 - [ ] 无 P0 技术债
 
 ### 3.2 验收命令

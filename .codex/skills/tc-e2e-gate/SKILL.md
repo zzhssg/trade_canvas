@@ -69,7 +69,8 @@ description: "Enforce an E2E user-story gate for trade_canvas work: during plann
 交付前必须完成：
 - E2E 用户故事对应的验证命令全部通过（退出码为 0）。
 - **文档状态同步**：把本次相关文档的 `status/updated` 更新到正确阶段，并通过文档审计（参考 `docs/core/doc-status.md`）：
-  - `docs/plan/YYYY-MM-DD-<topic>.md`：从 `draft/in_progress` 更新为 `done`（或中文状态），并更新 `updated: YYYY-MM-DD`
+  - `docs/plan/YYYY-MM-DD-<topic>.md`：开发完成时应先更新为 `pending_acceptance/待验收`，并更新 `updated: YYYY-MM-DD`
+  - 验收合并阶段再由 `scripts/worktree_acceptance.sh --auto-doc-status` 推进到 `online/已上线`
   - 任何受影响的核心文档/契约（`docs/core/` / `docs/core/contracts/`）：更新 `status` 与 `updated`
   - 运行 `bash docs/scripts/doc_audit.sh`（失败=未完成，先修）
 - **API 文档完整性（新增强约束）**：

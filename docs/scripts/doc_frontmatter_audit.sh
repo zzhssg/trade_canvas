@@ -23,6 +23,8 @@ ALLOWED_STATUS = {
     "草稿": "draft/草稿",
     "in_progress": "in_progress/开发中",
     "开发中": "in_progress/开发中",
+    "pending_acceptance": "pending_acceptance/待验收",
+    "待验收": "pending_acceptance/待验收",
     "done": "done/已完成",
     "已完成": "done/已完成",
     # online/已上线 is treated as an alias of done/已完成 (delivery-ready).
@@ -109,7 +111,7 @@ for root, dirs, files in os.walk("docs"):
             violations.append(f"updated < created ({updated} < {created}): {path}")
 
 print(f"Front matter files: {files_with_frontmatter}")
-for key in ("draft/草稿", "in_progress/开发中", "done/已完成", "deprecated/已废弃"):
+for key in ("draft/草稿", "in_progress/开发中", "pending_acceptance/待验收", "done/已完成", "deprecated/已废弃"):
     items = sorted(by_status.get(key, []))
     if not items:
         continue

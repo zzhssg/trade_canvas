@@ -28,3 +28,31 @@ metadata:
 
 - 大型方案/多里程碑：新建 `docs/plan/YYYY-MM-DD-主题-kebab-case.md`（用 `docs/plan/_template.md`）。
 - 仅做小修小补：可以不写 plan 文档，但仍要有步骤+验收。
+
+## 与项目面板联动（必须）
+
+只要本次任务需要计划文档（尤其是中/高风险），必须在落盘后立刻完成 worktree 绑定与状态推进：
+
+1. 生成 plan（新建或复用）：
+
+```bash
+bash docs/scripts/new_plan.sh "你的计划标题"
+```
+
+2. 绑定当前 worktree 与 plan（让项目面板可展示“计划文档”）：
+
+```bash
+bash scripts/worktree_plan_ctl.sh bind docs/plan/YYYY-MM-DD-xxx.md
+```
+
+3. 进入执行时，把 plan 状态置为“开发中”：
+
+```bash
+bash scripts/worktree_plan_ctl.sh status 开发中
+```
+
+4. 开发完成、准备交付时，把状态置为“待验收”：
+
+```bash
+bash scripts/worktree_plan_ctl.sh status 待验收
+```

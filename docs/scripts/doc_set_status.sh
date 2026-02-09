@@ -9,6 +9,7 @@ Usage:
 Status accepts (equivalent aliases):
   draft | 草稿
   in_progress | 开发中
+  pending_acceptance | 待验收
   done | 已完成
   online | 已上线
   deprecated | 已废弃
@@ -39,6 +40,8 @@ ALIAS = {
     "草稿": "draft",
     "in_progress": "in_progress",
     "开发中": "in_progress",
+    "pending_acceptance": "pending_acceptance",
+    "待验收": "pending_acceptance",
     "done": "done",
     "已完成": "done",
     "online": "online",
@@ -50,6 +53,7 @@ ALIAS = {
 CANONICAL = {
     "draft": "draft",
     "in_progress": "in_progress",
+    "pending_acceptance": "pending_acceptance",
     "done": "done",
     "online": "online",
     "deprecated": "deprecated",
@@ -67,7 +71,7 @@ if status_key is None:
     die(f"invalid status '{raw_status}'")
 
 new_status = CANONICAL[status_key]
-new_status_written = raw_status if raw_status in {"草稿", "开发中", "已完成", "已上线", "已废弃"} else new_status
+new_status_written = raw_status if raw_status in {"草稿", "开发中", "待验收", "已完成", "已上线", "已废弃"} else new_status
 today = date.today().isoformat()
 
 paths = sys.argv[2:]
