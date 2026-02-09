@@ -61,3 +61,9 @@ uvicorn trade_oracle.apps.api.main:app --reload --port 8091
 - 入口位置：右上角导航，`Live` 右侧 `Oracle`。
 - 开关：`VITE_ENABLE_TRADE_ORACLE_PAGE`（默认 `1`）。
 - API base：`VITE_ORACLE_API_BASE_URL`（dev 默认 `/oracle-api`，由 Vite 代理到 `http://127.0.0.1:8091`）。
+
+
+## Troubleshooting
+
+- Oracle 页面显示 `oracle_api_unreachable`：先启动 `trade_oracle` API（`uvicorn trade_oracle.apps.api.main:app --reload --port 8091`）。
+- Oracle API 返回 `market_source_unavailable`（HTTP 503）：说明 `trade_oracle` 已启动，但 `trade_canvas` 市场后端不可访问，请先启动 `bash scripts/dev_backend.sh`。

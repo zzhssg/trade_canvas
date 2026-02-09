@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from trade_oracle.apps.api.main import app
+from trade_oracle.market_client import MarketResponseError, MarketSourceUnavailableError
 from trade_oracle.service import OracleService
 
 
@@ -41,3 +42,29 @@ def test_backtest_api_returns_metrics(monkeypatch):
     assert payload["ok"] is True
     assert payload["metrics"]["trades"] == 12
     assert payload["passed"] is True
+
+
+def test_backtest_api_market_unavailable(monkeypatch):
+    monkeypatch.setenv("TRADE_ORACLE_ENABLE_BACKTEST", "1")
+
+    def fake_run(self, *, series_id: str, symbol: str = "BTC") -> dict:
+        raise MarketSourceUnavailableError("market_api_unreachable")
+
+    monkeypatch.setattr(OracleService, "run_market_backtest", fake_run)
+
+    resp = client.get("/api/oracle/backtest/run")
+    assert resp.status_code == 503
+    assert "market_source_unavailable" in resp.json()["detail"]
+
+
+def test_backtest_api_market_5xx_maps_to_503(monkeypatch):
+    monkeypatch.setenv("TRADE_ORACLE_ENABLE_BACKTEST", "1")
+
+    def fake_run(self, *, series_id: str, symbol: str = "BTC") -> dict:
+        raise MarketResponseError("http_status=502")
+
+    monkeypatch.setattr(OracleService, "run_market_backtest", fake_run)
+
+    resp = client.get("/api/oracle/backtest/run")
+    assert resp.status_code == 503
+    assert "market_source_unavailable" in resp.json()["detail"]

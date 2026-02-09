@@ -29,6 +29,17 @@ type BacktestResponse = {
   };
 };
 
+function errorHint(message: string | null): string | null {
+  if (!message) return null;
+  if (message.includes("oracle_api_unreachable")) {
+    return "请先启动 trade_oracle API：uvicorn trade_oracle.apps.api.main:app --reload --port 8091";
+  }
+  if (message.includes("market_source_unavailable") || message.includes("market_source_error")) {
+    return "trade_oracle 已启动，但上游 trade_canvas 市场接口不可用，请先启动 backend：bash scripts/dev_backend.sh";
+  }
+  return null;
+}
+
 export function OraclePage() {
   const { exchange, market, symbol } = useUiStore();
   const defaultSeriesId = useMemo(() => `${exchange}:${market}:${symbol}:1d`, [exchange, market, symbol]);
@@ -39,6 +50,7 @@ export function OraclePage() {
   const [error, setError] = useState<string | null>(null);
   const [analyze, setAnalyze] = useState<AnalyzeResponse | null>(null);
   const [backtest, setBacktest] = useState<BacktestResponse | null>(null);
+  const hint = errorHint(error);
 
   async function runAnalyze() {
     setLoading(true);
@@ -114,7 +126,10 @@ export function OraclePage() {
         </div>
 
         {error ? (
-          <div className="mb-3 rounded border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">{error}</div>
+          <div className="mb-3 rounded border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+            <div>{error}</div>
+            {hint ? <div className="mt-1 text-rose-100/80">{hint}</div> : null}
+          </div>
         ) : null}
 
         {backtest ? (
