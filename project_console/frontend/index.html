@@ -93,7 +93,7 @@
       }
       .card-grid {
         display: grid;
-        grid-template-columns: minmax(340px, 1.7fr) minmax(340px, 1.5fr) auto;
+        grid-template-columns: minmax(320px, 1.6fr) minmax(300px, 1.35fr) minmax(360px, 1.1fr);
         gap: 12px;
         align-items: center;
       }
@@ -181,8 +181,10 @@
       .action-panel {
         display: flex;
         justify-content: flex-end;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 6px;
+        align-items: center;
+        justify-self: end;
       }
       .action-panel button { min-height: 30px; padding: 6px 10px; font-size: 11px; }
       .action-note { font-size: 11px; white-space: nowrap; }
@@ -248,13 +250,13 @@
         display: none;
       }
       @media (max-width: 1500px) {
-        .card-grid { grid-template-columns: minmax(300px, 1.5fr) minmax(320px, 1.4fr); }
-        .action-panel { grid-column: 1 / -1; justify-content: flex-start; }
+        .card-grid { grid-template-columns: minmax(300px, 1.5fr) minmax(280px, 1.25fr) minmax(320px, 1fr); }
       }
       @media (max-width: 1260px) {
         .card-grid { grid-template-columns: 1fr; gap: 8px; }
         .search-input { width: 100%; }
         .svc-row { flex-wrap: wrap; }
+        .action-panel { justify-content: flex-start; justify-self: start; flex-wrap: wrap; }
       }
       @media (prefers-reduced-motion: reduce) {
         * { transition: none !important; }
@@ -516,11 +518,6 @@
               makeButton("打开测试页", "emphasis", () => window.open(`http://127.0.0.1:${services.frontend_port}`, "_blank"))
             );
           }
-        } else {
-          const note = document.createElement("div");
-          note.className = "muted action-note";
-          note.textContent = "仅待验收或主项目可控制服务";
-          actionPanel.appendChild(note);
         }
 
         return card;
