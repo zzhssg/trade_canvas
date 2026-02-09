@@ -275,17 +275,27 @@ class FactorOrchestrator:
             end_candle_time=int(head_time),
             limit=int(state_scan_limit),
         )
-        if len(rows) >= int(state_scan_limit) and self._debug_hub is not None:
+        rows_truncated = len(rows) >= int(state_scan_limit)
+        if rows_truncated:
+            rows = self._factor_store.get_events_between_times_paged(
+                series_id=series_id,
+                factor_name=None,
+                start_candle_time=int(state_start),
+                end_candle_time=int(head_time),
+                page_size=int(state_scan_limit),
+            )
+        if rows_truncated and self._debug_hub is not None:
             self._debug_hub.emit(
                 pipe="write",
                 event="factor.state_rebuild.limit_reached",
                 series_id=series_id,
-                message="state rebuild event scan reached limit; consider raising TRADE_CANVAS_FACTOR_STATE_REBUILD_EVENT_LIMIT",
+                message="state rebuild event scan reached limit; switched to paged full scan",
                 data={
                     "state_start": int(state_start),
                     "head_time": int(head_time),
                     "scan_limit": int(state_scan_limit),
                     "rows": int(len(rows)),
+                    "mode": "paged_full_scan",
                 },
             )
 

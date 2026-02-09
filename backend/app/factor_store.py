@@ -336,6 +336,106 @@ class FactorStore:
                     (series_id, int(start_candle_time), int(end_candle_time), int(limit)),
                 ).fetchall()
 
+        return self._decode_event_rows(rows)
+
+    def get_events_between_times_paged(
+        self,
+        *,
+        series_id: str,
+        factor_name: str | None,
+        start_candle_time: int,
+        end_candle_time: int,
+        page_size: int = 20000,
+    ) -> list[FactorEventRow]:
+        out: list[FactorEventRow] = []
+        size = max(1, int(page_size))
+        with self.connect() as conn:
+            last_time: int | None = None
+            last_id = 0
+            while True:
+                params: tuple[Any, ...]
+                if factor_name:
+                    if last_time is None:
+                        sql = """
+                            SELECT id, series_id, factor_name, candle_time, kind, event_key, payload_json
+                            FROM factor_events
+                            WHERE series_id = ? AND factor_name = ? AND candle_time >= ? AND candle_time <= ?
+                            ORDER BY candle_time ASC, id ASC
+                            LIMIT ?
+                        """
+                        params = (
+                            series_id,
+                            factor_name,
+                            int(start_candle_time),
+                            int(end_candle_time),
+                            int(size),
+                        )
+                    else:
+                        sql = """
+                            SELECT id, series_id, factor_name, candle_time, kind, event_key, payload_json
+                            FROM factor_events
+                            WHERE series_id = ? AND factor_name = ? AND candle_time >= ? AND candle_time <= ?
+                              AND (candle_time > ? OR (candle_time = ? AND id > ?))
+                            ORDER BY candle_time ASC, id ASC
+                            LIMIT ?
+                        """
+                        params = (
+                            series_id,
+                            factor_name,
+                            int(start_candle_time),
+                            int(end_candle_time),
+                            int(last_time),
+                            int(last_time),
+                            int(last_id),
+                            int(size),
+                        )
+                else:
+                    if last_time is None:
+                        sql = """
+                            SELECT id, series_id, factor_name, candle_time, kind, event_key, payload_json
+                            FROM factor_events
+                            WHERE series_id = ? AND candle_time >= ? AND candle_time <= ?
+                            ORDER BY candle_time ASC, id ASC
+                            LIMIT ?
+                        """
+                        params = (
+                            series_id,
+                            int(start_candle_time),
+                            int(end_candle_time),
+                            int(size),
+                        )
+                    else:
+                        sql = """
+                            SELECT id, series_id, factor_name, candle_time, kind, event_key, payload_json
+                            FROM factor_events
+                            WHERE series_id = ? AND candle_time >= ? AND candle_time <= ?
+                              AND (candle_time > ? OR (candle_time = ? AND id > ?))
+                            ORDER BY candle_time ASC, id ASC
+                            LIMIT ?
+                        """
+                        params = (
+                            series_id,
+                            int(start_candle_time),
+                            int(end_candle_time),
+                            int(last_time),
+                            int(last_time),
+                            int(last_id),
+                            int(size),
+                        )
+                rows = conn.execute(sql, params).fetchall()
+                if not rows:
+                    break
+                decoded = self._decode_event_rows(rows)
+                out.extend(decoded)
+                if len(rows) < size:
+                    break
+                last = rows[-1]
+                last_time = int(last["candle_time"])
+                last_id = int(last["id"])
+        return out
+
+    @staticmethod
+    def _decode_event_rows(rows: list[sqlite3.Row]) -> list[FactorEventRow]:
         out: list[FactorEventRow] = []
         for r in rows:
             payload: Any = {}

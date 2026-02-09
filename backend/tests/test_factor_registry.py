@@ -134,6 +134,39 @@ class FactorRegistryTests(unittest.TestCase):
         self.assertEqual(int(pick["visible_time"]), 260)
         self.assertIsNone(proc._last_confirmed_pen_before_or_at(confirmed_pens=confirmed, switch_time=100))
 
+    def test_anchor_processor_build_confirmed_pen_ref_index(self) -> None:
+        proc = AnchorProcessor()
+        confirmed = [
+            {"start_time": 60, "end_time": 120, "direction": 1, "visible_time": 140, "end_price": 10.0, "start_price": 9.0},
+            {"start_time": 120, "end_time": 180, "direction": -1, "visible_time": 260, "end_price": 8.0, "start_price": 10.0},
+        ]
+        idx = proc._build_confirmed_pen_ref_index(confirmed)
+        self.assertEqual(len(idx), 2)
+        self.assertIn((60, 120, 1), idx)
+        self.assertIn((120, 180, -1), idx)
+
+    def test_anchor_processor_restore_anchor_state_for_confirmed_switch(self) -> None:
+        proc = AnchorProcessor()
+        confirmed = [
+            {"start_time": 60, "end_time": 120, "direction": 1, "visible_time": 140, "start_price": 90.0, "end_price": 100.0},
+            {"start_time": 120, "end_time": 180, "direction": -1, "visible_time": 260, "start_price": 100.0, "end_price": 80.0},
+        ]
+        switches = [
+            {
+                "switch_time": 300,
+                "new_anchor": {"kind": "confirmed", "start_time": 120, "end_time": 180, "direction": -1},
+            }
+        ]
+        cur, strength = proc.restore_anchor_state(
+            anchor_switches=switches,
+            confirmed_pens=confirmed,
+            candles=[],
+        )
+        self.assertIsNotNone(cur)
+        self.assertEqual(cur["kind"], "confirmed")
+        self.assertEqual(int(cur["start_time"]), 120)
+        self.assertEqual(float(strength), 20.0)
+
 
 if __name__ == "__main__":
     unittest.main()

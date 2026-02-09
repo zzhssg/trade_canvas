@@ -57,6 +57,46 @@
         font-size: 12px;
       }
       .search-input::placeholder { color: #88a1c9; }
+      .filter-bar {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .filter-chip {
+        min-height: 32px;
+        padding: 5px 11px;
+        border-radius: 999px;
+        border: 1px solid #34557f;
+        background: #112544;
+        color: #b7cbef;
+        font-size: 11px;
+      }
+      .filter-chip:hover {
+        background: #1a3765;
+        border-color: #4a78b1;
+      }
+      .filter-chip.active {
+        background: linear-gradient(120deg, #346fd8, #3f59d9);
+        border-color: #7aa5ff;
+        color: #eef4ff;
+      }
+      .filter-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        padding: 0 6px;
+        border-radius: 999px;
+        margin-left: 4px;
+        font-size: 11px;
+        color: #d6e6ff;
+        background: rgba(122, 165, 255, 0.2);
+      }
+      .filter-chip.active .filter-count {
+        background: rgba(238, 244, 255, 0.24);
+        color: #f4f8ff;
+      }
       .board { padding: 16px; display: grid; gap: 12px; max-width: 1540px; margin: 0 auto; }
       .col {
         background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 16%), var(--bg-panel);
@@ -271,6 +311,12 @@
       </div>
       <div class="header-actions">
         <input id="search" class="search-input" type="search" placeholder="搜索项目 / 分支 / 路径" />
+        <div class="filter-bar" aria-label="项目筛选">
+          <button type="button" class="filter-chip active" data-filter="all" data-label="全部">全部<span class="filter-count">0</span></button>
+          <button type="button" class="filter-chip" data-filter="pending_acceptance" data-label="待验收">待验收<span class="filter-count">0</span></button>
+          <button type="button" class="filter-chip" data-filter="service_issue" data-label="服务异常">服务异常<span class="filter-count">0</span></button>
+          <button type="button" class="filter-chip" data-filter="unbound_plan" data-label="未绑定计划">未绑定计划<span class="filter-count">0</span></button>
+        </div>
         <button id="refresh" class="secondary">刷新</button>
       </div>
     </header>
@@ -282,7 +328,7 @@
       <div class="col"><h2>已上线 <span class="col-count" id="count-online">0</span></h2><div id="online" class="list"></div></div>
     </section>
     <script>
-      const UI_STATE = { search: "" };
+      const UI_STATE = { search: "", filter: "all" };
       const BUCKET_KEYS = ["draft", "in_progress", "pending_acceptance", "online"];
 
       function showError(msg) {
@@ -355,14 +401,62 @@
         return `${text.slice(0, headLength)}...${text.slice(-tailLength)}`;
       }
 
+      function updateFilterButtons() {
+        const chips = document.querySelectorAll(".filter-chip");
+        for (const chip of chips) {
+          chip.classList.toggle("active", chip.dataset.filter === UI_STATE.filter);
+        }
+      }
+
+      function updateFilterCounts(counts) {
+        const chips = document.querySelectorAll(".filter-chip");
+        for (const chip of chips) {
+          const key = chip.dataset.filter || "all";
+          const count = Number(counts[key] || 0);
+          const countEl = chip.querySelector(".filter-count");
+          if (countEl) countEl.textContent = String(count);
+          const label = chip.dataset.label || chip.textContent || "";
+          chip.setAttribute("aria-label", `${label} ${count} 项`);
+        }
+      }
+
+      function matchesFilter(card, filter) {
+        if (filter === "all") return true;
+        if (filter === "pending_acceptance") return card.dataset.status === "pending_acceptance";
+        if (filter === "service_issue") return card.dataset.serviceIssue === "1";
+        if (filter === "unbound_plan") return card.dataset.hasPlan === "0";
+        return true;
+      }
+
       function applySearchAndCounts() {
         const query = UI_STATE.search.trim().toLowerCase();
+        const filter = UI_STATE.filter;
+        const allCards = Array.from(document.querySelectorAll(".card"));
+        const filterCounts = {
+          all: 0,
+          pending_acceptance: 0,
+          service_issue: 0,
+          unbound_plan: 0
+        };
+
+        for (const card of allCards) {
+          const matchedQuery = !query || (card.dataset.search || "").includes(query);
+          if (!matchedQuery) continue;
+          filterCounts.all += 1;
+          if (card.dataset.status === "pending_acceptance") filterCounts.pending_acceptance += 1;
+          if (card.dataset.serviceIssue === "1") filterCounts.service_issue += 1;
+          if (card.dataset.hasPlan === "0") filterCounts.unbound_plan += 1;
+        }
+        updateFilterCounts(filterCounts);
+
         for (const key of BUCKET_KEYS) {
           const bucket = document.getElementById(key);
           const cards = Array.from(bucket.querySelectorAll(".card"));
           let visible = 0;
           for (const card of cards) {
-            const matched = !query || (card.dataset.search || "").includes(query);
+            const matchedQuery = !query || (card.dataset.search || "").includes(query);
+            const matchedFilter = matchesFilter(card, filter);
+            const matched = matchedQuery && matchedFilter;
             card.style.display = matched ? "" : "none";
             if (matched) visible += 1;
           }
@@ -437,6 +531,9 @@
         const card = document.createElement("article");
         card.className = "card";
         card.dataset.search = `${projectTitle} ${branchLabel} ${planPathLabel} ${worktreePath}`.toLowerCase();
+        card.dataset.status = project.plan_status || "draft";
+        card.dataset.serviceIssue = backendRunning && frontendRunning ? "0" : "1";
+        card.dataset.hasPlan = project.plan_path ? "1" : "0";
         card.innerHTML = `
           <div class="card-grid">
             <div class="project-lines">
@@ -548,7 +645,15 @@
         UI_STATE.search = event.target.value || "";
         applySearchAndCounts();
       });
+      for (const chip of document.querySelectorAll(".filter-chip")) {
+        chip.addEventListener("click", () => {
+          UI_STATE.filter = chip.dataset.filter || "all";
+          updateFilterButtons();
+          applySearchAndCounts();
+        });
+      }
       document.getElementById("refresh").addEventListener("click", load);
+      updateFilterButtons();
       load();
     </script>
   </body>

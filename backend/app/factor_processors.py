@@ -351,15 +351,37 @@ class AnchorProcessor:
         }
 
     @staticmethod
+    def _pen_ref_key_from_ref(ref: dict[str, Any]) -> tuple[int, int, int] | None:
+        try:
+            start_time = int(ref.get("start_time") or 0)
+            end_time = int(ref.get("end_time") or 0)
+            direction = int(ref.get("direction") or 0)
+        except Exception:
+            return None
+        if start_time <= 0 or end_time <= 0 or direction not in {-1, 1}:
+            return None
+        return (int(start_time), int(end_time), int(direction))
+
+    @classmethod
+    def _build_confirmed_pen_ref_index(cls, confirmed_pens: list[dict[str, Any]]) -> dict[tuple[int, int, int], dict[str, Any]]:
+        out: dict[tuple[int, int, int], dict[str, Any]] = {}
+        for pen in confirmed_pens:
+            key = cls._pen_ref_key_from_ref(pen)
+            if key is not None:
+                out[key] = pen
+        return out
+
+    @staticmethod
     def _last_confirmed_pen_before_or_at(
         *,
         confirmed_pens: list[dict[str, Any]],
         switch_time: int,
+        visible_times: list[int] | None = None,
     ) -> dict[str, Any] | None:
         if not confirmed_pens:
             return None
-        visible_times = [int(p.get("visible_time") or 0) for p in confirmed_pens]
-        idx = bisect_right(visible_times, int(switch_time)) - 1
+        vt = visible_times if visible_times is not None else [int(p.get("visible_time") or 0) for p in confirmed_pens]
+        idx = bisect_right(vt, int(switch_time)) - 1
         if idx < 0:
             return None
         return confirmed_pens[int(idx)]
@@ -392,6 +414,8 @@ class AnchorProcessor:
     ) -> tuple[dict[str, Any] | None, float | None]:
         anchor_current_ref: dict[str, Any] | None = None
         anchor_strength: float | None = None
+        confirmed_pen_ref_index: dict[tuple[int, int, int], dict[str, Any]] | None = None
+        confirmed_visible_times: list[int] | None = None
         if anchor_switches:
             last_switch = anchor_switches[-1]
             cur = last_switch.get("new_anchor")
@@ -399,24 +423,21 @@ class AnchorProcessor:
                 anchor_current_ref = dict(cur)
                 kind = str(cur.get("kind") or "")
                 if kind == "confirmed":
-                    match = next(
-                        (
-                            p
-                            for p in reversed(confirmed_pens)
-                            if int(p.get("start_time") or 0) == int(cur.get("start_time") or 0)
-                            and int(p.get("end_time") or 0) == int(cur.get("end_time") or 0)
-                            and int(p.get("direction") or 0) == int(cur.get("direction") or 0)
-                        ),
-                        None,
-                    )
+                    if confirmed_pen_ref_index is None:
+                        confirmed_pen_ref_index = self._build_confirmed_pen_ref_index(confirmed_pens)
+                    key = self._pen_ref_key_from_ref(cur)
+                    match = confirmed_pen_ref_index.get(key) if key is not None else None
                     if match is not None:
                         anchor_strength = self.pen_strength(match)
                 elif kind == "candidate":
                     switch_time = int(last_switch.get("switch_time") or 0)
                     if switch_time > 0:
+                        if confirmed_visible_times is None:
+                            confirmed_visible_times = [int(p.get("visible_time") or 0) for p in confirmed_pens]
                         last_pen = self._last_confirmed_pen_before_or_at(
                             confirmed_pens=confirmed_pens,
                             switch_time=int(switch_time),
+                            visible_times=confirmed_visible_times,
                         )
                         candidate = build_pen_head_candidate(
                             candles=candles,
