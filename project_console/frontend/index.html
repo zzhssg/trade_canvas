@@ -88,41 +88,26 @@
       .card {
         border: 1px solid #294066;
         border-radius: 10px;
-        padding: 10px;
+        padding: 9px 10px;
         background: var(--bg-card);
-        display: grid;
-        gap: 10px;
       }
-      .card-head {
+      .card-grid {
         display: grid;
-        grid-template-columns: minmax(260px, 1.5fr) minmax(220px, 1.1fr) minmax(260px, 1.2fr);
+        grid-template-columns: minmax(340px, 1.7fr) minmax(340px, 1.5fr) auto;
         gap: 12px;
         align-items: center;
       }
-      .card-body {
+      .project-lines {
         display: grid;
-        border-top: 1px solid #284165;
-        padding-top: 10px;
-        gap: 10px;
+        gap: 6px;
+        min-width: 0;
       }
-      .detail-grid {
-        display: grid;
-        grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(260px, 1.3fr);
-        gap: 10px;
+      .project-line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
       }
-      .detail-item {
-        background: #10233d;
-        border: 1px solid #284165;
-        border-radius: 8px;
-        padding: 9px 10px;
-        display: grid;
-        gap: 5px;
-      }
-      .field { display: grid; gap: 4px; min-width: 0; }
-      .field-label { color: #7f97bf; font-size: 11px; letter-spacing: 0.2px; }
-      .field-value { min-width: 0; color: var(--text-main); font-size: 12px; }
-      .field-value.path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
       .title {
         font-weight: 620;
         font-size: 13px;
@@ -139,7 +124,19 @@
         color: #ffd27a;
         white-space: nowrap;
       }
-      .meta-row { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .inline-label {
+        color: #8ea8cf;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .inline-path {
+        color: #d3e3fc;
+        font-size: 12px;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .meta-chip {
         padding: 2px 8px;
         border-radius: 999px;
@@ -154,34 +151,21 @@
         background: #173548;
         color: #8dd7ff;
       }
-      .service-brief { display: flex; gap: 8px; flex-wrap: wrap; }
-      .svc-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 8px;
-        border-radius: 999px;
-        border: 1px solid #35507a;
-        background: #142743;
-        font-size: 11px;
-        color: #c2d5f2;
-      }
-      .svc-pill.running {
-        border-color: #2e6c63;
-        background: #153733;
-      }
-      .muted { color: var(--text-muted); font-size: 12px; line-height: 1.45; }
-      .muted.path-tip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-      .quick-actions button { min-height: 32px; padding: 6px 10px; font-size: 11px; }
-      .svc-grid { display: grid; gap: 10px; }
+      .service-panel { display: grid; gap: 6px; }
       .svc-row {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 10px;
+        gap: 8px;
+        min-width: 0;
+        flex-wrap: nowrap;
       }
-      .svc-meta { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+      .svc-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        min-width: 0;
+      }
       .svc-state { white-space: nowrap; }
       .dot {
         width: 10px;
@@ -192,11 +176,20 @@
       .dot.running { background: var(--green); box-shadow: 0 0 0 2px rgba(45, 209, 148, 0.2); }
       .dot.stopped { background: var(--gray); }
       .svc-port { color: #bed0ee; font-size: 12px; }
-      .svc-actions { display: inline-flex; gap: 8px; }
+      .svc-actions { display: inline-flex; gap: 6px; }
+      .muted { color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+      .action-panel {
+        display: flex;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .action-panel button { min-height: 30px; padding: 6px 10px; font-size: 11px; }
+      .action-note { font-size: 11px; white-space: nowrap; }
       .icon-btn {
-        width: 36px;
-        height: 36px;
-        border-radius: 10px;
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
         border: 1px solid #2f476d;
         background: #1a2b49;
         color: #dbe8ff;
@@ -220,8 +213,6 @@
         color: #ccfff0;
       }
       .icon-btn.success:hover { background: #285e55; border-color: #44a391; }
-      .actions-inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-      .actions-inline .muted { font-size: 11px; }
       button {
         border: 1px solid transparent;
         color: #fff;
@@ -257,12 +248,13 @@
         display: none;
       }
       @media (max-width: 1500px) {
-        .card-head { grid-template-columns: minmax(240px, 1.4fr) minmax(220px, 1fr) minmax(240px, 1fr); }
+        .card-grid { grid-template-columns: minmax(300px, 1.5fr) minmax(320px, 1.4fr); }
+        .action-panel { grid-column: 1 / -1; justify-content: flex-start; }
       }
       @media (max-width: 1260px) {
-        .card-head { grid-template-columns: 1fr; gap: 10px; }
-        .detail-grid { grid-template-columns: 1fr; }
+        .card-grid { grid-template-columns: 1fr; gap: 8px; }
         .search-input { width: 100%; }
+        .svc-row { flex-wrap: wrap; }
       }
       @media (prefers-reduced-motion: reduce) {
         * { transition: none !important; }
@@ -361,19 +353,6 @@
         return `${text.slice(0, headLength)}...${text.slice(-tailLength)}`;
       }
 
-      function renderServicePill(label, running, port) {
-        const pill = document.createElement("span");
-        pill.className = `svc-pill ${running ? "running" : ""}`.trim();
-        const dot = document.createElement("span");
-        dot.className = `dot ${running ? "running" : "stopped"}`;
-        dot.setAttribute("aria-hidden", "true");
-        const txt = document.createElement("span");
-        txt.textContent = `${label} ${running ? "运行中" : "未启动"} :${port || "-"}`;
-        pill.appendChild(dot);
-        pill.appendChild(txt);
-        return pill;
-      }
-
       function applySearchAndCounts() {
         const query = UI_STATE.search.trim().toLowerCase();
         for (const key of BUCKET_KEYS) {
@@ -404,7 +383,7 @@
       }
 
       function renderServiceRow(project, component, running, port, canControl) {
-        const label = component === "backend" ? "Backend" : "Frontend";
+        const label = component === "backend" ? "B" : "F";
         const stateText = running ? "运行中" : "未启动";
         const dotClass = running ? "running" : "stopped";
         const row = document.createElement("div");
@@ -412,12 +391,12 @@
         const toggleIcon = running
           ? '<svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="1.5"></rect></svg>'
           : '<svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M7 5.5a1 1 0 0 1 1.53-.85l6 3.9a1 1 0 0 1 0 1.7l-6 3.9A1 1 0 0 1 7 13.3v-7.8z"></path></svg>';
+        const restartTitle = component === "backend" ? "重启后端（热更新）" : "重启前端";
         row.className = "svc-row";
-        const restartTitle = component === "backend" ? "重启Backend（热更新）" : `重启${label}`;
         row.innerHTML = `
           <div class="svc-meta">
             <span class="dot ${dotClass}" aria-hidden="true"></span>
-            <span class="svc-state">${label}: ${stateText}</span>
+            <span class="svc-state">${label} ${stateText}</span>
             <span class="svc-port">:${port || "-"}</span>
           </div>
           <div class="svc-actions">
@@ -449,44 +428,34 @@
         const projectTitle = resolveProjectTitle(project);
         const branchLabel = (project.branch || "").trim() || "detached";
         const planPathLabel = (project.plan_path || "").trim() || "未绑定计划文档";
-        const planPathDisplay = middleEllipsis(planPathLabel, 56, 30, 20);
+        const planPathDisplay = middleEllipsis(planPathLabel, 44, 24, 16);
         const worktreePath = project.path || "-";
-        const pathDisplay = middleEllipsis(worktreePath, 62, 34, 22);
-        const showPlanTip = project.plan_title && project.plan_title !== projectTitle;
+        const pathDisplay = middleEllipsis(worktreePath, 50, 26, 18);
 
         const card = document.createElement("article");
         card.className = "card";
-        card.dataset.worktreeId = project.worktree_id;
         card.dataset.search = `${projectTitle} ${branchLabel} ${planPathLabel} ${worktreePath}`.toLowerCase();
         card.innerHTML = `
-          <div class="card-head">
-            <div class="field project-meta">
-              <div class="title-row">
+          <div class="card-grid">
+            <div class="project-lines">
+              <div class="project-line">
                 <div class="title"></div>
                 <span class="status-tag"></span>
+                <span class="inline-label">计划</span>
+                <span class="inline-path plan-path"></span>
               </div>
-              <div class="meta-row"></div>
-            </div>
-            <div class="service-brief"></div>
-            <div class="quick-actions"></div>
-          </div>
-          <div class="card-body">
-            <div class="detail-grid">
-              <div class="detail-item detail-plan">
-                <div class="field-label">计划文档</div>
-                <div class="field-value path"></div>
-                <div class="muted path-tip"></div>
-              </div>
-              <div class="detail-item detail-path">
-                <div class="field-label">工作目录</div>
-                <div class="field-value path"></div>
-              </div>
-              <div class="detail-item detail-service">
-                <div class="field-label">服务控制</div>
-                <div class="svc-grid"></div>
+              <div class="project-line">
+                <span class="meta-chip branch-chip"></span>
+                <span class="inline-label">目录</span>
+                <span class="inline-path workdir-path"></span>
+                <span class="meta-chip main-chip">主项目</span>
               </div>
             </div>
-            <div class="actions-inline"></div>
+            <div class="service-panel">
+              <div class="backend-row"></div>
+              <div class="frontend-row"></div>
+            </div>
+            <div class="action-panel"></div>
           </div>
         `;
 
@@ -495,78 +464,63 @@
         titleEl.title = projectTitle;
         card.querySelector(".status-tag").textContent = project.plan_status_label;
 
-        const metaRow = card.querySelector(".meta-row");
-        const branchChip = document.createElement("span");
-        branchChip.className = "meta-chip";
+        const planEl = card.querySelector(".plan-path");
+        planEl.textContent = planPathDisplay;
+        planEl.title = planPathLabel;
+
+        const branchChip = card.querySelector(".branch-chip");
         branchChip.textContent = branchLabel;
-        metaRow.appendChild(branchChip);
+        const workdirEl = card.querySelector(".workdir-path");
+        workdirEl.textContent = pathDisplay;
+        workdirEl.title = worktreePath;
+
+        const mainChip = card.querySelector(".main-chip");
         if (project.is_main_project) {
-          const mainChip = document.createElement("span");
-          mainChip.className = "meta-chip main";
-          mainChip.textContent = "主项目";
-          metaRow.appendChild(mainChip);
+          mainChip.classList.add("main");
+        } else {
+          mainChip.style.display = "none";
         }
 
-        const brief = card.querySelector(".service-brief");
-        brief.appendChild(renderServicePill("B", backendRunning, services.backend_port));
-        brief.appendChild(renderServicePill("F", frontendRunning, services.frontend_port));
+        card.querySelector(".backend-row").appendChild(
+          renderServiceRow(project, "backend", backendRunning, services.backend_port, canControl)
+        );
+        card.querySelector(".frontend-row").appendChild(
+          renderServiceRow(project, "frontend", frontendRunning, services.frontend_port, canControl)
+        );
 
-        const quickActions = card.querySelector(".quick-actions");
+        const actionPanel = card.querySelector(".action-panel");
         if (!project.plan_path) {
-          quickActions.appendChild(
+          actionPanel.appendChild(
             makeButton("绑定计划", "primary", () => bindPlan(project).catch((e) => showError(String(e.message || e))))
           );
         } else if (project.plan_status === "draft") {
-          quickActions.appendChild(
+          actionPanel.appendChild(
             makeButton("开始开发", "primary", () => setStatus(project, "in_progress").catch((e) => showError(String(e.message || e))))
           );
         } else if (project.plan_status === "in_progress") {
-          quickActions.appendChild(
+          actionPanel.appendChild(
             makeButton("标记待验收", "primary", () => setStatus(project, "pending_acceptance").catch((e) => showError(String(e.message || e))))
           );
         }
 
         if (canControl) {
           const running = backendRunning && frontendRunning;
-          quickActions.appendChild(
+          actionPanel.appendChild(
             makeButton(running ? "一键停止" : "一键启动", "primary", () => testAction(project, running ? "stop" : "start").catch((e) => showError(String(e.message || e))))
           );
+          actionPanel.appendChild(
+            makeButton("一键重启", "secondary", () => testAction(project, "restart").catch((e) => showError(String(e.message || e))))
+          );
           if (services.frontend_port) {
-            quickActions.prepend(
+            actionPanel.prepend(
               makeButton("打开测试页", "emphasis", () => window.open(`http://127.0.0.1:${services.frontend_port}`, "_blank"))
             );
           }
-        }
-
-        const planValue = card.querySelector(".detail-plan .field-value");
-        planValue.textContent = planPathDisplay;
-        planValue.title = planPathLabel;
-        const planTip = card.querySelector(".detail-plan .path-tip");
-        if (showPlanTip) {
-          planTip.textContent = project.plan_title;
-          planTip.title = project.plan_title;
-        } else {
-          planTip.style.display = "none";
-        }
-
-        const pathValue = card.querySelector(".detail-path .field-value");
-        pathValue.textContent = pathDisplay;
-        pathValue.title = worktreePath;
-
-        const svcGrid = card.querySelector(".detail-service .svc-grid");
-        svcGrid.appendChild(renderServiceRow(project, "backend", backendRunning, services.backend_port, canControl));
-        svcGrid.appendChild(renderServiceRow(project, "frontend", frontendRunning, services.frontend_port, canControl));
-
-        const actionsInline = card.querySelector(".actions-inline");
-        if (canControl) {
-          actionsInline.appendChild(
-            makeButton("一键重启前后端", "secondary", () => testAction(project, "restart").catch((e) => showError(String(e.message || e))))
-          );
         } else {
           const note = document.createElement("div");
-          note.className = "muted";
-          note.textContent = "仅「待验收」或主项目可启动测试服务";
-          actionsInline.appendChild(note);
+          note.className = "muted action-note";
+          note.textContent = "仅待验收或主项目可控制服务";
+          actionPanel.appendChild(note);
         }
 
         return card;
