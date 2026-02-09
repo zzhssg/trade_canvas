@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, Query, Request
 
-from .factor_read_freshness import ensure_factor_fresh_for_read
+from .factor_read_freshness import read_factor_slices_with_freshness
 from .schemas import GetFactorSlicesResponseV1, LimitQuery
 
 router = APIRouter()
@@ -19,13 +19,10 @@ def get_factor_slices(
     Read-side factor slices at aligned time t.
     Returns history/head snapshots produced by the current modular factor pipeline.
     """
-    aligned = request.app.state.store.floor_time(series_id, at_time=int(at_time))
-    _ = ensure_factor_fresh_for_read(
+    return read_factor_slices_with_freshness(
+        store=request.app.state.store,
         factor_orchestrator=request.app.state.factor_orchestrator,
-        series_id=series_id,
-        up_to_time=aligned,
-    )
-    return request.app.state.factor_slices_service.get_slices(
+        factor_slices_service=request.app.state.factor_slices_service,
         series_id=series_id,
         at_time=int(at_time),
         window_candles=int(window_candles),

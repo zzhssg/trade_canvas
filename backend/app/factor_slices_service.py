@@ -96,8 +96,24 @@ class FactorSlicesService:
 
     def get_slices(self, *, series_id: str, at_time: int, window_candles: int = 2000) -> GetFactorSlicesResponseV1:
         aligned = self.candle_store.floor_time(series_id, at_time=int(at_time))
-        if aligned is None:
+        return self.get_slices_aligned(
+            series_id=series_id,
+            aligned_time=aligned,
+            at_time=int(at_time),
+            window_candles=int(window_candles),
+        )
+
+    def get_slices_aligned(
+        self,
+        *,
+        series_id: str,
+        aligned_time: int | None,
+        at_time: int,
+        window_candles: int = 2000,
+    ) -> GetFactorSlicesResponseV1:
+        if aligned_time is None:
             return GetFactorSlicesResponseV1(series_id=series_id, at_time=int(at_time), candle_id=None)
+        aligned = int(aligned_time)
 
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         start_time = max(0, int(aligned) - int(window_candles) * int(tf_s))

@@ -173,6 +173,16 @@ updated: 2026-02-09
   - `TRADE_CANVAS_MARKET_FRESH_WINDOW_CANDLES`
   - `TRADE_CANVAS_MARKET_STALE_WINDOW_CANDLES`
 
+### 1.15 收口进度（Phase O，Market Runtime 单路径）
+
+当前已把 market 链路收口为单路径实现（不再保留 runtime v2 灰度分支）：
+- `market_http_routes.py` 承接 `GET /api/market/candles` 与 ingest 相关 endpoint；`main.py` 不再内联实现 market HTTP 逻辑。
+- `market_meta_routes.py` 承接白名单、ingest_state、top_markets（含 SSE）等 market 辅助读接口。
+- `MarketRuntime` typed container（`app.state.market_runtime`）作为 market 依赖真源，HTTP/WS 统一从该对象取依赖，不再散落读取 `app.state` 字段。
+- `market_ws_routes.handle_market_ws(...)` 与 market HTTP 路由共享同一运行时依赖集合，保证行为一致与可测试性。
+- `draw_routes.py` 承接 `/api/draw/delta` 与 `app.state.read_draw_delta` 读函数注册，避免 world/frame 路由与 draw 逻辑散落在入口文件。
+- `debug_routes.py` 承接 `/ws/debug` 处理逻辑；`main.py` 仅保留 websocket 入口声明并委托 handler。
+
 ---
 
 ## 2. Part A：白名单内币种（保证实时性）

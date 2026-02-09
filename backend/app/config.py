@@ -73,10 +73,12 @@ def load_settings() -> Settings:
     strategy_path_raw = os.environ.get("TRADE_CANVAS_FREQTRADE_STRATEGY_PATH", "").strip()
     if not strategy_path_raw:
         strategy_path_raw = str(root_dir / "Strategy")
-    freqtrade_strategy_path = Path(strategy_path_raw)
-    if not freqtrade_strategy_path.is_absolute():
-        freqtrade_strategy_path = (root_dir / freqtrade_strategy_path).resolve()
-    if not freqtrade_strategy_path.exists():
+    strategy_path = Path(strategy_path_raw)
+    if not strategy_path.is_absolute():
+        strategy_path = (root_dir / strategy_path).resolve()
+    if strategy_path.exists():
+        freqtrade_strategy_path: Path | None = strategy_path
+    else:
         # Do not fail boot when the directory doesn't exist; just skip passing it.
         freqtrade_strategy_path = None
 

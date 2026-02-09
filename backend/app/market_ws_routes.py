@@ -13,8 +13,9 @@ def _ondemand_enabled() -> bool:
 
 async def handle_market_ws(ws: WebSocket) -> None:
     await ws.accept()
-    ws_messages = ws.app.state.ws_messages
-    ws_subscriptions = ws.app.state.ws_subscriptions
+    runtime = ws.app.state.market_runtime
+    ws_messages = runtime.ws_messages
+    ws_subscriptions = runtime.ws_subscriptions
     try:
         while True:
             msg = await ws.receive_json()
@@ -38,9 +39,9 @@ async def handle_market_ws(ws: WebSocket) -> None:
                     since=subscribe_cmd.since,
                     supports_batch=subscribe_cmd.supports_batch,
                     ondemand_enabled=_ondemand_enabled(),
-                    market_data=ws.app.state.market_data,
-                    derived_initial_backfill=ws.app.state.derived_initial_backfill,
-                    catchup_limit=int(ws.app.state.market_ws_catchup_limit),
+                    market_data=runtime.market_data,
+                    derived_initial_backfill=runtime.derived_initial_backfill,
+                    catchup_limit=int(runtime.ws_catchup_limit),
                 )
                 if err_payload is not None:
                     await ws.send_json(err_payload)
