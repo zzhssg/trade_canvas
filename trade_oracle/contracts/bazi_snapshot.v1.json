@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "bazi_snapshot.v1",
+  "type": "object",
+  "required": ["source", "dt_utc", "year", "month", "day", "hour"],
+  "properties": {
+    "source": {"type": "string"},
+    "dt_utc": {"type": "string", "format": "date-time"},
+    "year": {"type": "string", "minLength": 2, "maxLength": 2},
+    "month": {"type": "string", "minLength": 2, "maxLength": 2},
+    "day": {"type": "string", "minLength": 2, "maxLength": 2},
+    "hour": {"type": "string", "minLength": 2, "maxLength": 2}
+  }
+}

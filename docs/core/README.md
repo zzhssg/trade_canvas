@@ -13,3 +13,4 @@
 - 真源（Source of Truth）：`docs/core/source-of-truth.md`
 - 文档状态（status）约定：`docs/core/doc-status.md`
 - 项目 Skills（Codex）：`docs/core/skills.md`
+- trade_oracle（独立研究项目）：`docs/core/trade-oracle.md`

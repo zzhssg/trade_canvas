@@ -1,0 +1,1 @@
+"""Asset birth metadata registry."""
