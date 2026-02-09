@@ -66,6 +66,21 @@ def _build_scores(*, candles: list[Candle], natal: BaziSnapshot, calendar: Calen
     return scores
 
 
+def _build_scores_and_layers(
+    *, candles: list[Candle], natal: BaziSnapshot, calendar: CalendarLike
+) -> tuple[list[float], dict[str, list[float]]]:
+    total_scores: list[float] = []
+    layer_scores: dict[str, list[float]] = {"year": [], "month": [], "day": []}
+    for candle in candles:
+        dt_utc = datetime.fromtimestamp(int(candle.candle_time), tz=timezone.utc)
+        transit = calendar.convert_utc(dt_utc)
+        bundle = score_factors(natal=natal, transit=transit)
+        total_scores.append(bundle.total)
+        for layer in layer_scores:
+            layer_scores[layer].append(float(bundle.layer_scores.get(layer, 0.0)))
+    return total_scores, layer_scores
+
+
 def _returns_for_range(
     *,
     closes: list[float],
@@ -94,6 +109,114 @@ def _returns_for_range(
         net_ret = signal * gross_ret - fee_rate
         out.append(net_ret)
     return out
+
+
+def _safe_num(value: float) -> float | None:
+    if value == float("inf") or value == float("-inf"):
+        return None
+    return float(value)
+
+
+def _metrics_to_dict(m: StrategyMetrics) -> dict:
+    return {
+        "trades": int(m.trades),
+        "win_rate": float(m.win_rate),
+        "profit_factor": _safe_num(m.profit_factor),
+        "reward_risk": _safe_num(m.reward_risk),
+        "expectancy": float(m.expectancy),
+        "avg_win": float(m.avg_win),
+        "avg_loss": float(m.avg_loss),
+        "threshold": None if m.threshold is None else float(m.threshold),
+        "windows": int(m.windows),
+    }
+
+
+def _segment_ranges(total: int) -> list[tuple[str, int, int]]:
+    if total < 3:
+        return []
+    cut1 = max(1, total // 3)
+    cut2 = max(cut1 + 1, (total * 2) // 3)
+    cut2 = min(cut2, total - 1)
+    return [
+        ("early", 0, cut1),
+        ("mid", cut1, cut2),
+        ("recent", cut2, total),
+    ]
+
+
+def run_layer_segment_backtest(
+    *,
+    candles: list[Candle],
+    natal: BaziSnapshot,
+    calendar: CalendarLike,
+    fee_rate: float = 0.0008,
+    layer_threshold: float = 0.35,
+    segment_threshold: float = 0.6,
+) -> dict:
+    if len(candles) < 30:
+        return {
+            "layer_performance": {},
+            "time_segments": [],
+            "config": {
+                "layer_threshold": layer_threshold,
+                "segment_threshold": segment_threshold,
+            },
+        }
+
+    closes = [float(c.close) for c in candles]
+    total_scores, layer_scores = _build_scores_and_layers(candles=candles, natal=natal, calendar=calendar)
+
+    layer_perf: dict[str, dict] = {}
+    for layer, scores in layer_scores.items():
+        returns = _returns_for_range(
+            closes=closes,
+            scores=scores,
+            threshold=layer_threshold,
+            start_idx=0,
+            end_idx=len(candles),
+            fee_rate=fee_rate,
+        )
+        metrics = _metrics_from_returns(returns, threshold=layer_threshold, windows=1)
+        layer_perf[layer] = {
+            **_metrics_to_dict(metrics),
+            "direction_bias": "bullish" if metrics.expectancy > 0 else ("bearish" if metrics.expectancy < 0 else "neutral"),
+        }
+
+    segments: list[dict] = []
+    for label, start_idx, end_idx in _segment_ranges(len(candles)):
+        returns = _returns_for_range(
+            closes=closes,
+            scores=total_scores,
+            threshold=segment_threshold,
+            start_idx=start_idx,
+            end_idx=end_idx,
+            fee_rate=fee_rate,
+        )
+        metrics = _metrics_from_returns(returns, threshold=segment_threshold, windows=1)
+
+        start_close = closes[start_idx]
+        end_close = closes[end_idx - 1]
+        market_return = 0.0 if start_close <= 0 else (end_close - start_close) / start_close
+
+        segments.append(
+            {
+                "label": label,
+                "start_time": int(candles[start_idx].candle_time),
+                "end_time": int(candles[end_idx - 1].candle_time),
+                "candles": int(end_idx - start_idx),
+                "market_return": float(market_return),
+                "strategy": _metrics_to_dict(metrics),
+            }
+        )
+
+    return {
+        "layer_performance": layer_perf,
+        "time_segments": segments,
+        "config": {
+            "layer_threshold": layer_threshold,
+            "segment_threshold": segment_threshold,
+        },
+    }
 
 
 def run_walk_forward_backtest(
