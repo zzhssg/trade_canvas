@@ -217,7 +217,7 @@ def test_store_backfill_service_falls_back_to_ccxt_for_missing_window(monkeypatc
             return 2
 
         monkeypatch.setenv("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", "1")
-        monkeypatch.setattr("backend.app.market_data.services.backfill_from_ccxt_range", fake_ccxt_backfill)
+        monkeypatch.setattr("backend.app.market_data.read_services.backfill_from_ccxt_range", fake_ccxt_backfill)
 
         svc = StoreBackfillService(
             store=store,
@@ -226,6 +226,71 @@ def test_store_backfill_service_falls_back_to_ccxt_for_missing_window(monkeypatc
         covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=3600)
         assert covered == 2
         assert called == [(0, 3600)]
+
+
+def test_store_backfill_service_to_time_none_uses_now_window_for_stale_series(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as td:
+        store = CandleStore(db_path=Path(td) / "market.db")
+        series_id = "binance:futures:SOL/USDT:1h"
+        called: list[tuple[int, int]] = []
+
+        store.upsert_closed(
+            series_id,
+            CandleClosed(candle_time=0, open=1.0, high=2.0, low=0.5, close=1.5, volume=10.0),
+        )
+
+        def fake_tail_backfill(store: CandleStore, *, series_id: str, limit: int) -> int:
+            return 0
+
+        def fake_ccxt_backfill(*, candle_store: CandleStore, series_id: str, start_time: int, end_time: int, batch_limit: int = 1000) -> int:
+            called.append((int(start_time), int(end_time)))
+            with candle_store.connect() as conn:
+                candle_store.upsert_closed_in_conn(
+                    conn,
+                    series_id,
+                    CandleClosed(candle_time=3600, open=2.0, high=3.0, low=1.5, close=2.5, volume=10.0),
+                )
+                conn.commit()
+            return 1
+
+        monkeypatch.setenv("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", "1")
+        monkeypatch.setattr("backend.app.market_data.read_services.backfill_from_ccxt_range", fake_ccxt_backfill)
+        monkeypatch.setattr("backend.app.market_data.read_services.time.time", lambda: 3661)
+
+        svc = StoreBackfillService(
+            store=store,
+            tail_backfill_fn=fake_tail_backfill,
+        )
+        covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=None)
+        assert covered == 2
+        assert called == [(0, 3600)]
+
+
+def test_store_backfill_service_derived_5m_can_rollup_from_base_1m() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        store = CandleStore(db_path=Path(td) / "market.db")
+        base_series_id = "binance:futures:BTC/USDT:1m"
+        derived_series_id = "binance:futures:BTC/USDT:5m"
+
+        for t in range(3600, 4200, 60):
+            store.upsert_closed(
+                base_series_id,
+                CandleClosed(candle_time=t, open=1.0, high=2.0, low=0.5, close=1.5, volume=10.0),
+            )
+
+        def fake_tail_backfill(store: CandleStore, *, series_id: str, limit: int) -> int:
+            return 0
+
+        svc = StoreBackfillService(
+            store=store,
+            tail_backfill_fn=fake_tail_backfill,
+        )
+
+        covered = svc.ensure_tail_coverage(series_id=derived_series_id, target_candles=3, to_time=4200)
+        assert covered == 2
+        assert store.head_time(derived_series_id) == 3900
+        candles = store.get_closed(derived_series_id, since=None, limit=10)
+        assert [int(c.candle_time) for c in candles] == [3600, 3900]
 
 
 def test_build_gap_backfill_handler_applies_flag_and_reads_recovered_interval(monkeypatch) -> None:

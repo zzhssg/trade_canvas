@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 
 from .ccxt_client import _make_exchange_client, ccxt_symbol_for_series
-from .flags import resolve_env_bool, resolve_env_int
 from .history_bootstrapper import backfill_tail_from_freqtrade
+from .market_flags import ccxt_backfill_enabled, market_gap_backfill_freqtrade_limit
 from .schemas import CandleClosed
 from .series_id import parse_series_id
 from .store import CandleStore
@@ -114,11 +114,7 @@ def backfill_market_gap_best_effort(
 
     before = store.count_closed_between_times(series_id, start_time=start, end_time=end)
 
-    base_limit = resolve_env_int(
-        "TRADE_CANVAS_MARKET_GAP_BACKFILL_FREQTRADE_LIMIT",
-        fallback=2000,
-        minimum=1,
-    )
+    base_limit = market_gap_backfill_freqtrade_limit(fallback=2000)
 
     target_candles = ((end - start) // int(tf_s)) + 1
     freqtrade_limit = max(base_limit, int(target_candles) + 8)
@@ -128,7 +124,7 @@ def backfill_market_gap_best_effort(
     except Exception:
         pass
 
-    if resolve_env_bool("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", fallback=False):
+    if ccxt_backfill_enabled():
         try:
             backfill_from_ccxt_range(
                 candle_store=store,

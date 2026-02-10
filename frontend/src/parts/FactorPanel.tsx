@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { FACTOR_CATALOG, type FactorSpec } from "../services/factorCatalog";
+import { type FactorSpec, useFactorCatalog } from "../services/factorCatalog";
 import { useFactorStore } from "../state/factorStore";
 
 export function FactorPanel() {
   const { visibleFeatures, toggleFeatureVisibility, applyFeatureDefaults, setFeatureVisibility } = useFactorStore();
-  const factors = useMemo(() => FACTOR_CATALOG, []);
+  const factors = useFactorCatalog();
 
   useEffect(() => {
     applyFeatureDefaults(factors);

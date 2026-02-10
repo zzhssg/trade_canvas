@@ -2,7 +2,7 @@
 title: Factor SDK Contract v1（因子开发 SDK）
 status: draft
 created: 2026-02-07
-updated: 2026-02-09
+updated: 2026-02-10
 ---
 
 # Factor SDK Contract v1（因子开发 SDK）
@@ -14,6 +14,7 @@ updated: 2026-02-09
 关联真源：
 - 因子外壳与冷热语义：`docs/core/contracts/factor_v1.md`
 - 因子拓扑与调度：`docs/core/contracts/factor_graph_v1.md`
+- 因子插件注册：`docs/core/contracts/factor_plugin_v1.md`
 - 因子真源账本：`docs/core/contracts/factor_ledger_v1.md`
 - 二级增量账本：`docs/core/contracts/delta_ledger_v1.md`
 - 策略边界：`docs/core/contracts/strategy_v1.md`
@@ -131,9 +132,13 @@ SDK 不绑定具体存储，但必须满足下列语义：
 1. 声明 `FactorSpec`（name/depends_on/logic_hash）。
 2. 实现 `apply_closed(ctx)`，产出 history/head。
 3. 保证 `event_key` 幂等（重复 ingest 不产生重复语义）。
-4. 注册默认装配（实现层可对应 `build_default_factor_processors()` 一类入口）。
-5. 注册 slice 事件桶映射（实现层可对应 `build_default_slice_bucket_specs()` 一类入口）。
-6. 补齐测试：
+4. 注册默认装配（实现层以 `build_default_factor_manifest()` 为主入口）。
+5. 实现写路径插件钩子（至少 `run_tick`；按需实现 `bootstrap_from_history`/`build_head_snapshot`）。
+6. 注册 slice 事件桶映射（实现层可对应 `build_default_slice_bucket_specs()`）。
+7. 实现并注册 slice 插件（实现层可对应 `build_default_factor_slice_plugins()`）。
+8. （按需）若该因子需要直接输出策略列/信号，补 `freqtrade_signal_plugins` 插件而非改 adapter 主流程。
+9. （按需）若该因子引入 overlay 与 factor 快照一致性约束，补 `overlay_integrity_plugins` 插件而非改 `draw_routes` 主流程。
+10. 补齐测试：
    - `seed ≡ incremental`
    - 重复 ingest 幂等
    - `series_head_time < aligned` 时读路径 fail-safe

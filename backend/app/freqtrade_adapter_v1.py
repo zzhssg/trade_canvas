@@ -3,10 +3,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from .factor_graph import FactorGraph, FactorSpec
 from .factor_orchestrator import FactorOrchestrator
+from .factor_plugin_registry import FactorPluginRegistry
 from .factor_store import FactorStore
+from .freqtrade_signal_plugin_contract import FreqtradeSignalContext, FreqtradeSignalPlugin
+from .freqtrade_signal_plugins import build_default_freqtrade_signal_plugins
 from .schemas import CandleClosed
 from .store import CandleStore
 
@@ -53,25 +57,97 @@ class LedgerAnnotateResult:
     dataframe: Any
 
 
+@dataclass(frozen=True)
+class _FreqtradeSignalRuntime:
+    plugins: tuple[FreqtradeSignalPlugin, ...]
+    event_bucket_by_kind: dict[tuple[str, str], str]
+    event_bucket_sort_keys: dict[str, tuple[str, str]]
+    event_bucket_names: tuple[str, ...]
+
+
+def _build_signal_runtime(signal_plugins: tuple[FreqtradeSignalPlugin, ...] | None) -> _FreqtradeSignalRuntime:
+    plugins = tuple(signal_plugins or build_default_freqtrade_signal_plugins())
+    registry = FactorPluginRegistry(list(plugins))
+    graph = FactorGraph([FactorSpec(factor_name=s.factor_name, depends_on=s.depends_on) for s in registry.specs()])
+    topo_plugins = tuple(cast(FreqtradeSignalPlugin, registry.require(name)) for name in graph.topo_order)
+
+    by_kind: dict[tuple[str, str], str] = {}
+    sort_keys: dict[str, tuple[str, str]] = {}
+    bucket_names: set[str] = set()
+    for plugin in topo_plugins:
+        for spec in plugin.bucket_specs:
+            factor_name = str(spec.factor_name)
+            event_kind = str(spec.event_kind)
+            bucket_name = str(spec.bucket_name)
+            key = (factor_name, event_kind)
+            existing_bucket = by_kind.get(key)
+            if existing_bucket is not None and existing_bucket != bucket_name:
+                raise RuntimeError(f"signal_bucket_conflict:{factor_name}:{event_kind}")
+            by_kind[key] = bucket_name
+            bucket_names.add(bucket_name)
+            if spec.sort_keys is not None:
+                sort_pair = (str(spec.sort_keys[0]), str(spec.sort_keys[1]))
+                existing_sort = sort_keys.get(bucket_name)
+                if existing_sort is not None and existing_sort != sort_pair:
+                    raise RuntimeError(f"signal_bucket_sort_conflict:{bucket_name}")
+                sort_keys[bucket_name] = sort_pair
+    return _FreqtradeSignalRuntime(
+        plugins=topo_plugins,
+        event_bucket_by_kind=by_kind,
+        event_bucket_sort_keys=sort_keys,
+        event_bucket_names=tuple(sorted(bucket_names)),
+    )
+
+
+def _collect_signal_event_buckets(
+    *,
+    rows: list[Any],
+    event_bucket_by_kind: dict[tuple[str, str], str],
+    event_bucket_sort_keys: dict[str, tuple[str, str]],
+    event_bucket_names: tuple[str, ...],
+) -> dict[str, list[dict[str, Any]]]:
+    buckets: dict[str, list[dict[str, Any]]] = {name: [] for name in event_bucket_names}
+    for row in rows:
+        bucket_name = event_bucket_by_kind.get((str(row.factor_name), str(row.kind)))
+        if bucket_name is None:
+            continue
+        payload = dict(row.payload or {})
+        if "candle_time" not in payload:
+            payload["candle_time"] = int(row.candle_time or 0)
+        if "visible_time" not in payload:
+            payload["visible_time"] = int(row.candle_time or 0)
+        buckets[bucket_name].append(payload)
+
+    for bucket_name, sort_pair in event_bucket_sort_keys.items():
+        key_a, key_b = sort_pair
+        buckets[bucket_name].sort(key=lambda d: (int(d.get(key_a) or 0), int(d.get(key_b) or 0)))
+    return buckets
+
+
 def annotate_factor_ledger(
     dataframe: Any,
     *,
     series_id: str,
     timeframe: str,
     db_path: Path | None = None,
+    signal_plugins: tuple[FreqtradeSignalPlugin, ...] | None = None,
 ) -> LedgerAnnotateResult:
     try:
-        import pandas as pd  # type: ignore
+        __import__("pandas")
     except Exception as exc:
         return LedgerAnnotateResult(ok=False, reason=f"pandas_missing:{exc}", dataframe=dataframe)
 
+    try:
+        signal_runtime = _build_signal_runtime(signal_plugins)
+    except Exception as exc:
+        return LedgerAnnotateResult(ok=False, reason=f"signal_plugin_invalid:{exc}", dataframe=dataframe)
+
     df = dataframe.copy()
+    df["tc_ok"] = 1
+    for plugin in signal_runtime.plugins:
+        plugin.prepare_dataframe(dataframe=df)
+
     if df.empty:
-        df["tc_ok"] = 1
-        df["tc_pen_confirmed"] = pd.Series(dtype="int64")
-        df["tc_pen_dir"] = pd.Series(dtype="int64")
-        df["tc_enter_long"] = pd.Series(dtype="int64")
-        df["tc_enter_short"] = pd.Series(dtype="int64")
         return LedgerAnnotateResult(ok=True, reason=None, dataframe=df)
 
     required = {"date", "open", "high", "low", "close", "volume"}
@@ -83,12 +159,6 @@ def annotate_factor_ledger(
     store = CandleStore(db_path=db)
     factor_store = FactorStore(db_path=db)
     orchestrator = FactorOrchestrator(candle_store=store, factor_store=factor_store)
-
-    df["tc_ok"] = 1
-    df["tc_pen_confirmed"] = 0
-    df["tc_pen_dir"] = pd.NA
-    df["tc_enter_long"] = 0
-    df["tc_enter_short"] = 0
 
     times = df["date"].map(_to_unix_seconds)
     order = times.sort_values().index
@@ -141,34 +211,27 @@ def annotate_factor_ledger(
 
     start_time = int(times.min())
     end_time = int(times.max())
-    pen_events = factor_store.get_events_between_times(
+    factor_events = factor_store.get_events_between_times(
         series_id=series_id,
-        factor_name="pen",
+        factor_name=None,
         start_candle_time=start_time,
         end_candle_time=end_time,
     )
-
-    pen_by_time: dict[int, list[int]] = {}
-    for e in pen_events:
-        if e.kind != "pen.confirmed":
-            continue
-        try:
-            direction = int(e.payload.get("direction"))
-        except Exception:
-            continue
-        pen_by_time.setdefault(int(e.candle_time), []).append(direction)
-
-    for idx in order:
-        t = times_by_idx[idx]
-        dirs = pen_by_time.get(int(t))
-        if not dirs:
-            continue
-        direction = int(dirs[-1])
-        df.at[idx, "tc_pen_confirmed"] = 1
-        df.at[idx, "tc_pen_dir"] = direction
-        if direction == 1:
-            df.at[idx, "tc_enter_long"] = 1
-        elif direction == -1:
-            df.at[idx, "tc_enter_short"] = 1
+    buckets = _collect_signal_event_buckets(
+        rows=factor_events,
+        event_bucket_by_kind=signal_runtime.event_bucket_by_kind,
+        event_bucket_sort_keys=signal_runtime.event_bucket_sort_keys,
+        event_bucket_names=signal_runtime.event_bucket_names,
+    )
+    signal_ctx = FreqtradeSignalContext(
+        series_id=series_id,
+        timeframe=str(timeframe),
+        dataframe=df,
+        order=list(order),
+        times_by_index=times_by_idx,
+        buckets=buckets,
+    )
+    for plugin in signal_runtime.plugins:
+        plugin.apply(ctx=signal_ctx)
 
     return LedgerAnnotateResult(ok=True, reason=None, dataframe=df)

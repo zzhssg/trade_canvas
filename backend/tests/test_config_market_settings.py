@@ -17,6 +17,7 @@ def test_market_settings_defaults(monkeypatch) -> None:
     assert settings.market_gap_backfill_read_limit == 5000
     assert settings.market_fresh_window_candles == 2
     assert settings.market_stale_window_candles == 5
+    assert settings.freqtrade_datadir is None
 
 
 def test_market_settings_env_is_clamped(monkeypatch) -> None:
@@ -30,3 +31,11 @@ def test_market_settings_env_is_clamped(monkeypatch) -> None:
     assert settings.market_gap_backfill_read_limit == 5000
     assert settings.market_fresh_window_candles == 8
     assert settings.market_stale_window_candles == 9
+
+
+def test_freqtrade_datadir_from_env(monkeypatch, tmp_path) -> None:
+    datadir = tmp_path / "data"
+    datadir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("TRADE_CANVAS_FREQTRADE_DATADIR", str(datadir))
+    settings = load_settings()
+    assert settings.freqtrade_datadir == datadir.resolve()

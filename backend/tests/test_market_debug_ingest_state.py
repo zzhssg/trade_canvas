@@ -38,16 +38,48 @@ class MarketDebugIngestStateTests(unittest.TestCase):
         self.assertIn("jobs", payload)
         self.assertIsInstance(payload["jobs"], list)
 
-    def test_debug_ingest_state_respects_runtime_env_toggle(self) -> None:
-        client = TestClient(create_app())
-
+    def test_debug_series_health_reports_gap_and_bucket_completeness(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
-        resp_enabled = client.get("/api/market/debug/ingest_state")
-        self.assertEqual(resp_enabled.status_code, 200, resp_enabled.text)
+        client = TestClient(create_app())
+        base_series_id = "binance:futures:BTC/USDT:1m"
+        derived_series_id = "binance:futures:BTC/USDT:5m"
+        for t in (300, 360, 420, 540, 600, 660):
+            client.post(
+                "/api/market/ingest/candle_closed",
+                json={
+                    "series_id": base_series_id,
+                    "candle": {"candle_time": t, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10},
+                },
+            )
+        client.post(
+            "/api/market/ingest/candle_closed",
+            json={
+                "series_id": derived_series_id,
+                "candle": {"candle_time": 300, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10},
+            },
+        )
+        client.post(
+            "/api/market/ingest/candle_closed",
+            json={
+                "series_id": derived_series_id,
+                "candle": {"candle_time": 900, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10},
+            },
+        )
 
-        os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "0"
-        resp_disabled = client.get("/api/market/debug/ingest_state")
-        self.assertEqual(resp_disabled.status_code, 404, resp_disabled.text)
+        resp = client.get(
+            "/api/market/debug/series_health",
+            params={"series_id": derived_series_id, "max_recent_gaps": 3, "recent_base_buckets": 2},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        self.assertEqual(payload["series_id"], derived_series_id)
+        self.assertEqual(payload["gap_count"], 1)
+        self.assertEqual(payload["max_gap_seconds"], 600)
+        self.assertEqual(payload["base_series_id"], base_series_id)
+        self.assertEqual(len(payload["base_bucket_completeness"]), 2)
+        self.assertEqual(payload["base_bucket_completeness"][-1]["bucket_open_time"], 600)
+        self.assertEqual(payload["base_bucket_completeness"][-1]["expected_minutes"], 5)
+        self.assertEqual(payload["base_bucket_completeness"][-1]["actual_minutes"], 2)
 
 
 if __name__ == "__main__":

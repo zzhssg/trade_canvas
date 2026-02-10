@@ -4,6 +4,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
 from backend.app.factor_orchestrator import FactorOrchestrator, FactorSettings
@@ -83,12 +85,127 @@ class FactorOrchestratorSettingsTests(unittest.TestCase):
         ]
         with (
             patch.object(FactorStore, "get_events_between_times", return_value=fake_rows) as base_scan,
-            patch.object(FactorStore, "get_events_between_times_paged", return_value=[]) as paged_scan,
+            patch.object(FactorStore, "iter_events_between_times_paged", return_value=iter(())) as paged_scan,
         ):
             self.orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=120)
 
         self.assertTrue(base_scan.called)
         self.assertTrue(paged_scan.called)
+
+    def test_collect_rebuild_buckets_uses_plugin_collectors_and_sort(self) -> None:
+        series_id = "binance:futures:BTC/USDT:1m"
+        rows = [
+            FactorEventRow(
+                id=1,
+                series_id=series_id,
+                factor_name="pivot",
+                candle_time=300,
+                kind="pivot.major",
+                event_key="a",
+                payload={"pivot_time": 180, "visible_time": 300, "direction": "resistance", "pivot_price": 10.0},
+            ),
+            FactorEventRow(
+                id=2,
+                series_id=series_id,
+                factor_name="pivot",
+                candle_time=240,
+                kind="pivot.major",
+                event_key="b",
+                payload={"pivot_time": 120, "visible_time": 240, "direction": "support", "pivot_price": 8.0},
+            ),
+            FactorEventRow(
+                id=3,
+                series_id=series_id,
+                factor_name="pen",
+                candle_time=300,
+                kind="pen.confirmed",
+                event_key="c",
+                payload={"start_time": 120, "end_time": 180, "visible_time": 300, "direction": 1},
+            ),
+            FactorEventRow(
+                id=4,
+                series_id=series_id,
+                factor_name="anchor",
+                candle_time=360,
+                kind="anchor.switch",
+                event_key="d",
+                payload={"switch_time": 360, "visible_time": 360},
+            ),
+        ]
+        with patch.object(FactorStore, "get_events_between_times", return_value=rows):
+            buckets = self.orchestrator._collect_rebuild_event_buckets(
+                series_id=series_id,
+                state_start=0,
+                head_time=400,
+                scan_limit=100,
+            )
+
+        pivot_events = buckets.events_by_factor["pivot"]
+        self.assertEqual(len(pivot_events), 2)
+        self.assertEqual(int(pivot_events[0]["visible_time"]), 240)
+        self.assertEqual(int(pivot_events[1]["visible_time"]), 300)
+        self.assertEqual(len(buckets.events_by_factor["pen"]), 1)
+        self.assertEqual(len(buckets.events_by_factor["anchor"]), 1)
+
+    def test_tick_steps_follow_graph_topo_order(self) -> None:
+        calls: list[str] = []
+
+        class _Plugin:
+            def __init__(self, name: str) -> None:
+                self.spec = SimpleNamespace(factor_name=name, depends_on=())
+                self._name = name
+
+            def run_tick(self, *, series_id: str, state: object, runtime: dict[str, Any]) -> None:
+                _ = series_id
+                _ = state
+                _ = runtime
+                calls.append(self._name)
+
+        plugins = {name: _Plugin(name) for name in ("pivot", "pen", "zhongshu", "anchor")}
+        self.orchestrator._graph = cast(Any, SimpleNamespace(topo_order=("pivot", "pen", "zhongshu", "anchor")))
+        self.orchestrator._registry = cast(Any, SimpleNamespace(require=lambda name: plugins[name]))
+        self.orchestrator._tick_runtime = {}
+        self.orchestrator._run_tick_steps(series_id="s", state=SimpleNamespace())  # type: ignore[arg-type]
+        self.assertEqual(calls, ["pivot", "pen", "zhongshu", "anchor"])
+
+    def test_build_head_snapshots_uses_plugin_head_hooks(self) -> None:
+        class _Plugin:
+            def __init__(self, name: str) -> None:
+                self.spec = SimpleNamespace(factor_name=name, depends_on=())
+                self._name = name
+
+            def build_head_snapshot(self, *, series_id: str, state: object, runtime: dict[str, Any]) -> dict[str, Any] | None:
+                _ = series_id
+                _ = state
+                _ = runtime
+                return {"name": self._name}
+
+        plugins = {name: _Plugin(name) for name in ("pivot", "pen")}
+        self.orchestrator._graph = cast(Any, SimpleNamespace(topo_order=("pivot", "pen")))
+        self.orchestrator._registry = cast(Any, SimpleNamespace(require=lambda name: plugins[name]))
+        self.orchestrator._tick_runtime = {}
+        out = self.orchestrator._build_head_snapshots(
+            series_id="s",
+            confirmed_pens=[],
+            effective_pivots=[],
+            zhongshu_state={},
+            anchor_current_ref=None,
+            candles=[],
+            up_to=120,
+        )
+        self.assertEqual(out, {"pivot": {"name": "pivot"}, "pen": {"name": "pen"}})
+
+    def test_tick_steps_fail_fast_when_plugin_missing_run_tick(self) -> None:
+        class _PluginWithoutTick:
+            def __init__(self) -> None:
+                self.spec = SimpleNamespace(factor_name="pivot", depends_on=())
+
+        self.orchestrator._graph = cast(Any, SimpleNamespace(topo_order=("pivot",)))
+        self.orchestrator._registry = cast(Any, SimpleNamespace(require=lambda name: _PluginWithoutTick()))
+        self.orchestrator._tick_runtime = {}
+        with self.assertRaises(RuntimeError) as ctx:
+            self.orchestrator._run_tick_steps(series_id="s", state=SimpleNamespace())  # type: ignore[arg-type]
+        self.assertIn("factor_missing_run_tick:pivot", str(ctx.exception))
 
 
 if __name__ == "__main__":

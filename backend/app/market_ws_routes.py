@@ -2,15 +2,8 @@ from __future__ import annotations
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from .flags import resolve_env_bool
+from .market_flags import ondemand_ingest_enabled
 from .ws_protocol import WS_MSG_SUBSCRIBE, WS_MSG_UNSUBSCRIBE
-
-
-def _ondemand_enabled(*, runtime) -> bool:
-    return resolve_env_bool(
-        "TRADE_CANVAS_ENABLE_ONDEMAND_INGEST",
-        fallback=bool(runtime.flags.enable_ondemand_ingest),
-    )
 
 
 async def handle_market_ws(ws: WebSocket) -> None:
@@ -40,7 +33,7 @@ async def handle_market_ws(ws: WebSocket) -> None:
                     series_id=subscribe_cmd.series_id,
                     since=subscribe_cmd.since,
                     supports_batch=subscribe_cmd.supports_batch,
-                    ondemand_enabled=_ondemand_enabled(runtime=runtime),
+                    ondemand_enabled=ondemand_ingest_enabled(),
                     market_data=runtime.market_data,
                     derived_initial_backfill=runtime.derived_initial_backfill,
                     catchup_limit=int(runtime.ws_catchup_limit),
@@ -58,7 +51,7 @@ async def handle_market_ws(ws: WebSocket) -> None:
                     await ws_subscriptions.unsubscribe(
                         ws=ws,
                         series_id=series_id,
-                        ondemand_enabled=_ondemand_enabled(runtime=runtime),
+                        ondemand_enabled=ondemand_ingest_enabled(),
                     )
                 continue
 
@@ -68,7 +61,7 @@ async def handle_market_ws(ws: WebSocket) -> None:
     finally:
         await ws_subscriptions.cleanup_disconnect(
             ws=ws,
-            ondemand_enabled=_ondemand_enabled(runtime=runtime),
+            ondemand_enabled=ondemand_ingest_enabled(),
         )
         try:
             await ws.close(code=1001)

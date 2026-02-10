@@ -240,6 +240,66 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertTrue(anchor_history, "expected anchor.history polyline in draw delta")
         self.assertEqual(str(anchor_history[0].get("color")), "rgba(59,130,246,0.55)")
 
+    def test_anchor_history_does_not_duplicate_current_pointer(self) -> None:
+        base = 60
+        prices = [
+            1,
+            2,
+            10,
+            2,
+            1,
+            2,
+            9,
+            2,
+            1,
+            2,
+            8,
+            2,
+            1,
+            20,
+            22,
+            20,
+            15,
+            20,
+            23,
+            20,
+            16,
+            20,
+            24,
+            20,
+            17,
+            20,
+            25,
+            20,
+            18,
+            20,
+        ]
+        times = [base * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        res_draw = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(res_draw.status_code, 200, res_draw.text)
+        draw = res_draw.json()
+
+        current_points: list[dict] | None = None
+        history_points: list[list[dict]] = []
+        for item in draw.get("instruction_catalog_patch") or []:
+            if not isinstance(item, dict) or item.get("kind") != "polyline":
+                continue
+            definition = item.get("definition")
+            if not isinstance(definition, dict):
+                continue
+            feature = definition.get("feature")
+            if feature == "anchor.current":
+                current_points = definition.get("points")
+            elif feature == "anchor.history":
+                history_points.append(definition.get("points") or [])
+
+        self.assertIsNotNone(current_points, "expected anchor.current polyline")
+        self.assertTrue(history_points, "expected anchor.history polylines")
+        self.assertNotIn(current_points, history_points, "history should not duplicate current anchor pointer")
+
     def test_old_plot_and_overlay_delta_endpoints_are_removed(self) -> None:
         res_plot = self.client.get("/api/plot/delta", params={"series_id": self.series_id})
         self.assertEqual(res_plot.status_code, 404, res_plot.text)

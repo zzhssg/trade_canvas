@@ -14,26 +14,94 @@
 1) `backend/app/factor_orchestrator.py`
 - 只负责调度：读 candle、维护增量窗口、按时间推进、统一写入 `FactorStore`。
 - 不再内联具体因子算法，算法下沉到 processor。
+- 每根 `visible_time` 按 `FactorGraph.topo_order` 调用插件 `run_tick(...)`，缺失执行钩子时 fail-fast（`factor_missing_run_tick`）。
+- 状态恢复与 head 落盘同样走插件钩子（`collect_rebuild_event / bootstrap_from_history / build_head_snapshot`），不再手写 `pivot/pen/anchor` 分支。
 
-2) `backend/app/factor_registry.py`
+2) `backend/app/factor_plugin_contract.py`
+- `FactorPluginSpec` 统一描述插件身份与依赖声明（`factor_name` / `depends_on`）。
+
+3) `backend/app/factor_plugin_registry.py`
+- `FactorPluginRegistry` 统一做插件注册、去重、缺失报错、spec 导出。
+
+4) `backend/app/factor_registry.py`
 - `ProcessorSpec` 声明 `factor_name + depends_on`。
-- `FactorRegistry` 负责去重、缺失报错、导出 `specs()`。
+- 当前作为兼容层，复用 plugin registry 能力并保留旧命名。
 
-3) `backend/app/factor_processors.py`
+5) `backend/app/factor_processors.py`
 - `PivotProcessor` / `PenProcessor` / `ZhongshuProcessor` / `AnchorProcessor`。
 - 每个 processor 只做该因子的领域计算与事件构造。
-- `build_default_factor_processors()` 是默认装配入口。
+- `build_default_factor_processors()` 作为兼容入口，默认运行时装配以 `factor_manifest` 为准。
 
-4) `backend/app/factor_graph.py`
+6) `backend/app/factor_manifest.py`
+- `build_default_factor_manifest()` 作为默认装配真源，同时产出 `processors + slice_plugins`。
+- 启动时强校验读写两侧 `factor_name/depends_on` 一致，避免“写路径新增、读路径漏接”。
+
+7) `backend/app/factor_graph.py`
 - 基于 registry 的 `specs()` 构建 DAG。
 - 保证拓扑稳定、缺依赖 fail-fast、环依赖 fail-fast。
 
 ### 1.2 读路径（slice）
 
-`backend/app/factor_slices_service.py`
-- 从 `FactorStore` 读历史事件和 head snapshot。
-- 通过 `build_default_slice_bucket_specs()` 生成事件桶映射，统一归类历史事件。
-- `history` 只切片不重算；`head` 优先读存储快照，必要时做有限回补（如 pen preview）。
+1) `backend/app/factor_slice_plugin_contract.py`
+- 定义读路径插件契约：`FactorSlicePlugin` + `FactorSliceBuildContext`。
+- 约束每个插件声明 `factor_name/depends_on` 与 `bucket_specs`，并输出统一 `FactorSliceV1`。
+
+2) `backend/app/factor_slice_plugins.py`
+- 默认 `Pivot/Pen/Zhongshu/Anchor` 的 slice 插件实现。
+- 每个插件只关心自己的 history/head 组装（pen preview、zhongshu alive、anchor current 等逻辑下沉）。
+
+3) `backend/app/factor_slices_service.py`
+- 仅负责读路径调度：加载事件、按 bucket 分组、预取 head、按 `FactorGraph.topo_order` 执行 slice 插件。
+- 不再手写 `if factor == ...` 的快照拼装分支，新增因子无需继续膨胀主服务文件。
+
+### 1.3 Overlay 渲染路径（draw delta 上游）
+
+1) `backend/app/overlay_orchestrator.py`
+- 负责 closed-candle 到 overlay instruction 的增量写入。
+- 渲染阶段按插件拓扑顺序执行，不再在 orchestrator 内手写整段 marker/polyline 逻辑。
+- 事件归桶改为读取渲染插件的 `bucket_specs` 声明（`factor_name + event_kind -> bucket_name`），新增 overlay 输入时无需再改 orchestrator 分支。
+
+2) `backend/app/overlay_renderer_plugins.py`
+- 默认包含 `overlay.marker` / `overlay.pen` / `overlay.structure` 三类渲染插件。
+- 每个插件只负责一类 instruction 构建，并声明自己的 `bucket_specs`；最终由 orchestrator 合并并写入 `OverlayStore`。
+
+### 1.5 Freqtrade 策略适配路径（signal 插件化）
+
+1) `backend/app/freqtrade_adapter_v1.py`
+- 负责把 dataframe 与因子 ledger 对齐（写入 candle、触发 factor ingest、校验 ledger freshness）。
+- 信号构建改为按插件拓扑调度，不再内联 `pen.confirmed -> tc_enter_long/short` 分支。
+
+2) `backend/app/freqtrade_signal_plugin_contract.py`
+- 定义 `FreqtradeSignalPlugin` 契约与 `FreqtradeSignalBucketSpec` 归桶声明。
+- 支持每个信号插件声明列初始化逻辑（`prepare_dataframe`）和逐行打标逻辑（`apply`）。
+
+3) `backend/app/freqtrade_signal_plugins.py`
+- 默认提供 `signal.pen_direction` 插件，保持当前 `tc_pen_confirmed/tc_pen_dir/tc_enter_long/tc_enter_short` 语义不变。
+
+### 1.6 Draw Delta 自愈校验路径（完整插件化补齐）
+
+1) `backend/app/overlay_integrity_plugins.py`
+- 定义 `OverlayIntegrityPlugin` 契约：输入 `factor_slices + latest_overlay_defs`，输出是否触发 overlay 重建。
+- 默认插件：
+  - `anchor.current.start`：校验 `anchor.head.current_anchor_ref.start_time` 与渲染出的 `anchor.current` 起点一致；
+  - `zhongshu.signature`：校验 `zhongshu history/head` 与 `zhongshu.*` 指令集合签名一致。
+
+2) `backend/app/draw_routes.py`
+- `/api/draw/delta` 在 `cursor_version_id=0` 首帧读取时，调用 integrity plugins 判定是否需要重建 overlay。
+- draw route 不再手写 anchor/zhongshu 具体判定分支，后续新增结构性校验可通过插件追加。
+
+### 1.4 因子目录路径（前端因子开关）
+
+1) `backend/app/factor_catalog.py`
+- 基于 `factor_manifest` + `FactorGraph.topo_order` 构建动态因子目录，避免前端硬编码顺序/分组。
+- 标准因子目录来自插件 `spec.catalog` 元信息；缺省时回退到 slice bucket 推断。
+- `sma` / `signal` 作为前端虚拟分组统一追加。
+
+2) `backend/app/factor_routes.py`
+- 新增 `GET /api/factor/catalog`，返回 `GetFactorCatalogResponseV1`。
+
+3) `frontend/src/services/factorCatalog.ts`
+- 前端通过接口拉取目录并缓存；接口不可用时降级到本地 fallback，不阻塞图表使用。
 
 ### 1.3 统一写链路与读写分离（2026-02-10 新增）
 
@@ -63,28 +131,40 @@
 
 ## 3. 新增 factor 的固定接入面（先去重再插件化后的约束）
 
-### 3.1 必改（固定 4 处）
+### 3.1 必改（固定 5 处）
 
 1) `backend/app/factor_processors.py`
 - 新增 `XxxProcessor`，声明 `spec = ProcessorSpec(factor_name="xxx", depends_on=(...))`。
-- 实现该因子的事件构造与 head 构造逻辑。
+- 实现该因子的事件构造、bootstrap 恢复、head 构造逻辑（按需实现插件钩子）。
 
-2) `backend/app/factor_processors.py`
-- 在 `build_default_factor_processors()` 中注册 `XxxProcessor()`。
+2) `backend/app/factor_slice_plugins.py`
+- 新增 `XxxSlicePlugin`，完成该因子的 `history/head/meta` 组装。
 
-3) `backend/app/factor_processors.py`
+3) `backend/app/factor_plugin_contract.py`（或兼容 alias）
+- 若新增字段级别插件元信息，先扩展插件契约再落实现。
+
+4) `backend/app/factor_processor_slice_buckets.py`
 - 在 `build_default_slice_bucket_specs()` 中补充该 factor 的事件桶映射（`event_kind -> bucket_name`）。
 
-4) `backend/app/factor_slices_service.py`
-- 组装 `snapshots["xxx"]`（history/head/meta）。
+5) `backend/app/factor_manifest.py`
+- 在 `build_default_factor_manifest()` 中挂载 `XxxProcessor + XxxSlicePlugin`。
+- 新增 factor 后，orchestrator 与 slices service 都从 manifest 自动生效。
 
 ### 3.2 按需改（视是否对外可视）
 
-4) `backend/app/overlay_orchestrator.py`
-- 若该 factor 需要图上展示，增加 overlay 构建/增量逻辑。
+4) `backend/app/overlay_renderer_plugins.py`
+- 若该 factor 需要图上展示，新增或扩展对应 overlay renderer，并声明 `bucket_specs`。
+- 一般不再修改 `overlay_orchestrator.py`。
 
 5) 前端 `frontend/src/widgets/ChartView.tsx` 及相关 store
-- 新增/接入 `sub_feature` 可见性开关。
+- 一般无需手改因子目录常量；仅当新增子特性有特殊交互（非通用可见性逻辑）时才需要接入代码。
+
+6) `backend/app/freqtrade_signal_plugins.py`（按需）
+- 若新 factor 需要落地为策略信号列，在此新增 signal plugin；避免直接改 adapter 主流程。
+
+7) `backend/app/overlay_integrity_plugins.py`（按需）
+- 若新 factor 引入“overlay 与 factor_slices 一致性”约束，在此新增 integrity plugin；
+- 一般不再修改 `draw_routes.py` 的重建判定主流程。
 
 6) 合约文档
 - 若新增了外部可见字段/语义，更新 `docs/core/contracts/` 下对应契约。

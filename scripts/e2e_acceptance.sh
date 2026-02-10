@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/e2e_acceptance.sh [--reuse-servers] [--smoke] [--skip-playwright-install] [--skip-doc-audit] [-- <playwright args...>]
+  bash scripts/e2e_acceptance.sh [--reuse-servers] [--no-reuse-strict] [--smoke] [--skip-playwright-install] [--skip-doc-audit] [-- <playwright args...>]
 
 Runs the FE/BE integration E2E gate (Playwright):
   mock feed (HTTP ingest) → store → API → frontend (HTTP catchup + WS follow)
@@ -20,6 +20,8 @@ Environment overrides (optional):
     - Skip `npx playwright install chromium` (fast local loop if browsers are already cached).
   E2E_SKIP_DOC_AUDIT=1
     - Skip `bash docs/scripts/doc_audit.sh` (fast local loop; do not use for final delivery).
+  E2E_REUSE_STRICT=1
+    - When --reuse-servers is set, run deterministic preflight checks and fail fast on env drift.
 
   Optional doc/plan gate (recommended when claiming "done"):
   E2E_PLAN_DOC=docs/plan/....md
@@ -29,6 +31,7 @@ EOF
 }
 
 reuse_servers=0
+reuse_strict=1
 smoke=0
 skip_playwright_install=0
 skip_doc_audit=0
@@ -36,6 +39,7 @@ pw_args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --reuse-servers) reuse_servers=1; shift ;;
+    --no-reuse-strict) reuse_strict=0; shift ;;
     --smoke) smoke=1; shift ;;
     --skip-playwright-install) skip_playwright_install=1; shift ;;
     --skip-doc-audit) skip_doc_audit=1; shift ;;
@@ -55,6 +59,7 @@ frontend_port="${E2E_FRONTEND_PORT:-5173}"
 smoke="${E2E_SMOKE:-$smoke}"
 skip_playwright_install="${E2E_SKIP_PLAYWRIGHT_INSTALL:-$skip_playwright_install}"
 skip_doc_audit="${E2E_SKIP_DOC_AUDIT:-$skip_doc_audit}"
+reuse_strict="${E2E_REUSE_STRICT:-$reuse_strict}"
 
 backend_base="http://${backend_host}:${backend_port}"
 frontend_base="http://${frontend_host}:${frontend_port}"
@@ -95,6 +100,17 @@ is_listening() {
     return $?
   fi
   return 1
+}
+
+reuse_preflight_or_die() {
+  if [[ "$reuse_servers" -ne 1 || "$reuse_strict" != "1" ]]; then
+    return 0
+  fi
+
+  echo "[e2e_acceptance] Running reuse-server preflight checks..."
+  if ! bash scripts/e2e_preflight.sh --backend-base "$backend_base" --timeout-s 8; then
+    exit 2
+  fi
 }
 
 wait_http_ok() {
@@ -152,6 +168,7 @@ if is_listening "$backend_host" "$backend_port"; then
     echo "Hint: free it with \`bash scripts/free_port.sh ${backend_port}\`." >&2
     exit 2
   fi
+  echo "[e2e_acceptance] WARN: reusing backend ${backend_host}:${backend_port}; existing server env will not be overridden."
 else
   if [[ ! -f ".env/bin/activate" ]]; then
     echo "ERROR: missing venv at ./.env (needed by scripts/dev_backend.sh)" >&2
@@ -165,6 +182,10 @@ else
     export TRADE_CANVAS_DB_PATH="${e2e_db_path}"
     export TRADE_CANVAS_ENABLE_WHITELIST_INGEST="0"
     export TRADE_CANVAS_ENABLE_ONDEMAND_INGEST="0"
+    export TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL="0"
+    export TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL="0"
+    export TRADE_CANVAS_ENABLE_CCXT_BACKFILL="0"
+    export TRADE_CANVAS_MARKET_HISTORY_SOURCE=""
     export TRADE_CANVAS_ENABLE_DEBUG_API="1"
     export TRADE_CANVAS_FREQTRADE_MOCK="1"
     # Pin ingest flags for deterministic E2E (avoid inheriting dev shell env).
@@ -187,6 +208,7 @@ if is_listening "$frontend_host" "$frontend_port"; then
     echo "Hint: free it with \`node frontend/scripts/free-port.mjs ${frontend_port}\`." >&2
     exit 2
   fi
+  echo "[e2e_acceptance] WARN: reusing frontend ${frontend_host}:${frontend_port}; existing server env will not be overridden."
 else
   (
     cd frontend
@@ -199,6 +221,7 @@ fi
 
 wait_http_ok "${backend_base}/api/market/whitelist" "backend"
 wait_http_ok "${frontend_base}/" "frontend"
+reuse_preflight_or_die
 
 (
   cd frontend

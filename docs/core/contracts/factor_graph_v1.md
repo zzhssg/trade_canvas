@@ -2,7 +2,7 @@
 title: Factor Graph Contract v1（因子拓扑与调度）
 status: draft
 created: 2026-02-02
-updated: 2026-02-09
+updated: 2026-02-10
 ---
 
 # Factor Graph Contract v1（因子拓扑与调度）
@@ -11,6 +11,7 @@ updated: 2026-02-09
 
 关联契约：
 - 因子数据外壳与冷热语义：`docs/core/contracts/factor_v1.md`
+- 因子插件注册：`docs/core/contracts/factor_plugin_v1.md`
 - 策略消费边界（fail-safe 对齐）：`docs/core/contracts/strategy_v1.md`
 - K 线主键/坐标：`docs/core/market-kline-sync.md`
 - 当前实现总览：`docs/core/factor-modular-architecture.md`
@@ -77,10 +78,15 @@ updated: 2026-02-09
 当前后端实现对应关系：
 - 注册中心：`backend/app/factor_registry.py`
 - 处理器集合：`backend/app/factor_processors.py`
+- 统一装配清单：`backend/app/factor_manifest.py`
 - DAG 构建：`backend/app/factor_graph.py`
 - 调度入口：`backend/app/factor_orchestrator.py`
+- 读路径插件：`backend/app/factor_slice_plugins.py`
+- 读路径调度：`backend/app/factor_slices_service.py`
 
 要求：
+- 默认运行时必须从同一份 manifest 同时注入写路径 processors 与读路径 slice_plugins，不允许两份手工列表长期分叉。
 - 因子拓扑必须由 registry 的 `specs()` 生成，不允许在 orchestrator 重复手写一份依赖图。
+- 写路径 bootstrap/head 也必须按同一拓扑执行插件钩子（`bootstrap_from_history` / `build_head_snapshot`），避免重建逻辑漂移。
 - 新增 factor 时，`ProcessorSpec` 与 DAG 结果必须在测试中可验证（例如 topo_order 包含新增节点且顺序稳定）。
-- 与拓扑对应的读路径事件映射应集中声明（例如 `build_default_slice_bucket_specs()`），避免写路径新增后读路径漏接入。
+- 与拓扑对应的读路径组装应通过 `FactorSlicePlugin` 统一声明（`bucket_specs + build_snapshot`），避免写路径新增后读路径漏接入。

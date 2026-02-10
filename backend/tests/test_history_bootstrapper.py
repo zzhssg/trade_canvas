@@ -57,3 +57,20 @@ def test_bootstrap_skips_when_disabled(tmp_path, monkeypatch) -> None:
     store = CandleStore(db_path=db_path)
     wrote = maybe_bootstrap_from_freqtrade(store, series_id="binance:spot:BTC/USDT:1m", limit=10)
     assert wrote == 0
+
+
+def test_bootstrap_futures_accepts_freqtrade_usdt_suffix_filename(tmp_path, monkeypatch) -> None:
+    datadir = tmp_path / "datadir" / "futures"
+    datadir.mkdir(parents=True, exist_ok=True)
+    _write_feather(datadir / "BTC_USDT_USDT-5m-futures.feather", n=12)
+
+    monkeypatch.setenv("TRADE_CANVAS_MARKET_HISTORY_SOURCE", "freqtrade")
+    monkeypatch.setenv("TRADE_CANVAS_FREQTRADE_DATADIR", str(tmp_path / "datadir"))
+
+    db_path = tmp_path / "market.db"
+    store = CandleStore(db_path=db_path)
+    series_id = "binance:futures:BTC/USDT:5m"
+
+    wrote = maybe_bootstrap_from_freqtrade(store, series_id=series_id, limit=2000)
+    assert wrote == 12
+    assert store.head_time(series_id) is not None

@@ -5,7 +5,6 @@ from typing import Awaitable, Callable
 
 from .debug_hub import DebugHub
 from .factor_orchestrator import FactorOrchestrator
-from .flags import FeatureFlags
 from .ingest_supervisor import IngestSupervisor
 from .market_data import (
     DefaultMarketDataOrchestrator,
@@ -15,8 +14,8 @@ from .market_data import (
     WsSubscriptionCoordinator,
 )
 from .market_list import BinanceMarketListService, MinIntervalLimiter
+from .market_ingest_service import MarketIngestService
 from .overlay_orchestrator import OverlayOrchestrator
-from .pipelines import IngestPipeline
 from .store import CandleStore
 from .whitelist import MarketWhitelist
 from .ws_hub import CandleHub
@@ -39,6 +38,5 @@ class MarketRuntime:
     ws_subscriptions: WsSubscriptionCoordinator
     ws_messages: WsMessageParser
     derived_initial_backfill: Callable[..., Awaitable[None]]
-    ws_catchup_limit: int
-    ingest_pipeline: IngestPipeline
-    flags: FeatureFlags
+    ingest: MarketIngestService | None = None
+    ws_catchup_limit: int = 5000

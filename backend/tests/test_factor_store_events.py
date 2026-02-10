@@ -76,6 +76,42 @@ class FactorStoreEventsTests(unittest.TestCase):
             self.assertTrue(all(r.factor_name == "pen" for r in only_pen))
             self.assertEqual([r.event_key for r in only_pen], ["k:1", "k:3", "k:5", "k:7", "k:9", "k:11"])
 
+    def test_iter_events_between_times_paged_matches_list_variant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = FactorStore(db_path=Path(tmpdir) / "factor.db")
+            with store.connect() as conn:
+                events = [
+                    FactorEventWrite(
+                        series_id="s",
+                        factor_name="pivot",
+                        candle_time=300 + i,
+                        kind="pivot.major",
+                        event_key=f"it:{i}",
+                        payload={"i": int(i)},
+                    )
+                    for i in range(17)
+                ]
+                store.insert_events_in_conn(conn, events=events)
+                conn.commit()
+
+            as_list = store.get_events_between_times_paged(
+                series_id="s",
+                factor_name=None,
+                start_candle_time=300,
+                end_candle_time=400,
+                page_size=5,
+            )
+            as_iter = list(
+                store.iter_events_between_times_paged(
+                    series_id="s",
+                    factor_name=None,
+                    start_candle_time=300,
+                    end_candle_time=400,
+                    page_size=5,
+                )
+            )
+            self.assertEqual([r.event_key for r in as_iter], [r.event_key for r in as_list])
+
 
 if __name__ == "__main__":
     unittest.main()

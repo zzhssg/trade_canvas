@@ -12,6 +12,7 @@ class Settings:
     freqtrade_root: Path
     freqtrade_userdir: Path | None
     freqtrade_config_path: Path | None
+    freqtrade_datadir: Path | None
     freqtrade_bin: str
     freqtrade_strategy_path: Path | None
     cors_origins: list[str]
@@ -63,6 +64,11 @@ def load_settings() -> Settings:
     if freqtrade_config_path is not None and not freqtrade_config_path.is_absolute():
         freqtrade_config_path = (freqtrade_root / freqtrade_config_path).resolve()
 
+    freqtrade_datadir_raw = os.environ.get("TRADE_CANVAS_FREQTRADE_DATADIR", "").strip()
+    freqtrade_datadir = Path(freqtrade_datadir_raw) if freqtrade_datadir_raw else None
+    if freqtrade_datadir is not None and not freqtrade_datadir.is_absolute():
+        freqtrade_datadir = (freqtrade_root / freqtrade_datadir).resolve()
+
     # Prefer project venv freqtrade when present to avoid PATH collisions.
     venv_freqtrade = root_dir / ".env" / "bin" / "freqtrade"
     default_freqtrade_bin = str(venv_freqtrade) if venv_freqtrade.exists() else "freqtrade"
@@ -112,6 +118,7 @@ def load_settings() -> Settings:
         freqtrade_root=freqtrade_root,
         freqtrade_userdir=freqtrade_userdir,
         freqtrade_config_path=freqtrade_config_path,
+        freqtrade_datadir=freqtrade_datadir,
         freqtrade_bin=freqtrade_bin,
         freqtrade_strategy_path=freqtrade_strategy_path,
         cors_origins=cors_origins,

@@ -182,7 +182,7 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
                 conn.commit()
             return 1
 
-        with mock.patch("backend.app.main.backfill_market_gap_best_effort", side_effect=fake_backfill):
+        with mock.patch("backend.app.market_runtime_builder.backfill_market_gap_best_effort", side_effect=fake_backfill):
             with self.client.websocket_connect("/ws/market") as ws:
                 ws.send_json({"type": "subscribe", "series_id": self.series_id, "since": 100})
                 self._ingest(220)

@@ -1,9 +1,36 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Protocol
+
+from .schemas import GetFactorSlicesResponseV1
 
 
-def ensure_factor_fresh_for_read(*, factor_orchestrator: Any, series_id: str, up_to_time: int | None) -> bool:
+class _FactorIngestResultLike(Protocol):
+    rebuilt: bool
+
+
+class _FactorOrchestratorLike(Protocol):
+    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> _FactorIngestResultLike: ...
+
+
+class _AlignedStoreLike(Protocol):
+    def floor_time(self, series_id: str, at_time: int) -> int | None: ...
+
+
+class _FactorSlicesServiceLike(Protocol):
+    def get_slices_aligned(
+        self,
+        *,
+        series_id: str,
+        aligned_time: int | None,
+        at_time: int,
+        window_candles: int,
+    ) -> GetFactorSlicesResponseV1: ...
+
+
+def ensure_factor_fresh_for_read(
+    *, factor_orchestrator: _FactorOrchestratorLike, series_id: str, up_to_time: int | None
+) -> bool:
     if up_to_time is None:
         return False
     to_time = int(up_to_time)
@@ -15,15 +42,15 @@ def ensure_factor_fresh_for_read(*, factor_orchestrator: Any, series_id: str, up
 
 def read_factor_slices_with_freshness(
     *,
-    store: Any,
-    factor_orchestrator: Any,
-    factor_slices_service: Any,
+    store: _AlignedStoreLike,
+    factor_orchestrator: _FactorOrchestratorLike,
+    factor_slices_service: _FactorSlicesServiceLike,
     series_id: str,
     at_time: int,
     window_candles: int,
     aligned_time: int | None = None,
     ensure_fresh: bool = True,
-) -> Any:
+) -> GetFactorSlicesResponseV1:
     aligned: int | None
     if aligned_time is None:
         aligned = store.floor_time(series_id, at_time=int(at_time))

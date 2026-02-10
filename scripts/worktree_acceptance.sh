@@ -19,7 +19,8 @@ usage() {
   cat <<'EOF'
 Usage:
   bash scripts/worktree_acceptance.sh [--yes] [--push] [--delete-remote] [--main-branch <name>] [--remote <name>] [--no-pull]
-                                   [--plan-doc <path>] [--auto-doc-status] [--run-doc-audit] [--no-plan-gate]
+                                   [--plan-doc <path>] [--auto-doc-status] [--run-doc-audit] [--run-e2e-preflight]
+                                   [--e2e-backend-base <url>] [--no-e2e-demo-strategy] [--no-plan-gate]
 
 行为说明：
   - 默认 dry-run：只输出 review 信息并做门禁检查，不会执行 merge / 删除 worktree
@@ -30,6 +31,9 @@ Usage:
   - --plan-doc：显式指定本次 worktree 对应的 plan 文档路径（`docs/plan/...`）
   - --auto-doc-status：在 merge 前自动把 plan 状态推进到 已上线/online，并单独提交该文档变更（需要配合 --yes）
   - --run-doc-audit：在 merge 前运行 `bash docs/scripts/doc_audit.sh`（建议交付时开启；--yes 时默认开启）
+  - --run-e2e-preflight：在 merge 前运行 `bash scripts/e2e_preflight.sh`（校验复用后端环境）
+  - --e2e-backend-base：E2E preflight 使用的后端地址（默认 `E2E_API_BASE_URL` 或 `http://127.0.0.1:8000`）
+  - --no-e2e-demo-strategy：E2E preflight 时跳过 DemoStrategy 校验（仅特例）
   - --no-plan-gate：显式跳过 plan 门禁（仅低风险/特例；会打印 WARN）
 
 注意：
@@ -58,6 +62,9 @@ plan_doc=""
 auto_doc_status=0
 run_doc_audit=0
 no_plan_gate=0
+run_e2e_preflight=0
+e2e_backend_base="${E2E_API_BASE_URL:-http://127.0.0.1:8000}"
+e2e_require_demo_strategy=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -70,6 +77,9 @@ while [[ $# -gt 0 ]]; do
     --plan-doc) plan_doc="$2"; shift 2 ;;
     --auto-doc-status) auto_doc_status=1; shift ;;
     --run-doc-audit) run_doc_audit=1; shift ;;
+    --run-e2e-preflight) run_e2e_preflight=1; shift ;;
+    --e2e-backend-base) e2e_backend_base="$2"; shift 2 ;;
+    --no-e2e-demo-strategy) e2e_require_demo_strategy=0; shift ;;
     --no-plan-gate) no_plan_gate=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
@@ -359,6 +369,16 @@ else
   fi
 fi
 
+if [[ "${run_e2e_preflight}" -eq 1 ]]; then
+  echo
+  log_info "=== Step 5: E2E Backend Preflight Gate ==="
+  preflight_args=(--backend-base "${e2e_backend_base}" --timeout-s 8)
+  if [[ "${e2e_require_demo_strategy}" -eq 0 ]]; then
+    preflight_args+=(--skip-demo-strategy)
+  fi
+  bash scripts/e2e_preflight.sh "${preflight_args[@]}"
+fi
+
 if [[ "${yes}" -ne 1 ]]; then
   echo
   log_warn "dry-run 模式：未执行 merge / 删除 worktree（需要真正执行请加 --yes）。"
@@ -367,12 +387,12 @@ fi
 
 if [[ "${run_doc_audit}" -eq 1 && -x "docs/scripts/doc_audit.sh" ]]; then
   echo
-  log_info "=== Step 5: Docs Audit Gate ==="
+  log_info "=== Step 6: Docs Audit Gate ==="
   bash "docs/scripts/doc_audit.sh"
 fi
 
 echo
-log_info "=== Step 6: Merge Gate ==="
+log_info "=== Step 7: Merge Gate ==="
 log_info "即将 merge: ${cur_branch} -> ${main_branch}"
 
 merge_msg="Merge branch '${cur_branch}' (worktree acceptance)"
@@ -394,7 +414,7 @@ if [[ "${push_main}" -eq 1 ]]; then
 fi
 
 echo
-log_info "=== Step 7: 删除 worktree + 分支 ==="
+log_info "=== Step 8: 删除 worktree + 分支 ==="
 log_info "Removing worktree: ${repo_root}"
 git worktree remove "${repo_root}"
 

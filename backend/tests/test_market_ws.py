@@ -157,7 +157,7 @@ class MarketWebSocketTests(unittest.TestCase):
                 conn.commit()
             return 1
 
-        with mock.patch("backend.app.main.backfill_market_gap_best_effort", side_effect=fake_backfill) as patched:
+        with mock.patch("backend.app.market_runtime_builder.backfill_market_gap_best_effort", side_effect=fake_backfill) as patched:
             with self.client.websocket_connect("/ws/market") as ws:
                 ws.send_json({"type": "subscribe", "series_id": series_gap, "since": 100, "supports_batch": True})
                 msg = ws.receive_json()

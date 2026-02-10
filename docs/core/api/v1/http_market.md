@@ -2,7 +2,7 @@
 title: API v1 · Market（HTTP + SSE）
 status: draft
 created: 2026-02-03
-updated: 2026-02-09
+updated: 2026-02-10
 ---
 
 # API v1 · Market（HTTP + SSE）
@@ -138,6 +138,54 @@ curl --noproxy '*' -sS "http://127.0.0.1:8000/api/market/debug/ingest_state"
 
 - 仅在 `TRADE_CANVAS_ENABLE_DEBUG_API=1` 时可用，否则返回 404。
 - 返回 ingest supervisor 的调试快照（该结构不承诺稳定；仅用于排障）。
+
+## GET /api/market/debug/series_health
+
+### 示例（curl）
+
+```bash
+curl --noproxy '*' -sS \
+  "http://127.0.0.1:8000/api/market/debug/series_health?series_id=binance:futures:BTC/USDT:5m&max_recent_gaps=5&recent_base_buckets=8"
+```
+
+### 示例响应（json）
+
+```json
+{
+  "series_id": "binance:futures:BTC/USDT:5m",
+  "timeframe_seconds": 300,
+  "now_time": 1700000000,
+  "first_time": 1699995000,
+  "head_time": 1699999800,
+  "lag_seconds": 200,
+  "candle_count": 1440,
+  "gap_count": 1,
+  "max_gap_seconds": 900,
+  "recent_gaps": [
+    {
+      "prev_time": 1699996200,
+      "next_time": 1699997100,
+      "delta_seconds": 900,
+      "missing_candles": 2
+    }
+  ],
+  "base_series_id": "binance:futures:BTC/USDT:1m",
+  "base_bucket_completeness": [
+    {
+      "bucket_open_time": 1699997400,
+      "expected_minutes": 5,
+      "actual_minutes": 5,
+      "missing_minutes": 0
+    }
+  ]
+}
+```
+
+### 语义
+
+- 仅在 `TRADE_CANVAS_ENABLE_DEBUG_API=1` 时可用，否则返回 404。
+- 用于排查 K 线链路健康度：给出 head 滞后、间隙统计、以及高周期相对 1m 基准桶的完整性。
+- `max_recent_gaps` 控制返回最近 gap 条数；`recent_base_buckets` 控制最近多少个高周期桶做基准分钟完整性检查。
 
 ## GET /api/market/top_markets
 

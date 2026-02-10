@@ -6,7 +6,8 @@ import time
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 
-from .flags import resolve_env_bool
+from .market_flags import debug_api_enabled
+from .market_kline_health import analyze_series_health
 from .schemas import TopMarketItem, TopMarketsLimitQuery, TopMarketsResponse
 
 router = APIRouter()
@@ -20,12 +21,27 @@ def get_market_whitelist(request: Request) -> dict[str, list[str]]:
 
 @router.get("/api/market/debug/ingest_state")
 async def get_market_ingest_state(request: Request) -> dict:
-    if not resolve_env_bool(
-        "TRADE_CANVAS_ENABLE_DEBUG_API",
-        fallback=bool(request.app.state.market_runtime.flags.enable_debug_api),
-    ):
+    if not debug_api_enabled():
         raise HTTPException(status_code=404, detail="not_found")
     return await request.app.state.market_runtime.supervisor.debug_snapshot()
+
+
+@router.get("/api/market/debug/series_health")
+def get_market_series_health(
+    request: Request,
+    series_id: str = Query(..., min_length=1),
+    max_recent_gaps: int = Query(5, ge=1, le=50),
+    recent_base_buckets: int = Query(8, ge=1, le=48),
+) -> dict:
+    if not debug_api_enabled():
+        raise HTTPException(status_code=404, detail="not_found")
+    runtime = request.app.state.market_runtime
+    return analyze_series_health(
+        store=runtime.store,
+        series_id=series_id,
+        max_recent_gaps=int(max_recent_gaps),
+        recent_base_buckets=int(recent_base_buckets),
+    )
 
 
 @router.get("/api/market/top_markets", response_model=TopMarketsResponse)

@@ -116,6 +116,24 @@ class FactorSliceV1(BaseModel):
     meta: FactorMetaV1
 
 
+class FactorCatalogSubFeatureV1(BaseModel):
+    key: str
+    label: str
+    default_visible: bool = True
+
+
+class FactorCatalogItemV1(BaseModel):
+    key: str
+    label: str
+    default_visible: bool = True
+    sub_features: list[FactorCatalogSubFeatureV1] = Field(default_factory=list)
+
+
+class GetFactorCatalogResponseV1(BaseModel):
+    schema_version: int = 1
+    factors: list[FactorCatalogItemV1] = Field(default_factory=list)
+
+
 class GetFactorSlicesResponseV1(BaseModel):
     schema_version: int = 1
     series_id: str

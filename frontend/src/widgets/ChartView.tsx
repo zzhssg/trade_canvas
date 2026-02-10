@@ -14,7 +14,7 @@ import useResizeObserver from "use-resize-observer";
 import { apiWsBase } from "../lib/api";
 import { logDebugEvent } from "../debug/debug";
 import { CENTER_SCROLL_SELECTOR, chartWheelZoomRatio, normalizeWheelDeltaY } from "../lib/wheelContract";
-import { FACTOR_CATALOG, getFactorParentsBySubKey } from "../services/factorCatalog";
+import { getFactorParentsBySubKey, useFactorCatalog } from "../services/factorCatalog";
 import { useFactorStore } from "../state/factorStore";
 import { useReplayStore } from "../state/replayStore";
 import { useUiStore } from "../state/uiStore";
@@ -132,8 +132,9 @@ export function ChartView() {
   const seriesId = useMemo(() => `${exchange}:${market}:${symbol}:${timeframe}`, [exchange, market, symbol, timeframe]);
 
   const { visibleFeatures } = useFactorStore();
+  const factorCatalog = useFactorCatalog();
   const visibleFeaturesRef = useRef(visibleFeatures);
-  const parentBySubKey = useMemo(() => getFactorParentsBySubKey(FACTOR_CATALOG), []);
+  const parentBySubKey = useMemo(() => getFactorParentsBySubKey(factorCatalog), [factorCatalog]);
   const lineSeriesByKeyRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
@@ -2064,9 +2065,19 @@ export function ChartView() {
         for (const s of penSegmentSeriesByKeyRef.current.values()) chart.removeSeries(s);
         penSegmentSeriesByKeyRef.current.clear();
         if (!penSeriesRef.current) {
-          penSeriesRef.current = chart.addSeries(LineSeries, { color: "#ffffff", lineWidth: 2, lineStyle: LineStyle.Solid });
+          penSeriesRef.current = chart.addSeries(LineSeries, {
+            color: "#ffffff",
+            lineWidth: 2,
+            lineStyle: LineStyle.Solid,
+            priceLineVisible: false,
+            lastValueVisible: false
+          });
         }
-        penSeriesRef.current.applyOptions({ lineStyle: LineStyle.Solid });
+        penSeriesRef.current.applyOptions({
+          lineStyle: LineStyle.Solid,
+          priceLineVisible: false,
+          lastValueVisible: false
+        });
         penSeriesRef.current.setData(penPointsRef.current);
       }
 
@@ -2505,10 +2516,20 @@ export function ChartView() {
                 actual_time: msg.actual_time ?? null
               }
             });
+            const tfSeconds = timeframeToSeconds(timeframe);
+            const expectedNextTime =
+              typeof msg.expected_next_time === "number" && Number.isFinite(msg.expected_next_time)
+                ? Math.max(0, Math.trunc(msg.expected_next_time))
+                : null;
+            const tfStep = tfSeconds != null ? Math.max(1, tfSeconds) : 60;
+            const gapSince =
+              expectedNextTime != null
+                ? Math.max(0, expectedNextTime - tfStep)
+                : null;
             const last = candlesRef.current[candlesRef.current.length - 1];
-            const fetchParams = last
-              ? ({ seriesId, since: last.time as number, limit: 5000 } as const)
-              : ({ seriesId, limit: INITIAL_TAIL_LIMIT } as const);
+            const fallbackSince = last != null ? (last.time as number) : null;
+            const since = gapSince ?? fallbackSince;
+            const fetchParams = since != null ? ({ seriesId, since, limit: 5000 } as const) : ({ seriesId, limit: INITIAL_TAIL_LIMIT } as const);
 
             void fetchCandles(fetchParams).then(({ candles: chunk }) => {
               if (!isActive) return;

@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from typing import Iterator
 
 from .sqlite_util import connect as sqlite_connect
 
@@ -347,7 +348,25 @@ class FactorStore:
         end_candle_time: int,
         page_size: int = 20000,
     ) -> list[FactorEventRow]:
-        out: list[FactorEventRow] = []
+        return list(
+            self.iter_events_between_times_paged(
+                series_id=series_id,
+                factor_name=factor_name,
+                start_candle_time=start_candle_time,
+                end_candle_time=end_candle_time,
+                page_size=page_size,
+            )
+        )
+
+    def iter_events_between_times_paged(
+        self,
+        *,
+        series_id: str,
+        factor_name: str | None,
+        start_candle_time: int,
+        end_candle_time: int,
+        page_size: int = 20000,
+    ) -> Iterator[FactorEventRow]:
         size = max(1, int(page_size))
         with self.connect() as conn:
             last_time: int | None = None
@@ -426,13 +445,13 @@ class FactorStore:
                 if not rows:
                     break
                 decoded = self._decode_event_rows(rows)
-                out.extend(decoded)
+                for item in decoded:
+                    yield item
                 if len(rows) < size:
                     break
                 last = rows[-1]
                 last_time = int(last["candle_time"])
                 last_id = int(last["id"])
-        return out
 
     @staticmethod
     def _decode_event_rows(rows: list[sqlite3.Row]) -> list[FactorEventRow]:

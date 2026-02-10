@@ -171,6 +171,14 @@ trade_canvas/
 
 ### 5.1 因子计算链路
 
+#### 5.1.1 因子重算与状态回放护栏
+
+- 因子链路采用 **fingerprint 自动重算**：当编排逻辑或关键配置变更时，`FactorOrchestrator` 会清理旧因子产物并从最新保留窗口重建，避免“代码已变但旧因子仍被复用”。
+- 状态回放采用两段读取策略：
+  - 常态：`LIMIT` 读取最近事件，快速重建增量状态。
+  - 命中上限：自动切换为 `paged_full_scan`（按 `candle_time,id` 分页遍历），保证给定时间窗内事件不被截断。
+- 对外通过 debug 事件 `factor.state_rebuild.limit_reached` 暴露降级信息（含 `mode=paged_full_scan`），便于排查“重建窗口过大”场景。
+
 ```
 CandleClosed Event
        │
@@ -254,6 +262,7 @@ CandleClosed Event
 |------|------|------|
 | `/api/market/candles` | GET | 获取蜡烛数据 |
 | `/api/market/top_markets` | GET | 获取热门市场 |
+| `/api/factor/catalog` | GET | 获取因子目录（前端因子开关动态配置） |
 | `/api/factor/slices` | GET | 获取因子快照 |
 | `/api/draw/delta` | GET | 获取绘图增量 |
 | `/api/frame/live` | GET | 获取实时世界状态 |

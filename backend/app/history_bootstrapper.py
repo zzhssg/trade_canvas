@@ -4,18 +4,17 @@ import json
 from pathlib import Path
 
 from .config import load_settings
-from .flags import resolve_env_str
+from .market_flags import market_history_source
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .store import CandleStore
 
 
 def _resolve_freqtrade_datadir() -> Path | None:
-    raw = resolve_env_str("TRADE_CANVAS_FREQTRADE_DATADIR", fallback="")
-    if raw:
-        return Path(raw).expanduser().resolve()
-
     settings = load_settings()
+    if settings.freqtrade_datadir is not None:
+        return settings.freqtrade_datadir
+
     cfg_path = settings.freqtrade_config_path
     if cfg_path is None or not cfg_path.exists():
         return None
@@ -38,10 +37,6 @@ def _resolve_freqtrade_datadir() -> Path | None:
     return candidate if candidate.exists() else None
 
 
-def _history_source() -> str:
-    return resolve_env_str("TRADE_CANVAS_MARKET_HISTORY_SOURCE", fallback="").lower()
-
-
 def _candidate_ohlcv_paths(datadir: Path, series: SeriesId) -> list[Path]:
     tf = series.timeframe
     symbol = series.symbol
@@ -49,10 +44,30 @@ def _candidate_ohlcv_paths(datadir: Path, series: SeriesId) -> list[Path]:
     def sanitize(sym: str) -> str:
         return sym.replace("/", "_").replace(":", "_")
 
-    sanitized = sanitize(symbol)
-    sanitized_alt = sanitized
-    if series.market == "futures" and ":" in symbol:
-        sanitized_alt = sanitize(symbol.split(":", 1)[0])
+    def futures_symbol_candidates(sym: str) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+
+        def add(candidate_symbol: str) -> None:
+            sanitized = sanitize(candidate_symbol)
+            if sanitized in seen:
+                return
+            seen.add(sanitized)
+            out.append(sanitized)
+
+        add(sym)
+
+        base_symbol = sym.split(":", 1)[0]
+        add(base_symbol)
+
+        if "/" in base_symbol:
+            base, quote = base_symbol.split("/", 1)
+            settle = quote
+            if ":" in sym:
+                settle = sym.split(":", 1)[1] or quote
+            add(f"{base}/{quote}:{settle}")
+
+        return out
 
     # datadir may be either:
     # - .../user_data/data/<exchange> (trade_system style), or
@@ -61,14 +76,12 @@ def _candidate_ohlcv_paths(datadir: Path, series: SeriesId) -> list[Path]:
 
     out: list[Path] = []
     if series.market == "futures":
-        names: list[str] = [f"{sanitized}-{tf}-futures.feather"]
-        if sanitized_alt != sanitized:
-            names.append(f"{sanitized_alt}-{tf}-futures.feather")
+        names = [f"{candidate}-{tf}-futures.feather" for candidate in futures_symbol_candidates(symbol)]
         for root in roots:
             out.extend([root / "futures" / n for n in names])
             out.extend([root / n for n in names])
     else:
-        names = [f"{sanitized}-{tf}.feather"]
+        names = [f"{sanitize(symbol)}-{tf}.feather"]
         for root in roots:
             out.extend([root / n for n in names])
 
@@ -158,7 +171,7 @@ def maybe_bootstrap_from_freqtrade(store: CandleStore, *, series_id: str, limit:
     Best-effort import (tail) OHLCV from freqtrade datadir into CandleStore.
     Returns the number of candles written (0 if skipped / not found).
     """
-    if _history_source() != "freqtrade":
+    if market_history_source() != "freqtrade":
         return 0
 
     try:
@@ -190,7 +203,7 @@ def backfill_tail_from_freqtrade(store: CandleStore, *, series_id: str, limit: i
     Unlike maybe_bootstrap_from_freqtrade, this runs even if the store already has data.
     Returns the number of candles written (0 if skipped / not found).
     """
-    if _history_source() != "freqtrade":
+    if market_history_source() != "freqtrade":
         return 0
 
     try:

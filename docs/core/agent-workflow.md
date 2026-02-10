@@ -2,7 +2,7 @@
 title: Agent 工作流（入口 / 门禁 / 证据 / 验收 SOP）
 status: draft
 created: 2026-02-05
-updated: 2026-02-05
+updated: 2026-02-10
 ---
 
 # Agent 工作流（入口 / 门禁 / 证据 / 验收 SOP）
@@ -65,6 +65,9 @@ flowchart TD
 常用手段（按需）：
 - 跑 E2E 的 smoke：`E2E_SMOKE=1 bash scripts/e2e_acceptance.sh`
 - 临时跳过文档审计（仅本地）：`E2E_SKIP_DOC_AUDIT=1 bash scripts/e2e_acceptance.sh`
+- 脚本会固定关键开关（如 `TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL=0`、`TRADE_CANVAS_ENABLE_CCXT_BACKFILL=0`）以保证可复现；`--reuse-servers` 不会覆盖已运行服务的环境。
+- `--reuse-servers` 默认启用严格预检（`E2E_REUSE_STRICT=1`）：若复用服务未满足门禁假设（如 `DemoStrategy` 缺失），会在跑用例前 fail-fast；可用 `--no-reuse-strict` 临时关闭。
+- 需要单独探测后端门禁假设时，可直接运行：`bash scripts/e2e_preflight.sh --backend-base http://127.0.0.1:8000`（`worktree_acceptance.sh --run-e2e-preflight` 也会复用此脚本）。
 
 约束：
 - 不允许以 Fast loop 结果宣称“已交付/已完成”。

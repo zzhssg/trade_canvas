@@ -1,12 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { apiWsBase } from "../lib/api";
+import { apiJson, apiWsBase } from "../lib/api";
 import { ENABLE_DEBUG_TOOL, logDebugEvent, type DebugEvent } from "../debug/debug";
 import { useDebugLogStore } from "../state/debugLogStore";
 import { useUiStore } from "../state/uiStore";
 
 type DebugWsSnapshot = { type: "debug_snapshot"; events: DebugEvent[] };
 type DebugWsEvent = { type: "debug_event"; event: DebugEvent };
+type SeriesHealthGap = {
+  prev_time: number;
+  next_time: number;
+  delta_seconds: number;
+  missing_candles: number;
+};
+type SeriesHealthBucket = {
+  bucket_open_time: number;
+  expected_minutes: number;
+  actual_minutes: number;
+  missing_minutes: number;
+};
+type SeriesHealth = {
+  series_id: string;
+  head_time: number | null;
+  lag_seconds: number | null;
+  candle_count: number;
+  gap_count: number;
+  max_gap_seconds: number | null;
+  recent_gaps: SeriesHealthGap[];
+  base_series_id: string;
+  base_bucket_completeness: SeriesHealthBucket[];
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
@@ -54,7 +77,41 @@ export function DebugPanel() {
   const { exchange, market, symbol, timeframe } = useUiStore();
   const seriesId = `${exchange}:${market}:${symbol}:${timeframe}`;
   const [wsState, setWsState] = useState<"disconnected" | "connecting" | "connected">("disconnected");
+  const [health, setHealth] = useState<SeriesHealth | null>(null);
+  const [healthLoading, setHealthLoading] = useState<boolean>(false);
+  const [healthError, setHealthError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!ENABLE_DEBUG_TOOL) return;
+    let cancelled = false;
+    const run = async () => {
+      setHealthLoading(true);
+      setHealthError(null);
+      try {
+        const payload = await apiJson<SeriesHealth>(
+          `/api/market/debug/series_health?series_id=${encodeURIComponent(seriesId)}&max_recent_gaps=3&recent_base_buckets=4`
+        );
+        if (cancelled) return;
+        setHealth(payload);
+      } catch (e: unknown) {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : "load failed";
+        setHealthError(msg);
+        setHealth(null);
+      } finally {
+        if (!cancelled) setHealthLoading(false);
+      }
+    };
+    void run();
+    const timer = window.setInterval(() => {
+      void run();
+    }, 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [seriesId]);
 
   useEffect(() => {
     if (!ENABLE_DEBUG_TOOL) return;
@@ -165,6 +222,23 @@ export function DebugPanel() {
         <button
           type="button"
           className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
+          onClick={() => {
+            setHealthLoading(true);
+            setHealthError(null);
+            void apiJson<SeriesHealth>(
+              `/api/market/debug/series_health?series_id=${encodeURIComponent(seriesId)}&max_recent_gaps=3&recent_base_buckets=4`
+            )
+              .then((payload) => setHealth(payload))
+              .catch((e: unknown) => setHealthError(e instanceof Error ? e.message : "load failed"))
+              .finally(() => setHealthLoading(false));
+          }}
+          title="Refresh series health"
+        >
+          Health
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
           onClick={() => void navigator.clipboard.writeText(copyText)}
           disabled={filtered.length === 0}
           title={filtered.length === 0 ? "No logs" : "Copy filtered logs"}
@@ -203,6 +277,45 @@ export function DebugPanel() {
         placeholder="Search (event / message / series_id)"
         className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-white/80 placeholder:text-white/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
       />
+
+      <div className="rounded-xl border border-white/10 bg-black/10 p-2 text-[11px] text-white/75">
+        {healthLoading ? (
+          <div>health: loading...</div>
+        ) : healthError ? (
+          <div className="text-rose-300">health error: {healthError}</div>
+        ) : health ? (
+          <div className="flex flex-col gap-1">
+            <div className="font-mono text-white/85">
+              head:{health.head_time ?? "null"} lag_s:{health.lag_seconds ?? "null"} count:{health.candle_count}
+            </div>
+            <div className="font-mono text-white/70">
+              gaps:{health.gap_count} max_gap_s:{health.max_gap_seconds ?? "null"} base:{health.base_series_id}
+            </div>
+            {health.recent_gaps.length > 0 ? (
+              <div className="font-mono text-white/65">
+                recent gaps:
+                {health.recent_gaps.map((g) => (
+                  <span key={`${g.prev_time}:${g.next_time}`} className="ml-2">
+                    {`[${g.prev_time}->${g.next_time} miss=${g.missing_candles}]`}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {health.base_bucket_completeness.length > 0 ? (
+              <div className="font-mono text-white/65">
+                base buckets:
+                {health.base_bucket_completeness.map((b) => (
+                  <span key={b.bucket_open_time} className="ml-2">
+                    {`[${b.bucket_open_time} ${b.actual_minutes}/${b.expected_minutes}]`}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div>health: no data</div>
+        )}
+      </div>
 
       <div
         ref={listRef}

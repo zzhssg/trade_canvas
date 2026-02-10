@@ -29,6 +29,165 @@ class ZhongshuAlive:
     formed_reason: str = "pen_confirmed"
 
 
+@dataclass
+class _PendingZhongshu:
+    entry_pen: dict
+    p1_pen: dict
+    p2_pen: dict
+    entry_range: tuple[float, float]
+    p1_range: tuple[float, float]
+    p2_range: tuple[float, float]
+    p3_direction: int
+    p3_start_time: int
+    p3_start_price: float
+    p3_extreme_price: float
+    p3_extreme_time: int
+    trigger_price: float
+    cross_time: int | None
+
+
+@dataclass
+class _AliveZhongshu:
+    start_time: int
+    end_time: int
+    zg: float
+    zd: float
+    entry_direction: int
+    formed_time: int
+    formed_reason: str
+    last_seen_visible_time: int
+    awaiting_p3_confirm: bool
+    p3_start_time: int
+
+
+def _coerce_range(value: Any) -> tuple[float, float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        lo = float(value[0])
+        hi = float(value[1])
+    except Exception:
+        return None
+    return (float(lo), float(hi))
+
+
+def _pending_from_dict(raw: Any) -> _PendingZhongshu | None:
+    if not isinstance(raw, dict):
+        return None
+    entry_pen = dict(raw.get("entry_pen") or {})
+    p1_pen = dict(raw.get("p1_pen") or {})
+    p2_pen = dict(raw.get("p2_pen") or {})
+    entry_range = _coerce_range(raw.get("entry_range"))
+    p1_range = _coerce_range(raw.get("p1_range"))
+    p2_range = _coerce_range(raw.get("p2_range"))
+    if entry_range is None or p1_range is None or p2_range is None:
+        return None
+    try:
+        p3_direction = int(raw.get("p3_direction") or 0)
+        p3_start_time = int(raw.get("p3_start_time") or 0)
+        p3_start_price = float(raw.get("p3_start_price") or 0.0)
+        p3_extreme_price = float(raw.get("p3_extreme_price") or p3_start_price)
+        p3_extreme_time = int(raw.get("p3_extreme_time") or p3_start_time)
+        trigger_price = float(raw.get("trigger_price") or 0.0)
+    except Exception:
+        return None
+    cross_time_raw = raw.get("cross_time")
+    try:
+        cross_time = int(cross_time_raw) if cross_time_raw is not None else None
+    except Exception:
+        cross_time = None
+    if p3_direction not in {-1, 1} or p3_start_time <= 0:
+        return None
+    return _PendingZhongshu(
+        entry_pen=entry_pen,
+        p1_pen=p1_pen,
+        p2_pen=p2_pen,
+        entry_range=entry_range,
+        p1_range=p1_range,
+        p2_range=p2_range,
+        p3_direction=int(p3_direction),
+        p3_start_time=int(p3_start_time),
+        p3_start_price=float(p3_start_price),
+        p3_extreme_price=float(p3_extreme_price),
+        p3_extreme_time=int(p3_extreme_time),
+        trigger_price=float(trigger_price),
+        cross_time=cross_time,
+    )
+
+
+def _pending_to_dict(pending: _PendingZhongshu | None) -> dict | None:
+    if pending is None:
+        return None
+    return {
+        "entry_pen": dict(pending.entry_pen),
+        "p1_pen": dict(pending.p1_pen),
+        "p2_pen": dict(pending.p2_pen),
+        "entry_range": tuple(pending.entry_range),
+        "p1_range": tuple(pending.p1_range),
+        "p2_range": tuple(pending.p2_range),
+        "p3_direction": int(pending.p3_direction),
+        "p3_start_time": int(pending.p3_start_time),
+        "p3_start_price": float(pending.p3_start_price),
+        "p3_extreme_price": float(pending.p3_extreme_price),
+        "p3_extreme_time": int(pending.p3_extreme_time),
+        "trigger_price": float(pending.trigger_price),
+        "cross_time": None if pending.cross_time is None else int(pending.cross_time),
+    }
+
+
+def _alive_from_dict(raw: Any) -> _AliveZhongshu | None:
+    if not isinstance(raw, dict):
+        return None
+    try:
+        start_time = int(raw.get("start_time") or 0)
+        end_time = int(raw.get("end_time") or 0)
+        zg = float(raw.get("zg") or 0.0)
+        zd = float(raw.get("zd") or 0.0)
+        entry_direction = int(raw.get("entry_direction") or 1)
+        formed_time = int(raw.get("formed_time") or 0)
+        formed_reason = str(raw.get("formed_reason") or "pen_confirmed")
+        last_seen_visible_time = int(raw.get("last_seen_visible_time") or 0)
+        awaiting_p3_confirm = bool(raw.get("awaiting_p3_confirm"))
+        p3_start_time = int(raw.get("p3_start_time") or 0)
+    except Exception:
+        return None
+    if start_time <= 0 or end_time <= 0 or formed_time <= 0:
+        return None
+    if zd > zg:
+        return None
+    if entry_direction not in {-1, 1}:
+        entry_direction = 1
+    return _AliveZhongshu(
+        start_time=int(start_time),
+        end_time=int(end_time),
+        zg=float(zg),
+        zd=float(zd),
+        entry_direction=int(entry_direction),
+        formed_time=int(formed_time),
+        formed_reason=str(formed_reason),
+        last_seen_visible_time=int(last_seen_visible_time),
+        awaiting_p3_confirm=bool(awaiting_p3_confirm),
+        p3_start_time=int(p3_start_time),
+    )
+
+
+def _alive_to_dict(alive: _AliveZhongshu | None) -> dict | None:
+    if alive is None:
+        return None
+    return {
+        "start_time": int(alive.start_time),
+        "end_time": int(alive.end_time),
+        "zg": float(alive.zg),
+        "zd": float(alive.zd),
+        "entry_direction": int(alive.entry_direction),
+        "formed_time": int(alive.formed_time),
+        "formed_reason": str(alive.formed_reason),
+        "last_seen_visible_time": int(alive.last_seen_visible_time),
+        "awaiting_p3_confirm": bool(alive.awaiting_p3_confirm),
+        "p3_start_time": int(alive.p3_start_time),
+    }
+
+
 def _as_range(pen: dict) -> tuple[float, float] | None:
     sp = pen.get("start_price")
     ep = pen.get("end_price")
@@ -81,7 +240,7 @@ def _build_pending_from_tail(
     tail: list[dict],
     *,
     min_entry_start_time: int | None = None,
-) -> dict | None:
+) -> _PendingZhongshu | None:
     if len(tail) < 3:
         return None
     entry_pen = tail[-3]
@@ -114,26 +273,26 @@ def _build_pending_from_tail(
         return None
 
     trigger_price = float(p1_pen.get("end_price") or 0.0)
-    return {
-        "entry_pen": dict(entry_pen),
-        "p1_pen": dict(p1_pen),
-        "p2_pen": dict(p2_pen),
-        "entry_range": entry_range,
-        "p1_range": p1_range,
-        "p2_range": p2_range,
-        "p3_direction": int(p3_direction),
-        "p3_start_time": int(p3_start_time),
-        "p3_start_price": float(p3_start_price),
-        "p3_extreme_price": float(p3_start_price),
-        "p3_extreme_time": int(p3_start_time),
-        "trigger_price": float(trigger_price),
-        "cross_time": None,
-    }
+    return _PendingZhongshu(
+        entry_pen=dict(entry_pen),
+        p1_pen=dict(p1_pen),
+        p2_pen=dict(p2_pen),
+        entry_range=entry_range,
+        p1_range=p1_range,
+        p2_range=p2_range,
+        p3_direction=int(p3_direction),
+        p3_start_time=int(p3_start_time),
+        p3_start_price=float(p3_start_price),
+        p3_extreme_price=float(p3_start_price),
+        p3_extreme_time=int(p3_start_time),
+        trigger_price=float(trigger_price),
+        cross_time=None,
+    )
 
 
-def _pending_candidate_range(pending: dict) -> tuple[float, float]:
-    sp = float(pending.get("p3_start_price") or 0.0)
-    ep = float(pending.get("p3_extreme_price") or sp)
+def _pending_candidate_range(pending: _PendingZhongshu) -> tuple[float, float]:
+    sp = float(pending.p3_start_price)
+    ep = float(pending.p3_extreme_price)
     lo = sp if sp <= ep else ep
     hi = ep if sp <= ep else sp
     return (float(lo), float(hi))
@@ -151,7 +310,7 @@ def _build_alive_from_parts(
     formed_reason: str,
     awaiting_p3_confirm: bool,
     p3_start_time: int,
-) -> dict | None:
+) -> _AliveZhongshu | None:
     entry_range = _as_range(entry_pen)
     if entry_range is None:
         return None
@@ -166,28 +325,30 @@ def _build_alive_from_parts(
         return None
     if formed_time <= 0 or visible_time <= 0 or formed_time > visible_time:
         return None
-    return {
-        "start_time": int(start_time),
-        "end_time": int(end_time),
-        "zg": float(zg),
-        "zd": float(zd),
-        "entry_direction": int(_entry_direction(entry_pen)),
-        "formed_time": int(formed_time),
-        "formed_reason": str(formed_reason),
-        "last_seen_visible_time": int(visible_time),
-        "awaiting_p3_confirm": bool(awaiting_p3_confirm),
-        "p3_start_time": int(p3_start_time),
-    }
+    return _AliveZhongshu(
+        start_time=int(start_time),
+        end_time=int(end_time),
+        zg=float(zg),
+        zd=float(zd),
+        entry_direction=int(_entry_direction(entry_pen)),
+        formed_time=int(formed_time),
+        formed_reason=str(formed_reason),
+        last_seen_visible_time=int(visible_time),
+        awaiting_p3_confirm=bool(awaiting_p3_confirm),
+        p3_start_time=int(p3_start_time),
+    )
 
 
-def _try_form_from_pending_with_confirmed(pending: dict, pen: dict) -> tuple[dict | None, dict | None]:
-    if not pending:
+def _try_form_from_pending_with_confirmed(
+    pending: _PendingZhongshu | None, pen: dict
+) -> tuple[_AliveZhongshu | None, dict | None]:
+    if pending is None:
         return None, None
     try:
         pen_start = int(pen.get("start_time") or 0)
     except Exception:
         pen_start = 0
-    if pen_start <= 0 or pen_start != int(pending.get("p3_start_time") or 0):
+    if pen_start <= 0 or pen_start != int(pending.p3_start_time):
         return None, None
 
     p3_range = _as_range(pen)
@@ -200,53 +361,55 @@ def _try_form_from_pending_with_confirmed(pending: dict, pen: dict) -> tuple[dic
         return None, None
 
     alive = _build_alive_from_parts(
-        entry_pen=dict(pending.get("entry_pen") or {}),
-        p1_range=tuple(pending.get("p1_range") or (0.0, 0.0)),
-        p2_range=tuple(pending.get("p2_range") or (0.0, 0.0)),
+        entry_pen=dict(pending.entry_pen),
+        p1_range=tuple(pending.p1_range),
+        p2_range=tuple(pending.p2_range),
         p3_range=p3_range,
         formed_time=int(formed_time),
         visible_time=int(visible_time),
         end_time=int(end_time),
         formed_reason="pen_confirmed",
         awaiting_p3_confirm=False,
-        p3_start_time=int(pending.get("p3_start_time") or 0),
+        p3_start_time=int(pending.p3_start_time),
     )
     if alive is None:
         return None, None
-    return alive, dict(pending.get("entry_pen") or {})
+    return alive, dict(pending.entry_pen)
 
 
-def _try_form_from_pending_with_cross(pending: dict, *, visible_time: int) -> tuple[dict | None, dict | None]:
-    if not pending:
+def _try_form_from_pending_with_cross(
+    pending: _PendingZhongshu | None, *, visible_time: int
+) -> tuple[_AliveZhongshu | None, dict | None]:
+    if pending is None:
         return None, None
-    cross_time = int(pending.get("cross_time") or 0)
+    cross_time = int(pending.cross_time or 0)
     if cross_time <= 0 or visible_time <= 0:
         return None, None
     p3_range = _pending_candidate_range(pending)
     end_time = int(visible_time)
     alive = _build_alive_from_parts(
-        entry_pen=dict(pending.get("entry_pen") or {}),
-        p1_range=tuple(pending.get("p1_range") or (0.0, 0.0)),
-        p2_range=tuple(pending.get("p2_range") or (0.0, 0.0)),
+        entry_pen=dict(pending.entry_pen),
+        p1_range=tuple(pending.p1_range),
+        p2_range=tuple(pending.p2_range),
         p3_range=p3_range,
         formed_time=int(cross_time),
         visible_time=int(visible_time),
         end_time=int(end_time),
         formed_reason="price_cross",
         awaiting_p3_confirm=True,
-        p3_start_time=int(pending.get("p3_start_time") or 0),
+        p3_start_time=int(pending.p3_start_time),
     )
     if alive is None:
         return None, None
-    return alive, dict(pending.get("entry_pen") or {})
+    return alive, dict(pending.entry_pen)
 
 
-def _is_same_side_outside(alive: dict, pen: dict) -> bool:
+def _is_same_side_outside(alive: _AliveZhongshu, pen: dict) -> bool:
     r = _as_range(pen)
     if r is None:
         return False
-    zd = float(alive.get("zd") or 0.0)
-    zg = float(alive.get("zg") or 0.0)
+    zd = float(alive.zd)
+    zg = float(alive.zg)
     pen_lo, pen_hi = float(r[0]), float(r[1])
     return pen_hi < zd or pen_lo > zg
 
@@ -261,8 +424,8 @@ def update_zhongshu_state(state: dict[str, Any], pen: dict) -> tuple[ZhongshuDea
     if len(tail) > 4:
         tail = tail[-4:]
 
-    alive = state.get("alive")
-    pending = state.get("pending")
+    alive = _alive_from_dict(state.get("alive"))
+    pending = _pending_from_dict(state.get("pending"))
     try:
         reseed_floor_start_time = int(state.get("reseed_floor_start_time") or 0)
     except Exception:
@@ -272,15 +435,16 @@ def update_zhongshu_state(state: dict[str, Any], pen: dict) -> tuple[ZhongshuDea
 
     if _as_range(pen) is None:
         state["tail"] = tail
-        state["pending"] = pending
+        state["pending"] = _pending_to_dict(pending)
+        state["alive"] = _alive_to_dict(alive)
         state["reseed_floor_start_time"] = int(reseed_floor_start_time)
         return None, None
 
     if alive is None:
         consumed_pending = False
-        if isinstance(pending, dict):
+        if pending is not None:
             try:
-                consumed_pending = int(pen.get("start_time") or 0) == int(pending.get("p3_start_time") or 0)
+                consumed_pending = int(pen.get("start_time") or 0) == int(pending.p3_start_time)
             except Exception:
                 consumed_pending = False
             alive, formed_entry_pen = _try_form_from_pending_with_confirmed(pending, pen)
@@ -294,33 +458,33 @@ def update_zhongshu_state(state: dict[str, Any], pen: dict) -> tuple[ZhongshuDea
                 min_entry_start_time=int(reseed_floor_start_time) if reseed_floor_start_time > 0 else None,
             )
     else:
-        waiting_p3_confirm = bool(alive.get("awaiting_p3_confirm"))
-        p3_start_time = int(alive.get("p3_start_time") or 0)
+        waiting_p3_confirm = bool(alive.awaiting_p3_confirm)
+        p3_start_time = int(alive.p3_start_time)
         pen_start_time = int(pen.get("start_time") or 0)
         if waiting_p3_confirm and p3_start_time > 0 and pen_start_time == p3_start_time:
-            alive["awaiting_p3_confirm"] = False
+            alive.awaiting_p3_confirm = False
             try:
-                alive["end_time"] = max(int(alive.get("end_time") or 0), int(pen.get("end_time") or 0))
+                alive.end_time = max(int(alive.end_time), int(pen.get("end_time") or 0))
             except Exception:
                 pass
-            alive["last_seen_visible_time"] = int(pen.get("visible_time") or alive.get("last_seen_visible_time") or 0)
-            state["alive"] = alive
+            alive.last_seen_visible_time = int(pen.get("visible_time") or alive.last_seen_visible_time or 0)
+            state["alive"] = _alive_to_dict(alive)
             state["tail"] = tail
-            state["pending"] = pending
+            state["pending"] = _pending_to_dict(pending)
             return None, None
         # Keep zg/zd fixed after formation; only end_time advances.
         if _is_same_side_outside(alive, pen):
             visible_time = int(pen.get("visible_time") or 0)
             dead_event = ZhongshuDead(
-                start_time=int(alive["start_time"]),
-                end_time=int(alive.get("end_time") or 0),
-                zg=float(alive["zg"]),
-                zd=float(alive["zd"]),
-                entry_direction=int(alive.get("entry_direction") or 1),
-                formed_time=int(alive["formed_time"]),
+                start_time=int(alive.start_time),
+                end_time=int(alive.end_time),
+                zg=float(alive.zg),
+                zd=float(alive.zd),
+                entry_direction=int(alive.entry_direction),
+                formed_time=int(alive.formed_time),
                 death_time=int(visible_time),
                 visible_time=int(visible_time),
-                formed_reason=str(alive.get("formed_reason") or "pen_confirmed"),
+                formed_reason=str(alive.formed_reason or "pen_confirmed"),
             )
             if len(tail) >= 2:
                 try:
@@ -340,13 +504,13 @@ def update_zhongshu_state(state: dict[str, Any], pen: dict) -> tuple[ZhongshuDea
             )
         else:
             try:
-                alive["end_time"] = max(int(alive.get("end_time") or 0), int(pen.get("end_time") or 0))
+                alive.end_time = max(int(alive.end_time), int(pen.get("end_time") or 0))
             except Exception:
                 pass
-            alive["last_seen_visible_time"] = int(pen.get("visible_time") or 0)
+            alive.last_seen_visible_time = int(pen.get("visible_time") or 0)
 
-    state["pending"] = pending
-    state["alive"] = alive
+    state["pending"] = _pending_to_dict(pending)
+    state["alive"] = _alive_to_dict(alive)
     state["tail"] = tail
     state["reseed_floor_start_time"] = int(reseed_floor_start_time)
     return dead_event, formed_entry_pen
@@ -370,51 +534,56 @@ def update_zhongshu_state_on_closed_candle(state: dict[str, Any], candle: dict) 
     if candle_time <= 0:
         return None
 
-    alive = state.get("alive")
-    if isinstance(alive, dict):
-        alive["end_time"] = max(int(alive.get("end_time") or 0), int(candle_time))
-        alive["last_seen_visible_time"] = int(candle_time)
-        state["alive"] = alive
+    alive = _alive_from_dict(state.get("alive"))
+    if alive is not None:
+        alive.end_time = max(int(alive.end_time), int(candle_time))
+        alive.last_seen_visible_time = int(candle_time)
+        state["alive"] = _alive_to_dict(alive)
         return None
 
-    pending = state.get("pending")
-    if not isinstance(pending, dict):
+    pending = _pending_from_dict(state.get("pending"))
+    if pending is None:
         return None
-    p3_start_time = int(pending.get("p3_start_time") or 0)
+    p3_start_time = int(pending.p3_start_time)
     if candle_time <= p3_start_time:
         return None
 
-    p3_direction = int(pending.get("p3_direction") or 0)
-    trigger = float(pending.get("trigger_price") or 0.0)
+    p3_direction = int(pending.p3_direction)
+    trigger = float(pending.trigger_price)
 
     if p3_direction < 0:
-        cur_extreme = float(pending.get("p3_extreme_price") or pending.get("p3_start_price") or 0.0)
+        cur_extreme = float(pending.p3_extreme_price)
         if low < cur_extreme:
-            pending["p3_extreme_price"] = float(low)
-            pending["p3_extreme_time"] = int(candle_time)
+            pending.p3_extreme_price = float(low)
+            pending.p3_extreme_time = int(candle_time)
         crossed = low <= trigger
     else:
-        cur_extreme = float(pending.get("p3_extreme_price") or pending.get("p3_start_price") or 0.0)
+        cur_extreme = float(pending.p3_extreme_price)
         if high > cur_extreme:
-            pending["p3_extreme_price"] = float(high)
-            pending["p3_extreme_time"] = int(candle_time)
+            pending.p3_extreme_price = float(high)
+            pending.p3_extreme_time = int(candle_time)
         crossed = high >= trigger
 
-    if crossed and int(pending.get("cross_time") or 0) <= 0:
-        pending["cross_time"] = int(candle_time)
+    if crossed and int(pending.cross_time or 0) <= 0:
+        pending.cross_time = int(candle_time)
 
     formed_entry_pen: dict | None = None
     alive_new, formed_entry_pen = _try_form_from_pending_with_cross(pending, visible_time=int(candle_time))
     if alive_new is not None:
-        state["alive"] = alive_new
+        state["alive"] = _alive_to_dict(alive_new)
         state["pending"] = None
         return formed_entry_pen
 
-    state["pending"] = pending
+    state["pending"] = _pending_to_dict(pending)
     return None
 
 
-def replay_zhongshu_state(pens: list[dict]) -> dict[str, Any]:
+def _collect_pen_items(
+    *,
+    pens: list[dict],
+    up_to_visible_time: int | None = None,
+) -> list[tuple[int, dict]]:
+    t_limit = int(up_to_visible_time or 0)
     items: list[tuple[int, dict]] = []
     for p in pens:
         try:
@@ -423,8 +592,40 @@ def replay_zhongshu_state(pens: list[dict]) -> dict[str, Any]:
             vt = 0
         if vt <= 0:
             continue
-        items.append((vt, p))
+        if t_limit > 0 and vt > t_limit:
+            continue
+        items.append((int(vt), p))
     items.sort(key=lambda x: x[0])
+    return items
+
+
+def _collect_candle_items(
+    *,
+    candles: list[Any] | None,
+    up_to_visible_time: int | None = None,
+) -> list[tuple[int, dict]]:
+    if candles is None:
+        return []
+    t_limit = int(up_to_visible_time or 0)
+    items: list[tuple[int, dict]] = []
+    for c in candles:
+        try:
+            ct = int(getattr(c, "candle_time"))
+            hi = float(getattr(c, "high"))
+            lo = float(getattr(c, "low"))
+        except Exception:
+            continue
+        if ct <= 0:
+            continue
+        if t_limit > 0 and ct > t_limit:
+            continue
+        items.append((int(ct), {"candle_time": int(ct), "high": float(hi), "low": float(lo)}))
+    items.sort(key=lambda x: x[0])
+    return items
+
+
+def replay_zhongshu_state(pens: list[dict]) -> dict[str, Any]:
+    items = _collect_pen_items(pens=pens, up_to_visible_time=None)
 
     state = init_zhongshu_state()
     for _, p in items:
@@ -442,29 +643,8 @@ def replay_zhongshu_state_with_closed_candles(
     if t <= 0:
         return init_zhongshu_state()
 
-    pen_items: list[tuple[int, dict]] = []
-    for p in pens:
-        try:
-            vt = int(p.get("visible_time") or 0)
-        except Exception:
-            vt = 0
-        if vt <= 0 or vt > t:
-            continue
-        pen_items.append((vt, p))
-    pen_items.sort(key=lambda x: x[0])
-
-    candle_items: list[tuple[int, dict]] = []
-    for c in candles:
-        try:
-            ct = int(getattr(c, "candle_time"))
-            hi = float(getattr(c, "high"))
-            lo = float(getattr(c, "low"))
-        except Exception:
-            continue
-        if ct <= 0 or ct > t:
-            continue
-        candle_items.append((ct, {"candle_time": int(ct), "high": float(hi), "low": float(lo)}))
-    candle_items.sort(key=lambda x: x[0])
+    pen_items = _collect_pen_items(pens=pens, up_to_visible_time=int(t))
+    candle_items = _collect_candle_items(candles=candles, up_to_visible_time=int(t))
 
     state = init_zhongshu_state()
     pi = 0
@@ -519,20 +699,17 @@ def build_alive_zhongshu_from_confirmed_pens(
         for _, pen in items:
             update_zhongshu_state(state, pen)
 
-    alive = state.get("alive")
+    alive = _alive_from_dict(state.get("alive"))
     if alive is None:
         return None
 
-    try:
-        start_time = int(alive.get("start_time") or 0)
-        end_time = int(alive.get("end_time") or 0)
-        zg = float(alive.get("zg") or 0.0)
-        zd = float(alive.get("zd") or 0.0)
-        entry_direction = int(alive.get("entry_direction") or 1)
-        formed_time = int(alive.get("formed_time") or 0)
-        formed_reason = str(alive.get("formed_reason") or "pen_confirmed")
-    except Exception:
-        return None
+    start_time = int(alive.start_time)
+    end_time = int(alive.end_time)
+    zg = float(alive.zg)
+    zd = float(alive.zd)
+    entry_direction = int(alive.entry_direction)
+    formed_time = int(alive.formed_time)
+    formed_reason = str(alive.formed_reason or "pen_confirmed")
     if start_time <= 0 or end_time <= 0 or formed_time <= 0:
         return None
     if zd > zg:
@@ -581,15 +758,7 @@ def build_dead_zhongshus_from_confirmed_pens(
         t_limit = max(max_pen_time, max_candle_time)
 
     items = []
-    for p in pens:
-        try:
-            vt = int(p.get("visible_time") or 0)
-        except Exception:
-            vt = 0
-        if vt <= 0 or (t_limit > 0 and vt > t_limit):
-            continue
-        items.append((vt, p))
-    items.sort(key=lambda x: x[0])
+    items = _collect_pen_items(pens=pens, up_to_visible_time=int(t_limit) if t_limit > 0 else None)
 
     state = init_zhongshu_state()
     out: list[ZhongshuDead] = []
@@ -601,18 +770,7 @@ def build_dead_zhongshus_from_confirmed_pens(
                 out.append(dead_event)
         return out
 
-    candle_items: list[tuple[int, dict]] = []
-    for c in candles:
-        try:
-            ct = int(getattr(c, "candle_time"))
-            hi = float(getattr(c, "high"))
-            lo = float(getattr(c, "low"))
-        except Exception:
-            continue
-        if ct <= 0 or (t_limit > 0 and ct > t_limit):
-            continue
-        candle_items.append((ct, {"candle_time": int(ct), "high": float(hi), "low": float(lo)}))
-    candle_items.sort(key=lambda x: x[0])
+    candle_items = _collect_candle_items(candles=candles, up_to_visible_time=int(t_limit) if t_limit > 0 else None)
 
     pi = 0
     plen = len(items)

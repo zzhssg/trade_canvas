@@ -183,6 +183,27 @@ updated: 2026-02-09
 - `draw_routes.py` 承接 `/api/draw/delta` 与 `app.state.read_draw_delta` 读函数注册，避免 world/frame 路由与 draw 逻辑散落在入口文件。
 - `debug_routes.py` 承接 `/ws/debug` 处理逻辑；`main.py` 仅保留 websocket 入口声明并委托 handler。
 
+### 1.16 收口进度（Phase P，市场数据子模块再拆分 + 配置口径统一）
+
+在 Phase O 的单路径基础上，进一步消除 `market_data/services.py` 单文件过载问题：
+- `market_data/read_services.py`：承接 `StoreCandleReadService` / `StoreBackfillService` / `StoreFreshnessService`。
+- `market_data/orchestrator.py`：承接 `DefaultMarketDataOrchestrator` / `HubWsDeliveryService` / `build_gap_backfill_handler`。
+- `market_data/ws_services.py`：承接 `WsMessageParser` / `WsSubscriptionCoordinator` / `build_ws_error_payload`。
+- `market_data/derived_services.py`：承接 `build_derived_initial_backfill_handler`。
+- 删除 `market_data/services.py` 旧兼容入口，统一只保留 `read_services / orchestrator / ws_services / derived_services` 四个新模块作为唯一实现。
+
+同时统一市场链路环境变量读取入口：
+- 新增 `market_flags.py`，集中解析 debug / auto-tail-backfill / gap-backfill / ccxt-backfill / ondemand / derived-backfill 等开关与阈值。
+- `market_http_routes.py`、`market_ws_routes.py`、`market_meta_routes.py`、`ingest_supervisor.py`、`market_backfill.py`、`history_bootstrapper.py`、`main.py` 均改为复用该入口，减少重复 parse 与口径漂移。
+
+### 1.17 收口进度（Phase Q，ingest 应用服务下沉 + 装配继续瘦身）
+
+进一步处理剩余 P1 技术债：
+- 新增 `market_ingest_service.py`，将 `ingest_candle_closed` 的 `store -> factor -> overlay -> hub` 编排从 `market_http_routes.py` 下沉到应用服务层。
+- `market_http_routes.py` 仅保留参数/权限门禁与 `runtime.ingest` 调用，路由层不再承载写链路编排细节。
+- 新增 `market_runtime_builder.py`，将 market runtime 相关装配从 `main.py` 拆出；`main.py` 只保留 app 级装配与生命周期管理。
+- `history_bootstrapper.py` 的 datadir 读取不再直接访问 `TRADE_CANVAS_FREQTRADE_DATADIR`，改为复用 `config.Settings.freqtrade_datadir`，配置入口更统一。
+
 ---
 
 ## 2. Part A：白名单内币种（保证实时性）

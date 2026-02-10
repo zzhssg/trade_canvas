@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from backend.app.factor_plugin_contract import FactorPluginSpec
 from backend.app.freqtrade_adapter_v1 import annotate_factor_ledger
+from backend.app.freqtrade_signal_plugin_contract import (
+    FreqtradeSignalBucketSpec,
+    FreqtradeSignalContext,
+)
 
 
 class FreqtradeAdapterV1Tests(unittest.TestCase):
@@ -76,6 +81,47 @@ class FreqtradeAdapterV1Tests(unittest.TestCase):
         out = res.dataframe
         self.assertTrue((out["tc_ok"] == 0).all())
         self.assertTrue((out["tc_enter_long"] == 0).all())
+
+    def test_adapter_supports_custom_signal_plugin(self) -> None:
+        class _PivotSignalPlugin:
+            spec = FactorPluginSpec(factor_name="signal.pivot", depends_on=())
+            bucket_specs = (
+                FreqtradeSignalBucketSpec(
+                    factor_name="pivot",
+                    event_kind="pivot.major",
+                    bucket_name="pivot_major",
+                    sort_keys=("visible_time", "pivot_time"),
+                ),
+            )
+
+            def prepare_dataframe(self, *, dataframe: pd.DataFrame) -> None:
+                dataframe["tc_pivot_major_seen"] = 0
+
+            def apply(self, *, ctx: FreqtradeSignalContext) -> None:
+                seen_times = {
+                    int(payload.get("visible_time") or payload.get("candle_time") or 0)
+                    for payload in list(ctx.buckets.get("pivot_major") or [])
+                    if int(payload.get("visible_time") or payload.get("candle_time") or 0) > 0
+                }
+                for idx in ctx.order:
+                    t = int(ctx.times_by_index.get(idx) or 0)
+                    if t in seen_times:
+                        ctx.dataframe.at[idx, "tc_pivot_major_seen"] = 1
+
+        prices = [1, 2, 5, 2, 1, 2, 5, 2, 1, 2, 5, 2, 1]
+        df = self._build_df(prices)
+
+        res = annotate_factor_ledger(
+            df,
+            series_id=self.series_id,
+            timeframe="1m",
+            db_path=self.db_path,
+            signal_plugins=(_PivotSignalPlugin(),),
+        )
+        self.assertTrue(res.ok, res.reason)
+        out = res.dataframe
+        self.assertIn("tc_pivot_major_seen", out.columns)
+        self.assertGreaterEqual(int(out["tc_pivot_major_seen"].sum()), 1)
 
 
 if __name__ == "__main__":
