@@ -1,6 +1,6 @@
 # 项目架构图
 
-> status: draft | 2026-02-09
+> status: draft | 2026-02-10
 
 ## 1. 系统总览
 
@@ -45,6 +45,14 @@
                                               │   via Binance WS    │
                                               └─────────────────────┘
 ```
+
+## 1.1 2026-02-10 后端硬化增量（M0-M3）
+
+- 新增 `backend/app/container.py`：集中装配 runtime、orchestrator、store、hub，`main.py` 只保留入口与路由挂载。
+- 新增 `backend/app/flags.py`：集中主链路开关（含 `TRADE_CANVAS_ENABLE_INGEST_PIPELINE_V2`、`TRADE_CANVAS_ENABLE_READ_STRICT_MODE`）。
+- 新增 `backend/app/pipelines/ingest_pipeline.py`：统一 closed 写链路（store/factor/overlay/publish）。
+- 新增 `backend/app/read_models/factor_read_service.py`：统一 factor 读模型；strict 模式仅读不写，落后即 `409`。
+- `MarketRuntime` 显式注入 `flags + ingest_pipeline`，路由层改为从 runtime 读取开关与能力。
 
 ## 2. 目录结构
 

@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-import os
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from .flags import resolve_env_bool
+
+
+def _debug_enabled(ws: WebSocket) -> bool:
+    return resolve_env_bool(
+        "TRADE_CANVAS_ENABLE_DEBUG_API",
+        fallback=bool(getattr(getattr(ws.app.state, "flags", None), "enable_debug_api", False)),
+    )
+
 
 async def handle_debug_ws(ws: WebSocket) -> None:
-    if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") != "1":
+    if not _debug_enabled(ws):
         try:
             await ws.close(code=1008, reason="debug_api_disabled")
         except Exception:

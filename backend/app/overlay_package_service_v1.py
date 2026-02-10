@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import threading
 import time
 from dataclasses import dataclass
@@ -11,6 +10,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from .artifacts import resolve_artifacts_root
+from .flags import resolve_env_bool
 from .overlay_package_builder_v1 import OverlayReplayBuildParamsV1, build_overlay_replay_package_v1, stable_json_dumps
 from .overlay_replay_protocol_v1 import (
     OverlayReplayDeltaMetaV1,
@@ -22,28 +23,8 @@ from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 
 
-def _truthy_flag(v: str | None) -> bool:
-    if v is None:
-        return False
-    return str(v).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _artifacts_root() -> Path:
-    raw = (os.environ.get("TRADE_CANVAS_ARTIFACTS_DIR") or "").strip()
-    if raw:
-        p = Path(raw).expanduser()
-        if not p.is_absolute():
-            p = (_repo_root() / p).resolve()
-        return p
-    return (_repo_root() / "backend" / "data" / "artifacts").resolve()
-
-
 def _overlay_pkg_root() -> Path:
-    return _artifacts_root() / "overlay_replay_package_v1"
+    return resolve_artifacts_root() / "overlay_replay_package_v1"
 
 
 @dataclass
@@ -87,7 +68,7 @@ class OverlayReplayPackageServiceV1:
         self._jobs: dict[str, _Job] = {}
 
     def enabled(self) -> bool:
-        return _truthy_flag(os.environ.get("TRADE_CANVAS_ENABLE_REPLAY_PACKAGE"))
+        return resolve_env_bool("TRADE_CANVAS_ENABLE_REPLAY_PACKAGE", fallback=False)
 
     def _resolve_to_time(self, series_id: str, to_time: int | None) -> int:
         store_head = self._candle_store.head_time(series_id)

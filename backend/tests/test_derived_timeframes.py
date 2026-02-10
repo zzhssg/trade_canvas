@@ -1,12 +1,41 @@
 from __future__ import annotations
 
+import os
 import unittest
 
-from backend.app.derived_timeframes import DerivedTimeframeFanout, rollup_closed_candles, to_derived_series_id
+from backend.app.derived_timeframes import (
+    DerivedTimeframeFanout,
+    derived_base_timeframe,
+    derived_enabled,
+    derived_timeframes,
+    rollup_closed_candles,
+    to_derived_series_id,
+)
 from backend.app.schemas import CandleClosed
 
 
 class DerivedTimeframesTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        for key in (
+            "TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES",
+            "TRADE_CANVAS_DERIVED_BASE_TIMEFRAME",
+            "TRADE_CANVAS_DERIVED_TIMEFRAMES",
+        ):
+            os.environ.pop(key, None)
+
+    def test_derived_env_defaults_and_truthy_toggle(self) -> None:
+        self.assertFalse(derived_enabled())
+        self.assertEqual(derived_base_timeframe(), "1m")
+        self.assertEqual(derived_timeframes(), ("5m", "15m", "1h", "4h", "1d"))
+
+        os.environ["TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES"] = "yes"
+        os.environ["TRADE_CANVAS_DERIVED_BASE_TIMEFRAME"] = " 3m "
+        os.environ["TRADE_CANVAS_DERIVED_TIMEFRAMES"] = " 6m, 12m , "
+
+        self.assertTrue(derived_enabled())
+        self.assertEqual(derived_base_timeframe(), "3m")
+        self.assertEqual(derived_timeframes(), ("6m", "12m"))
+
     def test_rollup_closed_candles_5m_happy_path(self) -> None:
         base = [
             CandleClosed(candle_time=0, open=10, high=11, low=9, close=10.5, volume=1),
@@ -55,4 +84,3 @@ class DerivedTimeframesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

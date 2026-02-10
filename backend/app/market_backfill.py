@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-import os
 import time
 
 from .ccxt_client import _make_exchange_client, ccxt_symbol_for_series
+from .flags import resolve_env_bool, resolve_env_int
 from .history_bootstrapper import backfill_tail_from_freqtrade
 from .schemas import CandleClosed
 from .series_id import parse_series_id
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
-
-
-def _truthy_flag(v: str | None) -> bool:
-    if v is None:
-        return False
-    return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def backfill_from_ccxt_range(
@@ -120,11 +114,11 @@ def backfill_market_gap_best_effort(
 
     before = store.count_closed_between_times(series_id, start_time=start, end_time=end)
 
-    try:
-        raw_limit = (os.environ.get("TRADE_CANVAS_MARKET_GAP_BACKFILL_FREQTRADE_LIMIT") or "").strip()
-        base_limit = max(1, int(raw_limit)) if raw_limit else 2000
-    except ValueError:
-        base_limit = 2000
+    base_limit = resolve_env_int(
+        "TRADE_CANVAS_MARKET_GAP_BACKFILL_FREQTRADE_LIMIT",
+        fallback=2000,
+        minimum=1,
+    )
 
     target_candles = ((end - start) // int(tf_s)) + 1
     freqtrade_limit = max(base_limit, int(target_candles) + 8)
@@ -134,7 +128,7 @@ def backfill_market_gap_best_effort(
     except Exception:
         pass
 
-    if _truthy_flag(os.environ.get("TRADE_CANVAS_ENABLE_CCXT_BACKFILL")):
+    if resolve_env_bool("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", fallback=False):
         try:
             backfill_from_ccxt_range(
                 candle_store=store,

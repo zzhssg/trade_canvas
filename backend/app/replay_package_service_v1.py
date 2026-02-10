@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 from dataclasses import dataclass
@@ -10,8 +9,10 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from .artifacts import resolve_artifacts_root
 from .factor_slices_service import FactorSlicesService
 from .factor_store import FactorStore
+from .flags import resolve_env_bool
 from .history_bootstrapper import backfill_tail_from_freqtrade
 from .market_backfill import backfill_from_ccxt_range
 from .replay_package_builder_v1 import ReplayBuildParamsV1, build_replay_package_v1, stable_json_dumps
@@ -26,34 +27,15 @@ from .replay_package_protocol_v1 import (
 )
 from .overlay_store import OverlayStore
 from .overlay_replay_protocol_v1 import OverlayReplayCheckpointV1, OverlayReplayDiffV1
+from .pipelines import IngestPipeline
 from .schemas import OverlayInstructionPatchItemV1
 from .sqlite_util import connect as sqlite_connect
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 
 
-def _truthy_flag(v: str | None) -> bool:
-    if v is None:
-        return False
-    return str(v).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _artifacts_root() -> Path:
-    raw = (os.environ.get("TRADE_CANVAS_ARTIFACTS_DIR") or "").strip()
-    if raw:
-        p = Path(raw).expanduser()
-        if not p.is_absolute():
-            p = (_repo_root() / p).resolve()
-        return p
-    return (_repo_root() / "backend" / "data" / "artifacts").resolve()
-
-
 def _replay_pkg_root() -> Path:
-    return _artifacts_root() / "replay_package_v1"
+    return resolve_artifacts_root() / "replay_package_v1"
 
 
 @dataclass
@@ -89,11 +71,15 @@ class ReplayPackageServiceV1:
         window_candles: int = 2000,
         window_size: int = 500,
         snapshot_interval: int = 25,
+        ingest_pipeline: IngestPipeline | None = None,
+        enable_ingest_pipeline_v2: bool = False,
     ) -> None:
         self._candle_store = candle_store
         self._factor_store = factor_store
         self._overlay_store = overlay_store
         self._factor_slices_service = factor_slices_service
+        self._ingest_pipeline = ingest_pipeline
+        self._enable_ingest_pipeline_v2 = bool(enable_ingest_pipeline_v2)
         self._defaults = {
             "window_candles": int(window_candles),
             "window_size": int(window_size),
@@ -105,10 +91,10 @@ class ReplayPackageServiceV1:
         self._coverage_jobs: dict[str, _CoverageJob] = {}
 
     def enabled(self) -> bool:
-        return _truthy_flag(os.environ.get("TRADE_CANVAS_ENABLE_REPLAY_V1"))
+        return resolve_env_bool("TRADE_CANVAS_ENABLE_REPLAY_V1", fallback=False)
 
     def coverage_enabled(self) -> bool:
-        return _truthy_flag(os.environ.get("TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE"))
+        return resolve_env_bool("TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE", fallback=False)
 
     def _cache_dir(self, cache_key: str) -> Path:
         return _replay_pkg_root() / cache_key
@@ -611,8 +597,8 @@ class ReplayPackageServiceV1:
         series_id: str,
         target_candles: int,
         to_time: int | None,
-        factor_orchestrator,
-        overlay_orchestrator,
+        factor_orchestrator=None,
+        overlay_orchestrator=None,
     ) -> tuple[str, str]:
         if not self.coverage_enabled():
             raise HTTPException(status_code=404, detail="not_found")
@@ -644,7 +630,7 @@ class ReplayPackageServiceV1:
         def runner() -> None:
             try:
                 backfill_tail_from_freqtrade(self._candle_store, series_id=series_id, limit=int(target_candles))
-                if _truthy_flag(os.environ.get("TRADE_CANVAS_ENABLE_CCXT_BACKFILL")):
+                if resolve_env_bool("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", fallback=False):
                     backfill_from_ccxt_range(
                         candle_store=self._candle_store,
                         series_id=series_id,
@@ -652,20 +638,28 @@ class ReplayPackageServiceV1:
                         end_time=int(to_time or 0),
                     )
 
-                factor_rebuilt = False
-                if factor_orchestrator is not None:
-                    try:
-                        factor_result = factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time or 0))
-                        factor_rebuilt = bool(getattr(factor_result, "rebuilt", False))
-                    except Exception:
-                        pass
-                if overlay_orchestrator is not None:
-                    try:
-                        if factor_rebuilt:
-                            overlay_orchestrator.reset_series(series_id=series_id)
-                        overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time or 0))
-                    except Exception:
-                        pass
+                if self._enable_ingest_pipeline_v2 and self._ingest_pipeline is not None:
+                    self._ingest_pipeline.refresh_series_sync(
+                        up_to_times={series_id: int(to_time or 0)},
+                    )
+                else:
+                    factor_rebuilt = False
+                    if factor_orchestrator is not None:
+                        try:
+                            factor_result = factor_orchestrator.ingest_closed(
+                                series_id=series_id,
+                                up_to_candle_time=int(to_time or 0),
+                            )
+                            factor_rebuilt = bool(getattr(factor_result, "rebuilt", False))
+                        except Exception:
+                            pass
+                    if overlay_orchestrator is not None:
+                        try:
+                            if factor_rebuilt:
+                                overlay_orchestrator.reset_series(series_id=series_id)
+                            overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time or 0))
+                        except Exception:
+                            pass
 
                 cov = self._coverage(series_id=series_id, to_time=int(to_time or 0), target_candles=int(target_candles))
                 with self._lock:

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import os
 import sqlite3
 import threading
 from pathlib import Path
+
+from .flags import resolve_env_float
 
 
 _init_lock = threading.Lock()
@@ -11,13 +12,7 @@ _wal_inited: set[str] = set()
 
 
 def _sqlite_timeout_s() -> float:
-    raw = (os.environ.get("TRADE_CANVAS_SQLITE_TIMEOUT_S") or "").strip()
-    if not raw:
-        return 5.0
-    try:
-        return max(0.1, float(raw))
-    except ValueError:
-        return 5.0
+    return resolve_env_float("TRADE_CANVAS_SQLITE_TIMEOUT_S", fallback=5.0, minimum=0.1)
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -39,4 +34,3 @@ def connect(db_path: Path) -> sqlite3.Connection:
                 _wal_inited.add(key)
 
     return conn
-

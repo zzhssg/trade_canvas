@@ -19,6 +19,7 @@ from ..derived_timeframes import (
 from ..history_bootstrapper import backfill_tail_from_freqtrade
 from ..market_backfill import backfill_market_gap_best_effort
 from ..market_backfill import backfill_from_ccxt_range
+from ..pipelines import IngestPipeline
 from ..series_id import parse_series_id
 from ..schemas import CandleClosed
 from ..store import CandleStore
@@ -598,6 +599,8 @@ def build_derived_initial_backfill_handler(
     store: CandleStore,
     factor_orchestrator,
     overlay_orchestrator,
+    ingest_pipeline: IngestPipeline | None = None,
+    enable_ingest_pipeline_v2: bool = False,
 ):
     async def _handler(*, series_id: str) -> None:
         if not derived_enabled() or not is_derived_series_id(series_id):
@@ -632,6 +635,12 @@ def build_derived_initial_backfill_handler(
         with store.connect() as conn:
             store.upsert_many_closed_in_conn(conn, series_id, derived_closed)
             conn.commit()
+
+        if bool(enable_ingest_pipeline_v2) and ingest_pipeline is not None:
+            ingest_pipeline.refresh_series_sync(
+                up_to_times={series_id: int(derived_closed[-1].candle_time)},
+            )
+            return
 
         rebuilt = False
         try:

@@ -38,7 +38,17 @@ class MarketDebugIngestStateTests(unittest.TestCase):
         self.assertIn("jobs", payload)
         self.assertIsInstance(payload["jobs"], list)
 
+    def test_debug_ingest_state_respects_runtime_env_toggle(self) -> None:
+        client = TestClient(create_app())
+
+        os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
+        resp_enabled = client.get("/api/market/debug/ingest_state")
+        self.assertEqual(resp_enabled.status_code, 200, resp_enabled.text)
+
+        os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "0"
+        resp_disabled = client.get("/api/market/debug/ingest_state")
+        self.assertEqual(resp_disabled.status_code, 404, resp_disabled.text)
+
 
 if __name__ == "__main__":
     unittest.main()
-

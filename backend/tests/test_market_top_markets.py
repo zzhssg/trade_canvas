@@ -9,6 +9,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
+from backend.app.market_list import _exchangeinfo_ttl_s, _futures_base_url, _spot_base_url, _ticker_ttl_s
 
 
 class MarketTopMarketsApiTests(unittest.TestCase):
@@ -142,6 +143,17 @@ class MarketTopMarketsApiTests(unittest.TestCase):
             self.assertTrue(resp2.json()["cached"])
 
 
+def test_market_list_env_parsing_helpers(monkeypatch) -> None:
+    monkeypatch.setenv("TRADE_CANVAS_BINANCE_SPOT_BASE_URL", " https://spot.test ")
+    monkeypatch.setenv("TRADE_CANVAS_BINANCE_FUTURES_BASE_URL", " https://futures.test/ ")
+    monkeypatch.setenv("TRADE_CANVAS_BINANCE_EXCHANGEINFO_TTL_S", "bad")
+    monkeypatch.setenv("TRADE_CANVAS_BINANCE_TICKER_TTL_S", "0")
+
+    assert _spot_base_url() == "https://spot.test"
+    assert _futures_base_url() == "https://futures.test"
+    assert _exchangeinfo_ttl_s() == 3600
+    assert _ticker_ttl_s() == 1
+
+
 if __name__ == "__main__":
     unittest.main()
-

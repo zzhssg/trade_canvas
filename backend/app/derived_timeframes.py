@@ -1,31 +1,25 @@
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass
 
+from .flags import resolve_env_bool, resolve_env_str
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .timeframe import timeframe_to_seconds
 
 
-def _truthy_flag(v: str | None) -> bool:
-    if v is None:
-        return False
-    return str(v).strip().lower() in {"1", "true", "yes", "on"}
-
-
 def derived_enabled() -> bool:
-    return _truthy_flag(os.environ.get("TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES"))
+    return resolve_env_bool("TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES", fallback=False)
 
 
 def derived_base_timeframe() -> str:
-    tf = (os.environ.get("TRADE_CANVAS_DERIVED_BASE_TIMEFRAME") or "1m").strip()
+    tf = resolve_env_str("TRADE_CANVAS_DERIVED_BASE_TIMEFRAME", fallback="1m")
     return tf or "1m"
 
 
 def derived_timeframes() -> tuple[str, ...]:
-    raw = (os.environ.get("TRADE_CANVAS_DERIVED_TIMEFRAMES") or "").strip()
+    raw = resolve_env_str("TRADE_CANVAS_DERIVED_TIMEFRAMES", fallback="")
     if not raw:
         # Keep aligned with frontend defaults (ChartPanel.tsx) minus base 1m.
         return ("5m", "15m", "1h", "4h", "1d")
@@ -267,4 +261,3 @@ def rollup_closed_candles(
         buf.clear()
 
     return out
-

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from dataclasses import dataclass
 
+from .flags import resolve_env_int
 from .ingest_binance_ws import run_binance_ws_ingest_loop
 from .ingest_settings import WhitelistIngestSettings
+from .pipelines import IngestPipeline
 from .series_id import parse_series_id
 from .store import CandleStore
 from .ws_hub import CandleHub
@@ -40,6 +41,8 @@ class IngestSupervisor:
         ingest_settings: WhitelistIngestSettings | None = None,
         ondemand_idle_ttl_s: int = 60,
         whitelist_ingest_enabled: bool = False,
+        ingest_pipeline: IngestPipeline | None = None,
+        enable_ingest_pipeline_v2: bool = False,
     ) -> None:
         self._store = store
         self._hub = hub
@@ -49,6 +52,8 @@ class IngestSupervisor:
         self._whitelist_ingest_enabled = bool(whitelist_ingest_enabled)
         self._settings = ingest_settings or WhitelistIngestSettings()
         self._idle_ttl_s = ondemand_idle_ttl_s
+        self._ingest_pipeline = ingest_pipeline
+        self._enable_ingest_pipeline_v2 = bool(enable_ingest_pipeline_v2)
         self._lock = asyncio.Lock()
         self._jobs: dict[str, _Job] = {}
         self._reaper_stop = asyncio.Event()
@@ -81,13 +86,7 @@ class IngestSupervisor:
         async with self._lock:
             job = self._jobs.get(series_id)
             if job is None:
-                max_jobs_raw = (os.environ.get("TRADE_CANVAS_ONDEMAND_MAX_JOBS") or "").strip()
-                max_jobs = 0
-                if max_jobs_raw:
-                    try:
-                        max_jobs = max(0, int(max_jobs_raw))
-                    except ValueError:
-                        max_jobs = 0
+                max_jobs = self._ondemand_max_jobs()
 
                 if max_jobs > 0:
                     ondemand_jobs = [j for sid, j in self._jobs.items() if not self._is_pinned_whitelist(sid)]
@@ -164,17 +163,20 @@ class IngestSupervisor:
                 for j in self._jobs.values()
             ]
             jobs.sort(key=lambda x: x["series_id"])
-            max_jobs_raw = (os.environ.get("TRADE_CANVAS_ONDEMAND_MAX_JOBS") or "").strip()
-            try:
-                max_jobs = int(max_jobs_raw) if max_jobs_raw else 0
-            except ValueError:
-                max_jobs = 0
+            max_jobs = self._ondemand_max_jobs()
             return {
                 "jobs": jobs,
                 "whitelist_series_ids": sorted(self._whitelist),
                 "ondemand_max_jobs": max_jobs,
                 "whitelist_ingest_enabled": self._whitelist_ingest_enabled,
             }
+
+    def _ondemand_max_jobs(self) -> int:
+        return resolve_env_int(
+            "TRADE_CANVAS_ONDEMAND_MAX_JOBS",
+            fallback=0,
+            minimum=0,
+        )
 
     def _start_job(self, series_id: str, *, refcount: int) -> _Job:
         stop = asyncio.Event()
@@ -194,6 +196,8 @@ class IngestSupervisor:
                     hub=self._hub,
                     factor_orchestrator=self._factor_orchestrator,
                     overlay_orchestrator=self._overlay_orchestrator,
+                    ingest_pipeline=self._ingest_pipeline,
+                    enable_ingest_pipeline_v2=self._enable_ingest_pipeline_v2,
                     settings=self._settings,
                     stop=stop,
                 )

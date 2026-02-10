@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.request import Request, urlopen
+
+from .flags import resolve_env_int, resolve_env_str
 
 
 @dataclass(frozen=True)
@@ -45,31 +46,33 @@ def _fetch_json(url: str, *, timeout_s: float = 5.0) -> Any:
 
 
 def _spot_base_url() -> str:
-    return os.environ.get("TRADE_CANVAS_BINANCE_SPOT_BASE_URL", "https://api.binance.com").rstrip("/")
+    return resolve_env_str(
+        "TRADE_CANVAS_BINANCE_SPOT_BASE_URL",
+        fallback="https://api.binance.com",
+    ).rstrip("/")
 
 
 def _futures_base_url() -> str:
-    return os.environ.get("TRADE_CANVAS_BINANCE_FUTURES_BASE_URL", "https://fapi.binance.com").rstrip("/")
+    return resolve_env_str(
+        "TRADE_CANVAS_BINANCE_FUTURES_BASE_URL",
+        fallback="https://fapi.binance.com",
+    ).rstrip("/")
 
 
 def _exchangeinfo_ttl_s() -> int:
-    raw = os.environ.get("TRADE_CANVAS_BINANCE_EXCHANGEINFO_TTL_S", "").strip()
-    if not raw:
-        return 3600
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return 3600
+    return resolve_env_int(
+        "TRADE_CANVAS_BINANCE_EXCHANGEINFO_TTL_S",
+        fallback=3600,
+        minimum=1,
+    )
 
 
 def _ticker_ttl_s() -> int:
-    raw = os.environ.get("TRADE_CANVAS_BINANCE_TICKER_TTL_S", "").strip()
-    if not raw:
-        return 10
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return 10
+    return resolve_env_int(
+        "TRADE_CANVAS_BINANCE_TICKER_TTL_S",
+        fallback=10,
+        minimum=1,
+    )
 
 
 class BinanceMarketListService:

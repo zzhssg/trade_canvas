@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -9,16 +8,11 @@ from .anchor_semantics import build_anchor_history_from_switches
 from .debug_hub import DebugHub
 from .factor_slices import build_pen_head_candidate, build_pen_head_preview
 from .factor_store import FactorStore
+from .flags import resolve_env_bool, resolve_env_int
 from .overlay_store import OverlayStore
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 from .zhongshu import build_alive_zhongshu_from_confirmed_pens
-
-
-def _truthy_flag(v: str | None) -> bool:
-    if v is None:
-        return False
-    return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)
@@ -52,8 +46,7 @@ class OverlayOrchestrator:
         self._debug_hub = hub
 
     def enabled(self) -> bool:
-        raw = os.environ.get("TRADE_CANVAS_ENABLE_OVERLAY_INGEST", "1")
-        return _truthy_flag(raw)
+        return resolve_env_bool("TRADE_CANVAS_ENABLE_OVERLAY_INGEST", fallback=True)
 
     def reset_series(self, *, series_id: str) -> None:
         with self._overlay_store.connect() as conn:
@@ -61,13 +54,11 @@ class OverlayOrchestrator:
             conn.commit()
 
     def _load_window_candles(self) -> int:
-        raw = (os.environ.get("TRADE_CANVAS_OVERLAY_WINDOW_CANDLES") or "").strip()
-        if not raw:
-            return int(self._settings.window_candles)
-        try:
-            return max(100, int(raw))
-        except ValueError:
-            return int(self._settings.window_candles)
+        return resolve_env_int(
+            "TRADE_CANVAS_OVERLAY_WINDOW_CANDLES",
+            fallback=self._settings.window_candles,
+            minimum=100,
+        )
 
     def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None:
         """

@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 
 from .blocking import run_blocking
+from .flags import resolve_env_bool
 from .freqtrade_config import build_backtest_config, load_json, write_temp_config
 from .freqtrade_data import check_history_available, list_available_timeframes
 from .freqtrade_runner import list_strategies, parse_strategy_list, run_backtest, validate_strategy_name
@@ -27,7 +28,11 @@ async def run_backtest_async(**kwargs):
 
 
 def _require_backtest_trades() -> bool:
-    return (os.environ.get("TRADE_CANVAS_BACKTEST_REQUIRE_TRADES") or "").strip() == "1"
+    return resolve_env_bool("TRADE_CANVAS_BACKTEST_REQUIRE_TRADES", fallback=False)
+
+
+def _freqtrade_mock_enabled() -> bool:
+    return resolve_env_bool("TRADE_CANVAS_FREQTRADE_MOCK", fallback=False)
 
 
 def _extract_total_trades_from_backtest_zip(*, zip_path: Path, strategy_name: str) -> int:
@@ -75,7 +80,7 @@ def _project_root(request: Request) -> Path:
 
 @router.get("/api/backtest/strategies", response_model=StrategyListResponse)
 async def get_backtest_strategies(request: Request, recursive: bool = True) -> StrategyListResponse:
-    if os.environ.get("TRADE_CANVAS_FREQTRADE_MOCK") == "1":
+    if _freqtrade_mock_enabled():
         return StrategyListResponse(strategies=["DemoStrategy"])
 
     settings = _settings(request)
@@ -113,7 +118,7 @@ async def get_backtest_strategies(request: Request, recursive: bool = True) -> S
 
 @router.get("/api/backtest/pair_timeframes", response_model=BacktestPairTimeframesResponse)
 async def get_backtest_pair_timeframes(request: Request, pair: str = Query(..., min_length=1)) -> BacktestPairTimeframesResponse:
-    if os.environ.get("TRADE_CANVAS_FREQTRADE_MOCK") == "1":
+    if _freqtrade_mock_enabled():
         return BacktestPairTimeframesResponse(pair=pair, trading_mode="mock", datadir="", available_timeframes=[])
 
     settings = _settings(request)
@@ -158,7 +163,7 @@ async def run_backtest_job(request: Request, payload: BacktestRunRequest) -> Bac
     settings = _settings(request)
     project_root = _project_root(request)
 
-    if os.environ.get("TRADE_CANVAS_FREQTRADE_MOCK") == "1":
+    if _freqtrade_mock_enabled():
         if payload.strategy_name != "DemoStrategy":
             raise HTTPException(status_code=404, detail="Strategy not found in userdir")
         pair = payload.pair

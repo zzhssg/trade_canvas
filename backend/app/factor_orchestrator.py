@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,17 +14,12 @@ from .factor_graph import FactorGraph, FactorSpec
 from .factor_processors import AnchorProcessor, PenProcessor, PivotProcessor, ZhongshuProcessor, build_default_factor_processors
 from .factor_registry import FactorRegistry
 from .factor_semantics import is_more_extreme_pivot
+from .flags import resolve_env_bool, resolve_env_int, resolve_env_str
 from .factor_slices import build_pen_head_candidate, build_pen_head_preview
 from .factor_store import FactorEventWrite, FactorStore
 from .pen import PivotMajorPoint
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
-
-
-def _truthy_flag(v: str | None) -> bool:
-    if v is None:
-        return False
-    return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _rebuild_effective_pivots(pivots: list[dict]) -> list[PivotMajorPoint]:
@@ -101,8 +95,7 @@ class FactorOrchestrator:
         self._debug_hub = hub
 
     def _fingerprint_rebuild_enabled(self) -> bool:
-        raw = os.environ.get("TRADE_CANVAS_ENABLE_FACTOR_FINGERPRINT_REBUILD", "1")
-        return _truthy_flag(raw)
+        return resolve_env_bool("TRADE_CANVAS_ENABLE_FACTOR_FINGERPRINT_REBUILD", fallback=True)
 
     def _file_sha256(self, path: Path) -> str:
         try:
@@ -128,44 +121,35 @@ class FactorOrchestrator:
                 "state_rebuild_event_limit": int(settings.state_rebuild_event_limit),
             },
             "files": files,
-            "logic_version_override": str(os.environ.get("TRADE_CANVAS_FACTOR_LOGIC_VERSION") or ""),
+            "logic_version_override": resolve_env_str("TRADE_CANVAS_FACTOR_LOGIC_VERSION", fallback=""),
         }
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def enabled(self) -> bool:
-        raw = os.environ.get("TRADE_CANVAS_ENABLE_FACTOR_INGEST", "1")
-        return _truthy_flag(raw)
+        return resolve_env_bool("TRADE_CANVAS_ENABLE_FACTOR_INGEST", fallback=True)
 
     def _load_settings(self) -> FactorSettings:
-        major_raw = (os.environ.get("TRADE_CANVAS_PIVOT_WINDOW_MAJOR") or "").strip()
-        minor_raw = (os.environ.get("TRADE_CANVAS_PIVOT_WINDOW_MINOR") or "").strip()
-        lookback_raw = (os.environ.get("TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES") or "").strip()
-        state_limit_raw = (os.environ.get("TRADE_CANVAS_FACTOR_STATE_REBUILD_EVENT_LIMIT") or "").strip()
-        major = self._settings.pivot_window_major
-        minor = self._settings.pivot_window_minor
-        lookback = self._settings.lookback_candles
-        state_limit = self._settings.state_rebuild_event_limit
-        if major_raw:
-            try:
-                major = max(1, int(major_raw))
-            except ValueError:
-                major = self._settings.pivot_window_major
-        if minor_raw:
-            try:
-                minor = max(1, int(minor_raw))
-            except ValueError:
-                minor = self._settings.pivot_window_minor
-        if lookback_raw:
-            try:
-                lookback = max(100, int(lookback_raw))
-            except ValueError:
-                lookback = self._settings.lookback_candles
-        if state_limit_raw:
-            try:
-                state_limit = max(1000, int(state_limit_raw))
-            except ValueError:
-                state_limit = self._settings.state_rebuild_event_limit
+        major = resolve_env_int(
+            "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
+            fallback=self._settings.pivot_window_major,
+            minimum=1,
+        )
+        minor = resolve_env_int(
+            "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
+            fallback=self._settings.pivot_window_minor,
+            minimum=1,
+        )
+        lookback = resolve_env_int(
+            "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
+            fallback=self._settings.lookback_candles,
+            minimum=100,
+        )
+        state_limit = resolve_env_int(
+            "TRADE_CANVAS_FACTOR_STATE_REBUILD_EVENT_LIMIT",
+            fallback=self._settings.state_rebuild_event_limit,
+            minimum=1000,
+        )
         return FactorSettings(
             pivot_window_major=int(major),
             pivot_window_minor=int(minor),
@@ -192,11 +176,11 @@ class FactorOrchestrator:
         if auto_rebuild:
             current = self._factor_store.get_series_fingerprint(series_id)
             if current is None or str(current.fingerprint) != str(current_fingerprint):
-                keep_raw = (os.environ.get("TRADE_CANVAS_FACTOR_REBUILD_KEEP_CANDLES") or "").strip()
-                try:
-                    keep_candles = max(100, int(keep_raw)) if keep_raw else 2000
-                except ValueError:
-                    keep_candles = 2000
+                keep_candles = resolve_env_int(
+                    "TRADE_CANVAS_FACTOR_REBUILD_KEEP_CANDLES",
+                    fallback=2000,
+                    minimum=100,
+                )
                 trimmed_rows = 0
                 with self._candle_store.connect() as conn:
                     trimmed_rows = self._candle_store.trim_series_to_latest_n_in_conn(

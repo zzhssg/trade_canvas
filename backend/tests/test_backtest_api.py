@@ -66,6 +66,15 @@ class BacktestApiTests(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json()["strategies"], ["Alpha", "Zeta"])
 
+    def test_strategies_endpoint_supports_truthy_mock_env(self) -> None:
+        os.environ["TRADE_CANVAS_FREQTRADE_MOCK"] = "true"
+        try:
+            resp = self.client.get("/api/backtest/strategies")
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["strategies"], ["DemoStrategy"])
+        finally:
+            os.environ.pop("TRADE_CANVAS_FREQTRADE_MOCK", None)
+
     def test_run_backtest_requires_known_strategy(self) -> None:
         from backend.app.freqtrade_runner import FreqtradeExecResult
 
