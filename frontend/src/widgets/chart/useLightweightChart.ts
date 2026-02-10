@@ -66,7 +66,12 @@ export function useLightweightChart({ containerRef, width, height, onCreated, on
       },
       rightPriceScale: { borderColor: "rgba(255,255,255,0.15)" },
       timeScale: { borderColor: "rgba(255,255,255,0.15)" },
-      crosshair: { mode: 0 },
+      crosshair: {
+        mode: 0,
+        horzLine: {
+          labelVisible: false
+        }
+      },
       handleScroll: {
         mouseWheel: false,
         pressedMouseMove: true,
