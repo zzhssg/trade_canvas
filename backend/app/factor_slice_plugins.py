@@ -267,9 +267,7 @@ class AnchorSlicePlugin:
 
 
 def build_default_factor_slice_plugins() -> tuple[FactorSlicePlugin, ...]:
-    return (
-        PivotSlicePlugin(),
-        PenSlicePlugin(),
-        ZhongshuSlicePlugin(),
-        AnchorSlicePlugin(),
-    )
+    from .factor_default_components import build_default_factor_components
+
+    _, slice_plugins = build_default_factor_components()
+    return slice_plugins

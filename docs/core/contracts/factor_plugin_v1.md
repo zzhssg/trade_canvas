@@ -133,6 +133,7 @@ def build_default_factor_manifest() -> FactorManifest: ...
 ```
 
 约束：
+- 默认注册单点维护在 `backend/app/factor_default_components.py`（bundle 形式声明 processor + slice plugin 配对）；
 - `processors` 与 `slice_plugins` 的因子集合必须完全相同；
 - 同名因子的 `depends_on` 必须完全相同；
 - 违反时启动即 fail-fast（`manifest_*` 错误码）。

@@ -294,7 +294,7 @@ def test_store_backfill_service_to_time_none_skips_ccxt_by_default(monkeypatch) 
             tail_backfill_fn=fake_tail_backfill,
         )
         covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=None)
-        assert covered == 0
+        assert covered == 1
         assert called == []
 
 

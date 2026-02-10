@@ -17,7 +17,6 @@ from .draw_routes import register_draw_routes
 from .factor_routes import register_factor_routes
 from .market_http_routes import register_market_http_routes
 from .market_meta_routes import register_market_meta_routes
-from .market_flags import ondemand_ingest_enabled
 from .market_ws_routes import handle_market_ws
 from .overlay_package_routes import register_overlay_package_routes
 from .replay_routes import register_replay_routes
@@ -69,7 +68,7 @@ def create_app() -> FastAPI:
         if container.whitelist_ingest_enabled:
             await container.supervisor.start_whitelist()
 
-        if ondemand_ingest_enabled():
+        if bool(container.flags.enable_ondemand_ingest):
             await container.supervisor.start_reaper()
 
         try:

@@ -30,13 +30,18 @@
 5) `backend/app/factor_processors.py`
 - `PivotProcessor` / `PenProcessor` / `ZhongshuProcessor` / `AnchorProcessor`。
 - 每个 processor 只做该因子的领域计算与事件构造。
-- `build_default_factor_processors()` 作为兼容入口，默认运行时装配以 `factor_manifest` 为准。
+- `build_default_factor_processors()` 作为兼容入口，默认运行时装配以 `factor_default_components` 单一注册表为准。
 
-6) `backend/app/factor_manifest.py`
+6) `backend/app/factor_default_components.py`
+- 维护默认因子的单一配对装配（`processor_builder + slice_plugin_builder`）。
+- 启动时 fail-fast 校验 processor 与 slice plugin 的 `spec.factor_name` 一致。
+- 新增默认因子时，默认只需在此追加一条 bundle 配置，避免双入口重复注册。
+
+7) `backend/app/factor_manifest.py`
 - `build_default_factor_manifest()` 作为默认装配真源，同时产出 `processors + slice_plugins`。
 - 启动时强校验读写两侧 `factor_name/depends_on` 一致，避免“写路径新增、读路径漏接”。
 
-7) `backend/app/factor_graph.py`
+8) `backend/app/factor_graph.py`
 - 基于 registry 的 `specs()` 构建 DAG。
 - 保证拓扑稳定、缺依赖 fail-fast、环依赖 fail-fast。
 
@@ -151,9 +156,9 @@
 3) `backend/app/factor_plugin_contract.py`（或兼容 alias）
 - 若新增字段级别插件元信息，先扩展插件契约再落实现。
 
-4) `backend/app/factor_manifest.py`
-- 在 `build_default_factor_manifest()` 中挂载 `XxxProcessor + XxxSlicePlugin`。
-- 新增 factor 后，orchestrator 与 slices service 都从 manifest 自动生效。
+4) `backend/app/factor_default_components.py`
+- 在 `build_default_factor_bundle_specs()` 中挂载 `XxxProcessor + XxxSlicePlugin` 的默认配对。
+- 新增 factor 后，orchestrator 与 slices service 通过 manifest 自动生效（无需双处注册）。
 
 ### 3.2 按需改（视是否对外可视）
 

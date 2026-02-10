@@ -93,6 +93,7 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             runtime = client.app.state.market_runtime
             pipeline = client.app.state.ingest_pipeline
             self.assertIs(runtime.ingest_pipeline, pipeline)
+            self.assertIs(runtime.flags, client.app.state.flags)
             self.assertIs(client.app.state.hub, runtime.hub)
             self.assertIs(getattr(pipeline, "_hub", None), client.app.state.hub)
         finally:

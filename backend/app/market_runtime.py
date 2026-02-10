@@ -42,7 +42,7 @@ class MarketRuntime:
     ws_subscriptions: WsSubscriptionCoordinator
     ws_messages: WsMessageParser
     derived_initial_backfill: Callable[..., Awaitable[None]]
+    ingest_pipeline: IngestPipeline
+    flags: FeatureFlags
     ingest: MarketIngestService | None = None
     ws_catchup_limit: int = 5000
-    ingest_pipeline: IngestPipeline | None = None
-    flags: FeatureFlags | None = None

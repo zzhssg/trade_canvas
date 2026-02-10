@@ -132,7 +132,7 @@ SDK 不绑定具体存储，但必须满足下列语义：
 1. 声明 `FactorSpec`（name/depends_on/logic_hash）。
 2. 实现 `apply_closed(ctx)`，产出 history/head。
 3. 保证 `event_key` 幂等（重复 ingest 不产生重复语义）。
-4. 注册默认装配（实现层以 `build_default_factor_manifest()` 为主入口）。
+4. 在 `factor_default_components` 注册默认配对装配（`processor_builder + slice_plugin_builder`，manifest 自动消费）。
 5. 实现写路径插件钩子（至少 `run_tick`；按需实现 `bootstrap_from_history`/`build_head_snapshot`）。
 6. 在 `XxxSlicePlugin.bucket_specs` 注册 slice 事件桶映射（`event_kind -> bucket_name`，单点维护）。
 7. 实现并注册 slice 插件（实现层可对应 `build_default_factor_slice_plugins()`）。

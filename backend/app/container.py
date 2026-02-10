@@ -93,8 +93,6 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
     )
 
     ingest_pipeline = runtime_build.runtime.ingest_pipeline
-    if ingest_pipeline is None:
-        raise RuntimeError("market runtime missing ingest pipeline")
 
     replay_service = ReplayPackageServiceV1(
         candle_store=store,

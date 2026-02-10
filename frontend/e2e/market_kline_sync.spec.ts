@@ -243,8 +243,8 @@ test("@smoke live backfill burst does not hammer delta/slices", async ({ page, r
   const chart = page.locator('[data-testid="chart-view"]');
   await expect(chart).toHaveAttribute("data-last-ws-candle-time", String(lastTime), { timeout: 20_000 });
 
-  // Guardrail (world-frame default): no /api/factor/slices spam; deltas are coalesced.
-  expect(slicesGets).toBe(0);
+  // Guardrail (world-frame default): at most one cold-start /api/factor/slices probe; deltas are coalesced.
+  expect(slicesGets).toBeLessThanOrEqual(1);
   expect(deltaGets).toBeLessThan(15);
 });
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from .market_flags import ondemand_ingest_enabled
 from .ws_protocol import WS_MSG_SUBSCRIBE, WS_MSG_UNSUBSCRIBE
 
 
@@ -11,6 +10,7 @@ async def handle_market_ws(ws: WebSocket) -> None:
     runtime = ws.app.state.market_runtime
     ws_messages = runtime.ws_messages
     ws_subscriptions = runtime.ws_subscriptions
+    ondemand_enabled = bool(runtime.flags.enable_ondemand_ingest)
     try:
         while True:
             msg = await ws.receive_json()
@@ -33,7 +33,7 @@ async def handle_market_ws(ws: WebSocket) -> None:
                     series_id=subscribe_cmd.series_id,
                     since=subscribe_cmd.since,
                     supports_batch=subscribe_cmd.supports_batch,
-                    ondemand_enabled=ondemand_ingest_enabled(),
+                    ondemand_enabled=ondemand_enabled,
                     market_data=runtime.market_data,
                     derived_initial_backfill=runtime.derived_initial_backfill,
                     catchup_limit=int(runtime.ws_catchup_limit),
@@ -51,7 +51,7 @@ async def handle_market_ws(ws: WebSocket) -> None:
                     await ws_subscriptions.unsubscribe(
                         ws=ws,
                         series_id=series_id,
-                        ondemand_enabled=ondemand_ingest_enabled(),
+                        ondemand_enabled=ondemand_enabled,
                     )
                 continue
 
@@ -61,7 +61,7 @@ async def handle_market_ws(ws: WebSocket) -> None:
     finally:
         await ws_subscriptions.cleanup_disconnect(
             ws=ws,
-            ondemand_enabled=ondemand_ingest_enabled(),
+            ondemand_enabled=ondemand_enabled,
         )
         try:
             await ws.close(code=1001)

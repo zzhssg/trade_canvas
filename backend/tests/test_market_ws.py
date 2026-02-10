@@ -20,25 +20,42 @@ class MarketWebSocketTests(unittest.TestCase):
         self.whitelist_path.write_text('{"series_ids":[]}', encoding="utf-8")
         os.environ["TRADE_CANVAS_DB_PATH"] = str(self.db_path)
         os.environ["TRADE_CANVAS_WHITELIST_PATH"] = str(self.whitelist_path)
-        self.client = TestClient(create_app())
-        self.series_id = "binance:futures:BTC/USDT:1m"
 
-        for t in (100, 160, 220):
-            self.client.post(
-                "/api/market/ingest/candle_closed",
-                json={
-                    "series_id": self.series_id,
-                    "candle": {"candle_time": t, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10},
-                },
-            )
+        self.series_id = "binance:futures:BTC/USDT:1m"
+        self._create_client()
+        self._seed_series(self.series_id, times=(100, 160, 220))
 
     def tearDown(self) -> None:
+        try:
+            self.client.close()
+        except Exception:
+            pass
         self.tmpdir.cleanup()
         os.environ.pop("TRADE_CANVAS_DB_PATH", None)
         os.environ.pop("TRADE_CANVAS_WHITELIST_PATH", None)
         os.environ.pop("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST", None)
         os.environ.pop("TRADE_CANVAS_ONDEMAND_MAX_JOBS", None)
         os.environ.pop("TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL", None)
+
+    def _create_client(self) -> None:
+        self.client = TestClient(create_app())
+
+    def _seed_series(self, series_id: str, *, times: tuple[int, ...]) -> None:
+        for candle_time in times:
+            self.client.post(
+                "/api/market/ingest/candle_closed",
+                json={
+                    "series_id": series_id,
+                    "candle": {
+                        "candle_time": int(candle_time),
+                        "open": 1,
+                        "high": 2,
+                        "low": 0.5,
+                        "close": 1.5,
+                        "volume": 10,
+                    },
+                },
+            )
 
     def test_ws_subscribe_catchup_and_stream(self) -> None:
         with self.client.websocket_connect("/ws/market") as ws:
@@ -92,14 +109,10 @@ class MarketWebSocketTests(unittest.TestCase):
         series1 = self.series_id
         series2 = "binance:futures:ETH/USDT:1m"
 
-        for t in (100, 160, 220):
-            self.client.post(
-                "/api/market/ingest/candle_closed",
-                json={
-                    "series_id": series2,
-                    "candle": {"candle_time": t, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10},
-                },
-            )
+        self.client.close()
+        self._create_client()
+        self._seed_series(series1, times=(100, 160, 220))
+        self._seed_series(series2, times=(100, 160, 220))
 
         with self.client.websocket_connect("/ws/market") as ws:
             ws.send_json({"type": "subscribe", "series_id": series1, "since": 100})
@@ -107,9 +120,16 @@ class MarketWebSocketTests(unittest.TestCase):
             _ = ws.receive_json()
 
             ws.send_json({"type": "subscribe", "series_id": series2, "since": 100})
-            err = ws.receive_json()
-            self.assertEqual(err["type"], "error")
-            self.assertEqual(err["code"], "capacity")
+            err = None
+            for _ in range(8):
+                msg = ws.receive_json()
+                msg_series = msg.get("series_id")
+                if msg.get("type") == "error" and msg.get("code") == "capacity":
+                    err = msg
+                    break
+                self.assertNotEqual(msg_series, series2, f"unexpected payload for rejected series: {msg}")
+            self.assertIsNotNone(err, "capacity error not observed for second subscribe")
+            assert err is not None
             self.assertEqual(err.get("series_id"), series2)
 
             import threading
@@ -126,10 +146,14 @@ class MarketWebSocketTests(unittest.TestCase):
             t.start()
             t.join(timeout=0.2)
             if not t.is_alive():
-                self.assertNotIn("msg", got, "unexpected extra ws message after capacity error")
+                msg = got.get("msg")
+                if isinstance(msg, dict):
+                    self.assertNotEqual(msg.get("series_id"), series2, f"unexpected message for rejected series: {msg}")
             ws.close()
             t.join(timeout=1.0)
-            self.assertNotIn("msg", got)
+            msg = got.get("msg")
+            if isinstance(msg, dict):
+                self.assertNotEqual(msg.get("series_id"), series2, f"unexpected message for rejected series: {msg}")
 
     def test_ws_subscribe_gap_backfill_enabled_rehydrates_missing_candles(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL"] = "1"

@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .factor_default_components import build_default_factor_components
 from .factor_plugin_contract import FactorPluginSpec
-from .factor_processors import build_default_factor_processors
 from .factor_registry import FactorProcessor
 from .factor_slice_plugin_contract import FactorSlicePlugin
-from .factor_slice_plugins import build_default_factor_slice_plugins
 
 
 class FactorManifestError(RuntimeError):
@@ -57,6 +56,5 @@ def build_factor_manifest(
 
 
 def build_default_factor_manifest() -> FactorManifest:
-    processors = tuple(build_default_factor_processors())
-    slice_plugins = tuple(build_default_factor_slice_plugins())
+    processors, slice_plugins = build_default_factor_components()
     return build_factor_manifest(processors=processors, slice_plugins=slice_plugins)

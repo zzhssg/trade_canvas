@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .factor_default_components import build_default_factor_components
 from .factor_processor_anchor import AnchorProcessor
 from .factor_processor_pen import PenProcessor
 from .factor_processor_pivot import PivotProcessor
@@ -9,7 +10,8 @@ from .factor_registry import FactorProcessor
 
 
 def build_default_factor_processors() -> list[FactorProcessor]:
-    return [PivotProcessor(), PenProcessor(), ZhongshuProcessor(), AnchorProcessor()]
+    processors, _ = build_default_factor_components()
+    return list(processors)
 
 
 __all__ = [
