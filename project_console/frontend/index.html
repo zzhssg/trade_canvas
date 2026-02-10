@@ -97,7 +97,7 @@
         background: rgba(238, 244, 255, 0.24);
         color: #f4f8ff;
       }
-      .board { padding: 16px; display: grid; gap: 12px; max-width: 1540px; margin: 0 auto; }
+      .board { padding: 16px; display: grid; gap: 12px; max-width: 1760px; margin: 0 auto; }
       .col {
         background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 16%), var(--bg-panel);
         border: 1px solid var(--line);
@@ -128,33 +128,37 @@
       .card {
         border: 1px solid #294066;
         border-radius: 10px;
-        padding: 9px 10px;
+        padding: 10px 12px;
         background: var(--bg-card);
       }
       .card-grid {
         display: grid;
-        grid-template-columns: minmax(320px, 1.6fr) minmax(300px, 1.35fr) minmax(360px, 1.1fr);
-        gap: 12px;
-        align-items: center;
+        grid-template-columns: minmax(560px, 3.2fr) minmax(280px, 1.35fr) auto;
+        gap: 10px 14px;
+        align-items: start;
       }
       .project-lines {
         display: grid;
         gap: 6px;
         min-width: 0;
+        align-content: start;
       }
       .project-line {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        row-gap: 4px;
         gap: 8px;
         min-width: 0;
       }
       .title {
         font-weight: 620;
         font-size: 13px;
+        line-height: 1.35;
+        flex: 1 1 340px;
         min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
       .status-tag {
         font-size: 11px;
@@ -168,14 +172,16 @@
         color: #8ea8cf;
         font-size: 11px;
         white-space: nowrap;
+        padding-top: 2px;
       }
       .inline-path {
         color: #d3e3fc;
         font-size: 12px;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        line-height: 1.4;
+        flex: 1 1 320px;
+        min-width: 180px;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
       .meta-chip {
         padding: 2px 8px;
@@ -191,13 +197,14 @@
         background: #173548;
         color: #8dd7ff;
       }
-      .service-panel { display: grid; gap: 6px; }
+      .service-panel { display: grid; gap: 6px; align-content: start; }
       .svc-row {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
+        justify-content: space-between;
         gap: 8px;
         min-width: 0;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
       }
       .svc-meta {
         display: inline-flex;
@@ -205,6 +212,7 @@
         gap: 7px;
         font-size: 12px;
         min-width: 0;
+        flex-wrap: wrap;
       }
       .svc-state { white-space: nowrap; }
       .dot {
@@ -221,12 +229,13 @@
       .action-panel {
         display: flex;
         justify-content: flex-end;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         gap: 6px;
         align-items: center;
         justify-self: end;
+        align-self: start;
       }
-      .action-panel button { min-height: 30px; padding: 6px 10px; font-size: 11px; }
+      .action-panel button { min-height: 30px; padding: 6px 12px; font-size: 11px; white-space: nowrap; }
       .action-note { font-size: 11px; white-space: nowrap; }
       .icon-btn {
         width: 36px;
@@ -282,15 +291,23 @@
       .empty { color: #5f7499; font-size: 12px; padding: 8px; }
       #error {
         margin: 10px auto 0;
-        max-width: 1540px;
+        max-width: 1760px;
         padding: 10px 12px;
         border-radius: 8px;
         background: var(--danger-bg);
         color: var(--danger-text);
         display: none;
       }
-      @media (max-width: 1500px) {
-        .card-grid { grid-template-columns: minmax(300px, 1.5fr) minmax(280px, 1.25fr) minmax(320px, 1fr); }
+      @media (max-width: 1560px) {
+        .card-grid { grid-template-columns: minmax(460px, 2.45fr) minmax(260px, 1.2fr) auto; }
+      }
+      @media (max-width: 1380px) {
+        .card-grid { grid-template-columns: 1fr minmax(250px, 1fr); }
+        .action-panel {
+          grid-column: 1 / -1;
+          justify-content: flex-start;
+          justify-self: start;
+        }
       }
       @media (max-width: 1260px) {
         .card-grid { grid-template-columns: 1fr; gap: 8px; }
@@ -392,13 +409,6 @@
           .map((v) => (v || "").trim())
           .find(Boolean);
         return titled || pathBasename(project.path) || "未命名项目";
-      }
-
-      function middleEllipsis(value, maxLength, headLength, tailLength) {
-        const text = (value || "").trim();
-        if (!text) return "";
-        if (text.length <= maxLength) return text;
-        return `${text.slice(0, headLength)}...${text.slice(-tailLength)}`;
       }
 
       function updateFilterButtons() {
@@ -524,9 +534,7 @@
         const projectTitle = resolveProjectTitle(project);
         const branchLabel = (project.branch || "").trim() || "detached";
         const planPathLabel = (project.plan_path || "").trim() || "未绑定计划文档";
-        const planPathDisplay = middleEllipsis(planPathLabel, 44, 24, 16);
         const worktreePath = project.path || "-";
-        const pathDisplay = middleEllipsis(worktreePath, 50, 26, 18);
 
         const card = document.createElement("article");
         card.className = "card";
@@ -564,13 +572,13 @@
         card.querySelector(".status-tag").textContent = project.plan_status_label;
 
         const planEl = card.querySelector(".plan-path");
-        planEl.textContent = planPathDisplay;
+        planEl.textContent = planPathLabel;
         planEl.title = planPathLabel;
 
         const branchChip = card.querySelector(".branch-chip");
         branchChip.textContent = branchLabel;
         const workdirEl = card.querySelector(".workdir-path");
-        workdirEl.textContent = pathDisplay;
+        workdirEl.textContent = worktreePath;
         workdirEl.title = worktreePath;
 
         const mainChip = card.querySelector(".main-chip");
