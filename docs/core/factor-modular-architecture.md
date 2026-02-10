@@ -54,12 +54,19 @@
 - 仅负责读路径调度：加载事件、按 bucket 分组、预取 head、按 `FactorGraph.topo_order` 执行 slice 插件。
 - 不再手写 `if factor == ...` 的快照拼装分支，新增因子无需继续膨胀主服务文件。
 
+4) `backend/app/factor_read_freshness.py`
+- 统一承载读路径 freshness 门禁（strict / non-strict）：
+  - non-strict：可按需触发 freshness ingest；
+  - strict：当 `factor_head < aligned_time` 时直接拒绝读取（409）。
+- `FactorReadService` 仅做参数编排并委托此模块，避免双实现漂移。
+
 ### 1.3 Overlay 渲染路径（draw delta 上游）
 
 1) `backend/app/overlay_orchestrator.py`
 - 负责 closed-candle 到 overlay instruction 的增量写入。
 - 渲染阶段按插件拓扑顺序执行，不再在 orchestrator 内手写整段 marker/polyline 逻辑。
 - 事件归桶改为读取渲染插件的 `bucket_specs` 声明（`factor_name + event_kind -> bucket_name`），新增 overlay 输入时无需再改 orchestrator 分支。
+- 输出写入统一为 instruction 流（marker/polyline），不再维护 `pen_def` 专用写入分支。
 
 2) `backend/app/overlay_renderer_plugins.py`
 - 默认包含 `overlay.marker` / `overlay.pen` / `overlay.structure` 三类渲染插件。
@@ -131,7 +138,7 @@
 
 ## 3. 新增 factor 的固定接入面（先去重再插件化后的约束）
 
-### 3.1 必改（固定 5 处）
+### 3.1 必改（固定 4 处）
 
 1) `backend/app/factor_processors.py`
 - 新增 `XxxProcessor`，声明 `spec = ProcessorSpec(factor_name="xxx", depends_on=(...))`。
@@ -139,14 +146,12 @@
 
 2) `backend/app/factor_slice_plugins.py`
 - 新增 `XxxSlicePlugin`，完成该因子的 `history/head/meta` 组装。
+- 在该插件内声明 `bucket_specs`（`event_kind -> bucket_name`），不再额外维护独立 bucket 配置文件。
 
 3) `backend/app/factor_plugin_contract.py`（或兼容 alias）
 - 若新增字段级别插件元信息，先扩展插件契约再落实现。
 
-4) `backend/app/factor_processor_slice_buckets.py`
-- 在 `build_default_slice_bucket_specs()` 中补充该 factor 的事件桶映射（`event_kind -> bucket_name`）。
-
-5) `backend/app/factor_manifest.py`
+4) `backend/app/factor_manifest.py`
 - 在 `build_default_factor_manifest()` 中挂载 `XxxProcessor + XxxSlicePlugin`。
 - 新增 factor 后，orchestrator 与 slices service 都从 manifest 自动生效。
 

@@ -6,7 +6,8 @@ from typing import Any
 from fastapi import HTTPException
 
 from ..flags import resolve_env_bool
-from ..schemas import DrawCursorV1, DrawDeltaV1, OverlayInstructionPatchItemV1
+from ..overlay_integrity_plugins import evaluate_overlay_integrity
+from ..schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1, OverlayInstructionPatchItemV1
 from ..timeframe import series_id_timeframe, timeframe_to_seconds
 
 
@@ -83,88 +84,45 @@ class DrawReadService:
 
         latest_defs = self.overlay_store.get_latest_defs_up_to_time(series_id=series_id, up_to_time=int(to_time))
         if int(cursor_version_id) == 0:
-            expected_start = 0
-            expected_has_zhongshu = False
-            expected_zhongshu_ids: set[str] = set()
-            try:
-                slices = slices_for_overlay
-                if slices is None:
-                    raise RuntimeError("slices_not_ready")
-                anchor_snapshot = (slices.snapshots or {}).get("anchor")
-                anchor_head = (anchor_snapshot.head if anchor_snapshot is not None else {}) or {}
-                current_ref = anchor_head.get("current_anchor_ref") if isinstance(anchor_head, dict) else None
-                if isinstance(current_ref, dict):
-                    expected_start = int(current_ref.get("start_time") or 0)
-                zhongshu_snapshot = (slices.snapshots or {}).get("zhongshu")
-                if zhongshu_snapshot is not None:
-                    zhongshu_history = (
-                        (zhongshu_snapshot.history or {}) if isinstance(zhongshu_snapshot.history, dict) else {}
-                    )
-                    zhongshu_head = (zhongshu_snapshot.head or {}) if isinstance(zhongshu_snapshot.head, dict) else {}
-                    dead_items = zhongshu_history.get("dead")
-                    alive_items = zhongshu_head.get("alive")
-                    if isinstance(dead_items, list):
-                        for item in dead_items:
-                            if not isinstance(item, dict):
-                                continue
-                            try:
-                                start_time = int(item.get("start_time") or 0)
-                                end_time = int(item.get("end_time") or 0)
-                                zg = float(item.get("zg") or 0.0)
-                                zd = float(item.get("zd") or 0.0)
-                            except Exception:
-                                continue
-                            if start_time <= 0 or end_time <= 0:
-                                continue
-                            base_id = f"zhongshu.dead:{start_time}:{end_time}:{zg:.6f}:{zd:.6f}"
-                            expected_zhongshu_ids.add(f"{base_id}:top")
-                            expected_zhongshu_ids.add(f"{base_id}:bottom")
-                    if isinstance(alive_items, list) and alive_items:
-                        expected_zhongshu_ids.add("zhongshu.alive:top")
-                        expected_zhongshu_ids.add("zhongshu.alive:bottom")
-                    expected_has_zhongshu = bool(
-                        (isinstance(dead_items, list) and len(dead_items) > 0)
-                        or (isinstance(alive_items, list) and len(alive_items) > 0)
-                    )
-            except Exception:
-                expected_start = 0
-                expected_has_zhongshu = False
-                expected_zhongshu_ids = set()
-
-            should_rebuild_overlay = False
-            if expected_start > 0:
-                current_def = next(
-                    (d for d in latest_defs if d.kind == "polyline" and d.instruction_id == "anchor.current"),
-                    None,
+            slices = slices_for_overlay
+            if slices is None:
+                slices = GetFactorSlicesResponseV1(
+                    series_id=series_id,
+                    at_time=int(to_time),
+                    candle_id=f"{series_id}:{int(to_time)}",
                 )
-                rendered_start = 0
-                if current_def is not None:
-                    pts = current_def.payload.get("points")
-                    if isinstance(pts, list) and pts:
-                        first = pts[0]
-                        if isinstance(first, dict):
-                            try:
-                                rendered_start = int(first.get("time") or 0)
-                            except Exception:
-                                rendered_start = 0
-                if int(rendered_start) != int(expected_start):
-                    should_rebuild_overlay = True
-
-            rendered_has_zhongshu = any(str(d.instruction_id).startswith("zhongshu.") for d in latest_defs)
-            if bool(rendered_has_zhongshu) != bool(expected_has_zhongshu):
-                should_rebuild_overlay = True
-            rendered_zhongshu_ids = {
-                str(d.instruction_id) for d in latest_defs if str(d.instruction_id).startswith("zhongshu.")
-            }
-            if rendered_zhongshu_ids != expected_zhongshu_ids:
-                should_rebuild_overlay = True
-
+            should_rebuild_overlay, integrity_results = evaluate_overlay_integrity(
+                series_id=series_id,
+                slices=slices,
+                latest_defs=latest_defs,
+            )
             if should_rebuild_overlay:
                 if strict_mode:
                     raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
                 self.overlay_orchestrator.reset_series(series_id=series_id)
                 self.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time))
-                latest_defs = self.overlay_store.get_latest_defs_up_to_time(series_id=series_id, up_to_time=int(to_time))
+                latest_defs = self.overlay_store.get_latest_defs_up_to_time(
+                    series_id=series_id,
+                    up_to_time=int(to_time),
+                )
+                if self._debug_enabled():
+                    self.debug_hub.emit(
+                        pipe="read",
+                        event="read.http.draw_delta.overlay_rebuild",
+                        series_id=series_id,
+                        message="overlay rebuilt by integrity plugins",
+                        data={
+                            "at_time": int(to_time),
+                            "checks": [
+                                {
+                                    "plugin": str(item.plugin_name),
+                                    "should_rebuild": bool(item.should_rebuild),
+                                    "reason": None if item.reason is None else str(item.reason),
+                                }
+                                for item in integrity_results
+                            ],
+                        },
+                    )
 
         active_ids: list[str] = []
         for definition in latest_defs:

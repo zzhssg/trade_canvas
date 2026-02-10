@@ -5,7 +5,7 @@ from typing import Callable
 
 from ..derived_timeframes import rollup_closed_candles
 from ..market_backfill import backfill_from_ccxt_range, backfill_market_gap_best_effort
-from ..market_flags import ccxt_backfill_enabled
+from ..market_flags import ccxt_backfill_enabled, ccxt_backfill_on_read_enabled
 from ..history_bootstrapper import backfill_tail_from_freqtrade
 from ..schemas import CandleClosed
 from ..series_id import SeriesId, parse_series_id
@@ -140,7 +140,10 @@ class StoreBackfillService(BackfillService):
         target = int(target_candles)
         if target <= 0:
             return 0
-        filled = max(0, int(self._tail_backfill_fn(self._store, series_id=series_id, limit=target)))
+        try:
+            filled = max(0, int(self._tail_backfill_fn(self._store, series_id=series_id, limit=target)))
+        except Exception:
+            filled = 0
 
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         if to_time is None:
@@ -150,7 +153,10 @@ class StoreBackfillService(BackfillService):
             end_time = int(to_time)
         start_time = max(0, int(end_time) - (int(target) - 1) * int(tf_s))
 
-        count_after_tail = self._store.count_closed_between_times(series_id, start_time=start_time, end_time=end_time)
+        try:
+            count_after_tail = self._store.count_closed_between_times(series_id, start_time=start_time, end_time=end_time)
+        except Exception:
+            count_after_tail = 0
         if int(count_after_tail) < int(target):
             try:
                 self._best_effort_backfill_from_base_1m(
@@ -166,7 +172,8 @@ class StoreBackfillService(BackfillService):
             except Exception:
                 pass
 
-        if int(count_after_tail) < int(target) and ccxt_backfill_enabled():
+        allow_ccxt = bool(to_time is not None) or ccxt_backfill_on_read_enabled()
+        if int(count_after_tail) < int(target) and ccxt_backfill_enabled() and allow_ccxt:
             try:
                 backfill_from_ccxt_range(
                     candle_store=self._store,
@@ -177,10 +184,13 @@ class StoreBackfillService(BackfillService):
             except Exception:
                 pass
 
-        if to_time is None:
+        try:
             covered = self._store.count_closed_between_times(series_id, start_time=start_time, end_time=end_time)
+        except Exception:
+            covered = 0
+        if to_time is None:
             return max(int(filled), int(covered))
-        return self._store.count_closed_between_times(series_id, start_time=start_time, end_time=end_time)
+        return int(covered)
 
 
 class StoreFreshnessService(FreshnessService):

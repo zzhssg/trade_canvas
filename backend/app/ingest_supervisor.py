@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .ingest_binance_ws import run_binance_ws_ingest_loop
 from .ingest_settings import WhitelistIngestSettings
+from .pipelines import IngestPipeline
 from .market_flags import ondemand_max_jobs
 from .series_id import parse_series_id
 from .store import CandleStore
@@ -40,6 +41,8 @@ class IngestSupervisor:
         ingest_settings: WhitelistIngestSettings | None = None,
         ondemand_idle_ttl_s: int = 60,
         whitelist_ingest_enabled: bool = False,
+        ingest_pipeline: IngestPipeline | None = None,
+        enable_ingest_pipeline_v2: bool = False,
     ) -> None:
         self._store = store
         self._hub = hub
@@ -49,6 +52,8 @@ class IngestSupervisor:
         self._whitelist_ingest_enabled = bool(whitelist_ingest_enabled)
         self._settings = ingest_settings or WhitelistIngestSettings()
         self._idle_ttl_s = ondemand_idle_ttl_s
+        self._ingest_pipeline = ingest_pipeline
+        self._enable_ingest_pipeline_v2 = bool(enable_ingest_pipeline_v2)
         self._lock = asyncio.Lock()
         self._jobs: dict[str, _Job] = {}
         self._reaper_stop = asyncio.Event()
@@ -184,6 +189,8 @@ class IngestSupervisor:
                     hub=self._hub,
                     factor_orchestrator=self._factor_orchestrator,
                     overlay_orchestrator=self._overlay_orchestrator,
+                    ingest_pipeline=self._ingest_pipeline,
+                    enable_ingest_pipeline_v2=self._enable_ingest_pipeline_v2,
                     settings=self._settings,
                     stop=stop,
                 )

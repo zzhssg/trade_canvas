@@ -12,33 +12,9 @@ class SliceBucketSpec:
 
 
 def build_default_slice_bucket_specs() -> tuple[SliceBucketSpec, ...]:
-    return (
-        SliceBucketSpec(
-            factor_name="pivot",
-            event_kind="pivot.major",
-            bucket_name="piv_major",
-            sort_keys=("visible_time", "pivot_time"),
-        ),
-        SliceBucketSpec(
-            factor_name="pivot",
-            event_kind="pivot.minor",
-            bucket_name="piv_minor",
-        ),
-        SliceBucketSpec(
-            factor_name="pen",
-            event_kind="pen.confirmed",
-            bucket_name="pen_confirmed",
-            sort_keys=("visible_time", "start_time"),
-        ),
-        SliceBucketSpec(
-            factor_name="zhongshu",
-            event_kind="zhongshu.dead",
-            bucket_name="zhongshu_dead",
-        ),
-        SliceBucketSpec(
-            factor_name="anchor",
-            event_kind="anchor.switch",
-            bucket_name="anchor_switches",
-            sort_keys=("visible_time", "switch_time"),
-        ),
-    )
+    from .factor_slice_plugins import build_default_factor_slice_plugins
+
+    specs: list[SliceBucketSpec] = []
+    for plugin in build_default_factor_slice_plugins():
+        specs.extend(plugin.bucket_specs)
+    return tuple(specs)

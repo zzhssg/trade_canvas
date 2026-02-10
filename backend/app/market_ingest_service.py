@@ -5,8 +5,9 @@ import time
 from .blocking import run_blocking
 from .debug_hub import DebugHub
 from .factor_orchestrator import FactorOrchestrator
-from .market_flags import debug_api_enabled
+from .flags import resolve_env_bool
 from .overlay_orchestrator import OverlayOrchestrator
+from .pipelines import IngestPipeline
 from .schemas import (
     IngestCandleClosedRequest,
     IngestCandleClosedResponse,
@@ -26,16 +27,23 @@ class MarketIngestService:
         overlay_orchestrator: OverlayOrchestrator,
         hub: CandleHub,
         debug_hub: DebugHub,
+        ingest_pipeline: IngestPipeline | None = None,
+        enable_ingest_pipeline_v2: bool = False,
     ) -> None:
         self._store = store
         self._factor_orchestrator = factor_orchestrator
         self._overlay_orchestrator = overlay_orchestrator
         self._hub = hub
         self._debug_hub = debug_hub
+        self._ingest_pipeline = ingest_pipeline
+        self._enable_ingest_pipeline_v2 = bool(enable_ingest_pipeline_v2)
+
+    def _debug_enabled(self) -> bool:
+        return resolve_env_bool("TRADE_CANVAS_ENABLE_DEBUG_API", fallback=False)
 
     async def ingest_candle_closed(self, req: IngestCandleClosedRequest) -> IngestCandleClosedResponse:
         t0 = time.perf_counter()
-        if debug_api_enabled():
+        if self._debug_enabled():
             self._debug_hub.emit(
                 pipe="write",
                 event="write.http.ingest_candle_closed_start",
@@ -48,6 +56,23 @@ class MarketIngestService:
         factor_rebuilt = {"value": False}
 
         def _persist_and_sidecars() -> None:
+            if self._enable_ingest_pipeline_v2 and self._ingest_pipeline is not None:
+                result = self._ingest_pipeline.run_sync(
+                    batches={req.series_id: [req.candle]},
+                )
+                factor_rebuilt["value"] = bool(req.series_id in set(result.rebuilt_series))
+                steps.extend(
+                    [
+                        {
+                            "name": str(step.name),
+                            "ok": bool(step.ok),
+                            "duration_ms": int(step.duration_ms),
+                        }
+                        for step in result.steps
+                    ]
+                )
+                return
+
             t_step = time.perf_counter()
             self._store.upsert_closed(req.series_id, req.candle)
             steps.append(
@@ -115,7 +140,7 @@ class MarketIngestService:
                 data={"series_id": req.series_id},
             )
 
-        if debug_api_enabled():
+        if self._debug_enabled():
             self._debug_hub.emit(
                 pipe="write",
                 event="write.http.ingest_candle_closed_done",

@@ -186,7 +186,10 @@ def maybe_bootstrap_from_freqtrade(store: CandleStore, *, series_id: str, limit:
     if path is None:
         return 0
 
-    candles = _read_freqtrade_feather(path, limit=max(int(limit), 1))
+    try:
+        candles = _read_freqtrade_feather(path, limit=max(int(limit), 1))
+    except Exception:
+        return 0
     if not candles:
         return 0
 
@@ -215,7 +218,10 @@ def backfill_tail_from_freqtrade(store: CandleStore, *, series_id: str, limit: i
     if path is None:
         return 0
 
-    candles = _read_freqtrade_feather(path, limit=max(int(limit), 1))
+    try:
+        candles = _read_freqtrade_feather(path, limit=max(int(limit), 1))
+    except Exception:
+        return 0
     if not candles:
         return 0
 

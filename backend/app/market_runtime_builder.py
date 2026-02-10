@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from .config import Settings
 from .debug_hub import DebugHub
 from .factor_orchestrator import FactorOrchestrator
+from .flags import FeatureFlags, load_feature_flags
 from .ingest_supervisor import IngestSupervisor
 from .market_backfill import backfill_market_gap_best_effort
 from .market_data import (
@@ -18,10 +19,10 @@ from .market_data import (
     build_derived_initial_backfill_handler,
     build_gap_backfill_handler,
 )
-from .market_flags import ondemand_idle_ttl_seconds, whitelist_ingest_enabled
 from .market_ingest_service import MarketIngestService
 from .market_list import BinanceMarketListService, MinIntervalLimiter
 from .market_runtime import MarketRuntime
+from .pipelines import IngestPipeline
 from .overlay_orchestrator import OverlayOrchestrator
 from .store import CandleStore
 from .whitelist import load_market_whitelist
@@ -43,7 +44,10 @@ def build_market_runtime(
     factor_orchestrator: FactorOrchestrator,
     overlay_orchestrator: OverlayOrchestrator,
     debug_hub: DebugHub,
+    flags: FeatureFlags | None = None,
+    ingest_pipeline: IngestPipeline | None = None,
 ) -> MarketRuntimeBuildResult:
+    effective_flags = flags or load_feature_flags()
     hub = CandleHub()
     reader_service = StoreCandleReadService(store=store)
     backfill_service = StoreBackfillService(
@@ -75,8 +79,14 @@ def build_market_runtime(
     market_list = BinanceMarketListService()
     force_limiter = MinIntervalLimiter(min_interval_s=2.0)
 
-    idle_ttl_s = ondemand_idle_ttl_seconds(fallback=60)
-    whitelist_ingest_on = whitelist_ingest_enabled()
+    idle_ttl_s = int(effective_flags.ondemand_idle_ttl_s)
+    whitelist_ingest_on = bool(effective_flags.enable_whitelist_ingest)
+    pipeline = ingest_pipeline or IngestPipeline(
+        store=store,
+        factor_orchestrator=factor_orchestrator,
+        overlay_orchestrator=overlay_orchestrator,
+        hub=hub,
+    )
 
     supervisor = IngestSupervisor(
         store=store,
@@ -86,6 +96,8 @@ def build_market_runtime(
         whitelist_series_ids=whitelist.series_ids,
         ondemand_idle_ttl_s=idle_ttl_s,
         whitelist_ingest_enabled=whitelist_ingest_on,
+        ingest_pipeline=pipeline,
+        enable_ingest_pipeline_v2=bool(effective_flags.enable_ingest_pipeline_v2),
     )
     ws_subscriptions = WsSubscriptionCoordinator(
         hub=hub,
@@ -99,6 +111,8 @@ def build_market_runtime(
         overlay_orchestrator=overlay_orchestrator,
         hub=hub,
         debug_hub=debug_hub,
+        ingest_pipeline=pipeline,
+        enable_ingest_pipeline_v2=bool(effective_flags.enable_ingest_pipeline_v2),
     )
     market_runtime = MarketRuntime(
         store=store,
@@ -118,6 +132,8 @@ def build_market_runtime(
         derived_initial_backfill=derived_initial_backfill,
         ingest=ingest_service,
         ws_catchup_limit=int(settings.market_ws_catchup_limit),
+        ingest_pipeline=pipeline,
+        flags=effective_flags,
     )
 
     return MarketRuntimeBuildResult(

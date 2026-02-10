@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 
+from .flags import FeatureFlags, load_feature_flags
 from .replay_package_protocol_v1 import (
     ReplayBuildRequestV1,
     ReplayBuildResponseV1,
@@ -15,6 +16,24 @@ from .replay_package_protocol_v1 import (
 from .schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
 
 router = APIRouter()
+
+def _runtime_flags(request: Request) -> FeatureFlags:
+    runtime_flags = getattr(getattr(request.app.state, "market_runtime", None), "flags", None)
+    if runtime_flags is not None:
+        return runtime_flags
+    state_flags = getattr(request.app.state, "flags", None)
+    if state_flags is not None:
+        return state_flags
+    loaded = load_feature_flags()
+    request.app.state.flags = loaded
+    return loaded
+
+
+def _runtime_ingest_pipeline(request: Request):
+    runtime_pipeline = getattr(getattr(request.app.state, "market_runtime", None), "ingest_pipeline", None)
+    if runtime_pipeline is not None:
+        return runtime_pipeline
+    return getattr(request.app.state, "ingest_pipeline", None)
 
 
 def _replay_service_or_404(request: Request):
@@ -45,18 +64,20 @@ def prepare_replay(request: Request, payload: ReplayPrepareRequestV1) -> ReplayP
     window_candles = min(5000, max(100, window_candles))
 
     runtime = request.app.state.market_runtime
+    flags = _runtime_flags(request)
+    ingest_pipeline = _runtime_ingest_pipeline(request)
     computed = False
     factor_head = request.app.state.factor_store.head_time(series_id)
     overlay_head = request.app.state.overlay_store.head_time(series_id)
 
-    if runtime.flags.enable_ingest_pipeline_v2:
+    if flags.enable_ingest_pipeline_v2 and ingest_pipeline is not None:
         if (
             factor_head is None
             or int(factor_head) < int(aligned)
             or overlay_head is None
             or int(overlay_head) < int(aligned)
         ):
-            pipeline_result = request.app.state.ingest_pipeline.refresh_series_sync(
+            pipeline_result = ingest_pipeline.refresh_series_sync(
                 up_to_times={series_id: int(aligned)}
             )
             computed = bool(pipeline_result.steps)
@@ -87,7 +108,7 @@ def prepare_replay(request: Request, payload: ReplayPrepareRequestV1) -> ReplayP
     if overlay_head is None or int(overlay_head) < int(aligned):
         raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
 
-    if runtime.flags.enable_debug_api:
+    if flags.enable_debug_api:
         request.app.state.debug_hub.emit(
             pipe="read",
             event="read.http.replay_prepare",

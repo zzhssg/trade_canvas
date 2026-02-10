@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from .debug_hub import DebugHub
 from .factor_orchestrator import FactorOrchestrator
@@ -19,6 +19,10 @@ from .overlay_orchestrator import OverlayOrchestrator
 from .store import CandleStore
 from .whitelist import MarketWhitelist
 from .ws_hub import CandleHub
+
+if TYPE_CHECKING:
+    from .flags import FeatureFlags
+    from .pipelines import IngestPipeline
 
 
 @dataclass(frozen=True)
@@ -40,3 +44,5 @@ class MarketRuntime:
     derived_initial_backfill: Callable[..., Awaitable[None]]
     ingest: MarketIngestService | None = None
     ws_catchup_limit: int = 5000
+    ingest_pipeline: IngestPipeline | None = None
+    flags: FeatureFlags | None = None

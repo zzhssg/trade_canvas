@@ -134,7 +134,7 @@ SDK 不绑定具体存储，但必须满足下列语义：
 3. 保证 `event_key` 幂等（重复 ingest 不产生重复语义）。
 4. 注册默认装配（实现层以 `build_default_factor_manifest()` 为主入口）。
 5. 实现写路径插件钩子（至少 `run_tick`；按需实现 `bootstrap_from_history`/`build_head_snapshot`）。
-6. 注册 slice 事件桶映射（实现层可对应 `build_default_slice_bucket_specs()`）。
+6. 在 `XxxSlicePlugin.bucket_specs` 注册 slice 事件桶映射（`event_kind -> bucket_name`，单点维护）。
 7. 实现并注册 slice 插件（实现层可对应 `build_default_factor_slice_plugins()`）。
 8. （按需）若该因子需要直接输出策略列/信号，补 `freqtrade_signal_plugins` 插件而非改 adapter 主流程。
 9. （按需）若该因子引入 overlay 与 factor 快照一致性约束，补 `overlay_integrity_plugins` 插件而非改 `draw_routes` 主流程。

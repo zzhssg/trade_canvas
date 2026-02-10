@@ -3,9 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import HTTPException
-
-from ..factor_read_freshness import ensure_factor_fresh_for_read
+from ..factor_read_freshness import read_factor_slices_with_freshness
 
 
 @dataclass(frozen=True)
@@ -28,22 +26,6 @@ class FactorReadService:
             return candidate if candidate > 0 else None
         return self.store.floor_time(series_id, at_time=int(at_time))
 
-    def _factor_head_time(self, *, series_id: str) -> int | None:
-        try:
-            head = self.factor_store.head_time(series_id)
-        except Exception:
-            return None
-        if head is None:
-            return None
-        return int(head)
-
-    def _ensure_strict_freshness(self, *, series_id: str, aligned_time: int | None) -> None:
-        if aligned_time is None or int(aligned_time) <= 0:
-            return
-        factor_head = self._factor_head_time(series_id=series_id)
-        if factor_head is None or int(factor_head) < int(aligned_time):
-            raise HTTPException(status_code=409, detail="ledger_out_of_sync:factor")
-
     def read_slices(
         self,
         *,
@@ -58,18 +40,15 @@ class FactorReadService:
             at_time=int(at_time),
             aligned_time=aligned_time,
         )
-        if bool(ensure_fresh):
-            if self.strict_mode:
-                self._ensure_strict_freshness(series_id=series_id, aligned_time=aligned)
-            else:
-                _ = ensure_factor_fresh_for_read(
-                    factor_orchestrator=self.factor_orchestrator,
-                    series_id=series_id,
-                    up_to_time=aligned,
-                )
-        return self.factor_slices_service.get_slices_aligned(
+        return read_factor_slices_with_freshness(
+            store=self.store,
+            factor_orchestrator=self.factor_orchestrator,
+            factor_slices_service=self.factor_slices_service,
             series_id=series_id,
-            aligned_time=aligned,
             at_time=int(at_time),
             window_candles=int(window_candles),
+            aligned_time=aligned,
+            ensure_fresh=bool(ensure_fresh),
+            strict_mode=bool(self.strict_mode),
+            factor_store=self.factor_store,
         )

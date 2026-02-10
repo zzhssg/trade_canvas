@@ -74,3 +74,17 @@ def test_bootstrap_futures_accepts_freqtrade_usdt_suffix_filename(tmp_path, monk
     wrote = maybe_bootstrap_from_freqtrade(store, series_id=series_id, limit=2000)
     assert wrote == 12
     assert store.head_time(series_id) is not None
+
+
+def test_bootstrap_handles_invalid_feather_schema_gracefully(tmp_path, monkeypatch) -> None:
+    datadir = tmp_path / "datadir"
+    datadir.mkdir(parents=True, exist_ok=True)
+    bad = pd.DataFrame({"foo": [1, 2], "bar": [3, 4]})
+    bad.to_feather(datadir / "BTC_USDT-1m.feather")
+
+    monkeypatch.setenv("TRADE_CANVAS_MARKET_HISTORY_SOURCE", "freqtrade")
+    monkeypatch.setenv("TRADE_CANVAS_FREQTRADE_DATADIR", str(datadir))
+
+    store = CandleStore(db_path=tmp_path / "market.db")
+    wrote = maybe_bootstrap_from_freqtrade(store, series_id="binance:spot:BTC/USDT:1m", limit=100)
+    assert wrote == 0

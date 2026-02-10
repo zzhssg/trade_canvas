@@ -5,21 +5,51 @@ from typing import Any
 
 from .anchor_semantics import build_anchor_history_from_switches, normalize_anchor_ref
 from .factor_plugin_contract import FactorPluginSpec
-from .factor_processor_slice_buckets import SliceBucketSpec, build_default_slice_bucket_specs
+from .factor_processor_slice_buckets import SliceBucketSpec
 from .factor_slice_plugin_contract import FactorSliceBuildContext, FactorSlicePlugin
 from .factor_slices import build_pen_head_preview
 from .schemas import FactorMetaV1, FactorSliceV1
 from .zhongshu import build_alive_zhongshu_from_confirmed_pens
 
+_PIVOT_BUCKET_SPECS: tuple[SliceBucketSpec, ...] = (
+    SliceBucketSpec(
+        factor_name="pivot",
+        event_kind="pivot.major",
+        bucket_name="piv_major",
+        sort_keys=("visible_time", "pivot_time"),
+    ),
+    SliceBucketSpec(
+        factor_name="pivot",
+        event_kind="pivot.minor",
+        bucket_name="piv_minor",
+    ),
+)
 
-def _build_bucket_specs_by_factor() -> dict[str, tuple[SliceBucketSpec, ...]]:
-    grouped: dict[str, list[SliceBucketSpec]] = {}
-    for spec in build_default_slice_bucket_specs():
-        grouped.setdefault(str(spec.factor_name), []).append(spec)
-    return {name: tuple(items) for name, items in grouped.items()}
+_PEN_BUCKET_SPECS: tuple[SliceBucketSpec, ...] = (
+    SliceBucketSpec(
+        factor_name="pen",
+        event_kind="pen.confirmed",
+        bucket_name="pen_confirmed",
+        sort_keys=("visible_time", "start_time"),
+    ),
+)
 
+_ZHONGSHU_BUCKET_SPECS: tuple[SliceBucketSpec, ...] = (
+    SliceBucketSpec(
+        factor_name="zhongshu",
+        event_kind="zhongshu.dead",
+        bucket_name="zhongshu_dead",
+    ),
+)
 
-_DEFAULT_BUCKET_SPECS_BY_FACTOR = _build_bucket_specs_by_factor()
+_ANCHOR_BUCKET_SPECS: tuple[SliceBucketSpec, ...] = (
+    SliceBucketSpec(
+        factor_name="anchor",
+        event_kind="anchor.switch",
+        bucket_name="anchor_switches",
+        sort_keys=("visible_time", "switch_time"),
+    ),
+)
 
 
 def _meta(*, ctx: FactorSliceBuildContext, factor_name: str) -> FactorMetaV1:
@@ -71,7 +101,7 @@ def _candidate_anchor_from_pen_head(pen_head_candidate: Any) -> tuple[dict[str, 
 @dataclass(frozen=True)
 class PivotSlicePlugin:
     spec: FactorPluginSpec = FactorPluginSpec(factor_name="pivot", depends_on=())
-    bucket_specs: tuple[SliceBucketSpec, ...] = _DEFAULT_BUCKET_SPECS_BY_FACTOR.get("pivot", ())
+    bucket_specs: tuple[SliceBucketSpec, ...] = _PIVOT_BUCKET_SPECS
 
     def build_snapshot(self, ctx: FactorSliceBuildContext) -> FactorSliceV1 | None:
         piv_major = list(ctx.buckets.get("piv_major") or [])
@@ -88,7 +118,7 @@ class PivotSlicePlugin:
 @dataclass(frozen=True)
 class PenSlicePlugin:
     spec: FactorPluginSpec = FactorPluginSpec(factor_name="pen", depends_on=("pivot",))
-    bucket_specs: tuple[SliceBucketSpec, ...] = _DEFAULT_BUCKET_SPECS_BY_FACTOR.get("pen", ())
+    bucket_specs: tuple[SliceBucketSpec, ...] = _PEN_BUCKET_SPECS
 
     def build_snapshot(self, ctx: FactorSliceBuildContext) -> FactorSliceV1 | None:
         pen_confirmed = list(ctx.buckets.get("pen_confirmed") or [])
@@ -130,7 +160,7 @@ class PenSlicePlugin:
 @dataclass(frozen=True)
 class ZhongshuSlicePlugin:
     spec: FactorPluginSpec = FactorPluginSpec(factor_name="zhongshu", depends_on=("pen",))
-    bucket_specs: tuple[SliceBucketSpec, ...] = _DEFAULT_BUCKET_SPECS_BY_FACTOR.get("zhongshu", ())
+    bucket_specs: tuple[SliceBucketSpec, ...] = _ZHONGSHU_BUCKET_SPECS
 
     def build_snapshot(self, ctx: FactorSliceBuildContext) -> FactorSliceV1 | None:
         pen_confirmed = list(ctx.buckets.get("pen_confirmed") or [])
@@ -188,7 +218,7 @@ class ZhongshuSlicePlugin:
 @dataclass(frozen=True)
 class AnchorSlicePlugin:
     spec: FactorPluginSpec = FactorPluginSpec(factor_name="anchor", depends_on=("pen", "zhongshu"))
-    bucket_specs: tuple[SliceBucketSpec, ...] = _DEFAULT_BUCKET_SPECS_BY_FACTOR.get("anchor", ())
+    bucket_specs: tuple[SliceBucketSpec, ...] = _ANCHOR_BUCKET_SPECS
 
     def build_snapshot(self, ctx: FactorSliceBuildContext) -> FactorSliceV1 | None:
         pen_confirmed = list(ctx.buckets.get("pen_confirmed") or [])

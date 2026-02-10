@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 import unittest
 from dataclasses import dataclass
+
+from fastapi import HTTPException
 
 from backend.app.factor_read_freshness import ensure_factor_fresh_for_read, read_factor_slices_with_freshness
 
@@ -45,6 +48,15 @@ class _FakeSlicesService:
     ) -> dict:
         self.calls.append((str(series_id), aligned_time, int(at_time), int(window_candles)))
         return {"series_id": str(series_id), "aligned_time": aligned_time, "at_time": int(at_time)}
+
+
+class _FakeFactorStore:
+    def __init__(self, head_time: int | None) -> None:
+        self._head_time = head_time
+
+    def head_time(self, series_id: str) -> int | None:
+        _ = series_id
+        return self._head_time
 
 
 class EnsureFactorFreshForReadTests(unittest.TestCase):
@@ -126,6 +138,49 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
             ensure_fresh=False,
         )
         self.assertEqual(orchestrator.calls, [])
+        self.assertEqual(slices_service.calls, [("s", 300, 360, 120)])
+        self.assertEqual(payload["aligned_time"], 300)
+
+    def test_read_factor_slices_with_freshness_strict_mode_rejects_stale_factor(self) -> None:
+        store = _FakeStore(aligned_time=300)
+        orchestrator = _FakeOrchestrator(rebuilt=True)
+        slices_service = _FakeSlicesService()
+        factor_store = _FakeFactorStore(head_time=120)
+        with self.assertRaises(HTTPException) as ctx:
+            read_factor_slices_with_freshness(
+                store=store,
+                factor_orchestrator=orchestrator,
+                factor_slices_service=slices_service,
+                factor_store=factor_store,
+                series_id="s",
+                at_time=360,
+                aligned_time=300,
+                window_candles=120,
+                strict_mode=True,
+            )
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(orchestrator.calls, [])
+        self.assertEqual(slices_service.calls, [])
+
+    def test_read_factor_slices_with_freshness_explicit_strict_mode_overrides_env(self) -> None:
+        store = _FakeStore(aligned_time=300)
+        orchestrator = _FakeOrchestrator(rebuilt=False)
+        slices_service = _FakeSlicesService()
+        os.environ["TRADE_CANVAS_ENABLE_READ_STRICT_MODE"] = "1"
+        try:
+            payload = read_factor_slices_with_freshness(
+                store=store,
+                factor_orchestrator=orchestrator,
+                factor_slices_service=slices_service,
+                series_id="s",
+                at_time=360,
+                aligned_time=300,
+                window_candles=120,
+                strict_mode=False,
+            )
+        finally:
+            os.environ.pop("TRADE_CANVAS_ENABLE_READ_STRICT_MODE", None)
+        self.assertEqual(orchestrator.calls, [("s", 300)])
         self.assertEqual(slices_service.calls, [("s", 300, 360, 120)])
         self.assertEqual(payload["aligned_time"], 300)
 

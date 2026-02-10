@@ -87,6 +87,17 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
         finally:
             client.close()
 
+    def test_runtime_pipeline_and_hub_use_single_instance(self) -> None:
+        client = self._build_client()
+        try:
+            runtime = client.app.state.market_runtime
+            pipeline = client.app.state.ingest_pipeline
+            self.assertIs(runtime.ingest_pipeline, pipeline)
+            self.assertIs(client.app.state.hub, runtime.hub)
+            self.assertIs(getattr(pipeline, "_hub", None), client.app.state.hub)
+        finally:
+            client.close()
+
     def test_read_strict_mode_blocks_implicit_factor_recompute(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "0"
         os.environ["TRADE_CANVAS_ENABLE_OVERLAY_INGEST"] = "1"
