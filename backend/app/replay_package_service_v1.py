@@ -72,14 +72,12 @@ class ReplayPackageServiceV1:
         window_size: int = 500,
         snapshot_interval: int = 25,
         ingest_pipeline: IngestPipeline | None = None,
-        enable_ingest_pipeline_v2: bool = False,
     ) -> None:
         self._candle_store = candle_store
         self._factor_store = factor_store
         self._overlay_store = overlay_store
         self._factor_slices_service = factor_slices_service
         self._ingest_pipeline = ingest_pipeline
-        self._enable_ingest_pipeline_v2 = bool(enable_ingest_pipeline_v2)
         self._defaults = {
             "window_candles": int(window_candles),
             "window_size": int(window_size),
@@ -597,8 +595,6 @@ class ReplayPackageServiceV1:
         series_id: str,
         target_candles: int,
         to_time: int | None,
-        factor_orchestrator=None,
-        overlay_orchestrator=None,
     ) -> tuple[str, str]:
         if not self.coverage_enabled():
             raise HTTPException(status_code=404, detail="not_found")
@@ -638,28 +634,11 @@ class ReplayPackageServiceV1:
                         end_time=int(to_time or 0),
                     )
 
-                if self._enable_ingest_pipeline_v2 and self._ingest_pipeline is not None:
-                    self._ingest_pipeline.refresh_series_sync(
-                        up_to_times={series_id: int(to_time or 0)},
-                    )
-                else:
-                    factor_rebuilt = False
-                    if factor_orchestrator is not None:
-                        try:
-                            factor_result = factor_orchestrator.ingest_closed(
-                                series_id=series_id,
-                                up_to_candle_time=int(to_time or 0),
-                            )
-                            factor_rebuilt = bool(getattr(factor_result, "rebuilt", False))
-                        except Exception:
-                            pass
-                    if overlay_orchestrator is not None:
-                        try:
-                            if factor_rebuilt:
-                                overlay_orchestrator.reset_series(series_id=series_id)
-                            overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time or 0))
-                        except Exception:
-                            pass
+                if self._ingest_pipeline is None:
+                    raise RuntimeError("ingest_pipeline_not_configured")
+                self._ingest_pipeline.refresh_series_sync(
+                    up_to_times={series_id: int(to_time or 0)},
+                )
 
                 cov = self._coverage(series_id=series_id, to_time=int(to_time or 0), target_candles=int(target_candles))
                 with self._lock:

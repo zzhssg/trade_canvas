@@ -196,7 +196,11 @@ class IngestPipeline:
         if self._hub is None:
             return
         for batch in result.series_batches:
-            await self._hub.publish_closed_batch(series_id=batch.series_id, candles=list(batch.candles))
+            candles = list(batch.candles)
+            if len(candles) == 1:
+                await self._hub.publish_closed(series_id=batch.series_id, candle=candles[0])
+            else:
+                await self._hub.publish_closed_batch(series_id=batch.series_id, candles=candles)
         await self.publish_system_rebuilds(result=result)
 
     async def publish_system_rebuilds(self, *, result: IngestPipelineResult) -> None:

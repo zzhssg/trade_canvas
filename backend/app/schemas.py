@@ -96,6 +96,35 @@ class TopMarketsResponse(BaseModel):
     items: list[TopMarketItem]
 
 
+class MarketBackfillStatusResponse(BaseModel):
+    state: str
+    progress_pct: float | None
+    started_at: int | None
+    updated_at: int | None
+    reason: str | None = None
+    note: str | None = None
+    error: str | None = None
+    recent: bool = False
+    start_missing_seconds: int = 0
+    start_missing_candles: int = 0
+    current_missing_seconds: int = 0
+    current_missing_candles: int = 0
+
+
+class MarketHealthResponse(BaseModel):
+    series_id: str
+    timeframe_seconds: int
+    now_time: int
+    expected_latest_closed_time: int
+    head_time: int | None
+    lag_seconds: int | None
+    missing_seconds: int | None
+    missing_candles: int | None
+    status: str
+    status_reason: str
+    backfill: MarketBackfillStatusResponse
+
+
 class PlotLinePointV1(BaseModel):
     time: int = Field(..., description="Unix seconds (candle open time)")
     value: float

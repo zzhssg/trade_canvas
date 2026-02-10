@@ -3,15 +3,17 @@ import { useEffect } from "react";
 import { ChartView } from "../widgets/ChartView";
 import { useCenterScrollLock } from "../layout/centerScrollLock";
 import { FactorPanel } from "./FactorPanel";
+import { LiveKlineLamp } from "./LiveKlineLamp";
 import { useReplayStore } from "../state/replayStore";
 import { useUiStore } from "../state/uiStore";
 import { useTopMarkets } from "../services/useTopMarkets";
 
 const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
 const ENABLE_REPLAY_V1 = String(import.meta.env.VITE_ENABLE_REPLAY_V1 ?? "1") === "1";
+const ENABLE_KLINE_HEALTH_LAMP_V2 = String(import.meta.env.VITE_ENABLE_KLINE_HEALTH_LAMP_V2 ?? "0") === "1";
 
 export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
-  const { market, setMarket, symbol, setSymbol, timeframe, setTimeframe } = useUiStore();
+  const { exchange, market, setMarket, symbol, setSymbol, timeframe, setTimeframe } = useUiStore();
   const replayMode = useReplayStore((s) => s.mode);
   const setReplayMode = useReplayStore((s) => s.setMode);
   const scrollLock = useCenterScrollLock();
@@ -20,6 +22,7 @@ export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
   const timeframeOptions = (TIMEFRAMES as readonly string[]).includes(timeframe)
     ? TIMEFRAMES
     : ([...TIMEFRAMES, timeframe] as const);
+  const seriesId = `${exchange}:${market}:${symbol}:${timeframe}`;
 
   useEffect(() => {
     setReplayMode(mode);
@@ -109,6 +112,7 @@ export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {ENABLE_KLINE_HEALTH_LAMP_V2 && replayMode === "live" ? <LiveKlineLamp seriesId={seriesId} /> : null}
             <button
               type="button"
               data-testid="mode-toggle"

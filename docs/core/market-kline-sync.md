@@ -2,7 +2,7 @@
 title: 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
 status: draft
 created: 2026-02-02
-updated: 2026-02-09
+updated: 2026-02-10
 ---
 
 # 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
@@ -203,6 +203,14 @@ updated: 2026-02-09
 - `market_http_routes.py` 仅保留参数/权限门禁与 `runtime.ingest` 调用，路由层不再承载写链路编排细节。
 - 新增 `market_runtime_builder.py`，将 market runtime 相关装配从 `main.py` 拆出；`main.py` 只保留 app 级装配与生命周期管理。
 - `history_bootstrapper.py` 的 datadir 读取不再直接访问 `TRADE_CANVAS_FREQTRADE_DATADIR`，改为复用 `config.Settings.freqtrade_datadir`，配置入口更统一。
+
+### 1.18 收口进度（Phase R，Live K 线健康灯口径统一）
+
+针对 Live 模式三色灯（绿/黄/红）新增统一健康口径与可观测字段：
+- 新增 `GET /api/market/health`（受 `TRADE_CANVAS_ENABLE_KLINE_HEALTH_V2` 控制，默认关闭）。
+- 后端新增 `MarketBackfillProgressTracker`，在 `ensure_tail_coverage` 过程中跟踪回补状态与估算进度。
+- 返回 `missing_seconds / missing_candles`（DB 相对最新闭合 K 的缺失）与 `backfill.progress_pct`（黄灯进度展示）。
+- 前端通过 `VITE_ENABLE_KLINE_HEALTH_LAMP_V2` 控制是否展示 mode:live 左侧灯状态，便于灰度和回滚。
 
 ---
 

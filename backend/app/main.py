@@ -21,7 +21,6 @@ from .market_ws_routes import handle_market_ws
 from .overlay_package_routes import register_overlay_package_routes
 from .replay_routes import register_replay_routes
 from .world_routes import register_world_routes
-from .worktree_manager import WorktreeManager
 
 _faulthandler_file: TextIO | None = None
 
@@ -89,27 +88,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.state.store = container.store
-    app.state.hub = container.hub
-    app.state.market_runtime = container.market_runtime
-    app.state.factor_store = container.factor_store
-    app.state.factor_orchestrator = container.factor_orchestrator
-    app.state.factor_slices_service = container.factor_slices_service
-    app.state.factor_read_service = container.factor_read_service
-    app.state.draw_read_service = container.draw_read_service
-    app.state.overlay_store = container.overlay_store
-    app.state.overlay_orchestrator = container.overlay_orchestrator
-    app.state.replay_service = container.replay_service
-    app.state.overlay_pkg_service = container.overlay_pkg_service
-    app.state.debug_hub = container.debug_hub
-    app.state.settings = container.settings
-    app.state.flags = container.flags
-    app.state.project_root = container.project_root
-    app.state.ingest_pipeline = container.ingest_pipeline
-    app.state.read_factor_slices = container.read_factor_slices
-
-    worktree_manager = WorktreeManager(repo_root=project_root)
-    app.state.worktree_manager = worktree_manager
+    app.state.container = container
 
     register_factor_routes(app)
     register_draw_routes(app)
@@ -123,11 +102,15 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/market")
     async def ws_market(ws: WebSocket) -> None:
-        await handle_market_ws(ws)
+        await handle_market_ws(ws, runtime=container.market_runtime)
 
     @app.websocket("/ws/debug")
     async def ws_debug(ws: WebSocket) -> None:
-        await handle_debug_ws(ws)
+        await handle_debug_ws(
+            ws,
+            debug_hub=container.debug_hub,
+            flags=container.flags,
+        )
 
     return app
 

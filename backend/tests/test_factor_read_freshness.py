@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import unittest
 from dataclasses import dataclass
 
@@ -162,24 +161,20 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
         self.assertEqual(orchestrator.calls, [])
         self.assertEqual(slices_service.calls, [])
 
-    def test_read_factor_slices_with_freshness_explicit_strict_mode_overrides_env(self) -> None:
+    def test_read_factor_slices_with_freshness_non_strict_keeps_auto_ingest(self) -> None:
         store = _FakeStore(aligned_time=300)
         orchestrator = _FakeOrchestrator(rebuilt=False)
         slices_service = _FakeSlicesService()
-        os.environ["TRADE_CANVAS_ENABLE_READ_STRICT_MODE"] = "1"
-        try:
-            payload = read_factor_slices_with_freshness(
-                store=store,
-                factor_orchestrator=orchestrator,
-                factor_slices_service=slices_service,
-                series_id="s",
-                at_time=360,
-                aligned_time=300,
-                window_candles=120,
-                strict_mode=False,
-            )
-        finally:
-            os.environ.pop("TRADE_CANVAS_ENABLE_READ_STRICT_MODE", None)
+        payload = read_factor_slices_with_freshness(
+            store=store,
+            factor_orchestrator=orchestrator,
+            factor_slices_service=slices_service,
+            series_id="s",
+            at_time=360,
+            aligned_time=300,
+            window_candles=120,
+            strict_mode=False,
+        )
         self.assertEqual(orchestrator.calls, [("s", 300)])
         self.assertEqual(slices_service.calls, [("s", 300, 360, 120)])
         self.assertEqual(payload["aligned_time"], 300)

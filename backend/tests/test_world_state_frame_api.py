@@ -110,6 +110,8 @@ class WorldStateFrameApiTests(unittest.TestCase):
     def test_frame_at_time_debug_mode_no_name_error(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
         try:
+            self.client.close()
+            self.client = TestClient(create_app())
             base = 60
             prices = [1, 2, 5, 2, 1, 2, 5, 2, 1]
             times = [base * (i + 1) for i in range(len(prices))]

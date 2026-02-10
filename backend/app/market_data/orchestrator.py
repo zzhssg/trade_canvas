@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from ..blocking import run_blocking
-from ..market_flags import market_gap_backfill_enabled
 from ..schemas import CandleClosed
 from ..timeframe import series_id_timeframe, timeframe_to_seconds
 from ..ws_hub import CandleHub
@@ -145,9 +144,10 @@ def build_gap_backfill_handler(
     reader: CandleReadService,
     backfill: BackfillService,
     read_limit: int = 5000,
+    enabled: bool = False,
 ):
     async def _handler(series_id: str, expected_next_time: int, actual_time: int) -> list[CandleClosed]:
-        if not market_gap_backfill_enabled():
+        if not bool(enabled):
             return []
 
         res = await run_blocking(

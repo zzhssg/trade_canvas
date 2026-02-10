@@ -216,12 +216,12 @@ def test_store_backfill_service_falls_back_to_ccxt_for_missing_window(monkeypatc
                 conn.commit()
             return 2
 
-        monkeypatch.setenv("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", "1")
         monkeypatch.setattr("backend.app.market_data.read_services.backfill_from_ccxt_range", fake_ccxt_backfill)
 
         svc = StoreBackfillService(
             store=store,
             tail_backfill_fn=fake_tail_backfill,
+            enable_ccxt_backfill=True,
         )
         covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=3600)
         assert covered == 2
@@ -253,14 +253,14 @@ def test_store_backfill_service_to_time_none_uses_now_window_for_stale_series(mo
                 conn.commit()
             return 1
 
-        monkeypatch.setenv("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", "1")
-        monkeypatch.setenv("TRADE_CANVAS_ENABLE_CCXT_BACKFILL_ON_READ", "1")
         monkeypatch.setattr("backend.app.market_data.read_services.backfill_from_ccxt_range", fake_ccxt_backfill)
         monkeypatch.setattr("backend.app.market_data.read_services.time.time", lambda: 3661)
 
         svc = StoreBackfillService(
             store=store,
             tail_backfill_fn=fake_tail_backfill,
+            enable_ccxt_backfill=True,
+            enable_ccxt_backfill_on_read=True,
         )
         covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=None)
         assert covered == 2
@@ -285,13 +285,13 @@ def test_store_backfill_service_to_time_none_skips_ccxt_by_default(monkeypatch) 
             called.append((int(start_time), int(end_time)))
             return 0
 
-        monkeypatch.setenv("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", "1")
         monkeypatch.setattr("backend.app.market_data.read_services.backfill_from_ccxt_range", fake_ccxt_backfill)
         monkeypatch.setattr("backend.app.market_data.read_services.time.time", lambda: 3661)
 
         svc = StoreBackfillService(
             store=store,
             tail_backfill_fn=fake_tail_backfill,
+            enable_ccxt_backfill=True,
         )
         covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=None)
         assert covered == 1
@@ -325,7 +325,7 @@ def test_store_backfill_service_derived_5m_can_rollup_from_base_1m() -> None:
         assert [int(c.candle_time) for c in candles] == [3600, 3900]
 
 
-def test_build_gap_backfill_handler_applies_flag_and_reads_recovered_interval(monkeypatch) -> None:
+def test_build_gap_backfill_handler_applies_flag_and_reads_recovered_interval() -> None:
     with tempfile.TemporaryDirectory() as td:
         store = CandleStore(db_path=Path(td) / "market.db")
         series_id = "binance:futures:BTC/USDT:1m"
@@ -346,14 +346,20 @@ def test_build_gap_backfill_handler_applies_flag_and_reads_recovered_interval(mo
             store=store,
             gap_backfill_fn=fake_gap_backfill,
         )
-        handler = build_gap_backfill_handler(reader=reader, backfill=backfill)
-
-        monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL", "0")
-        disabled = asyncio.run(handler(series_id, 160, 220))
+        handler_disabled = build_gap_backfill_handler(
+            reader=reader,
+            backfill=backfill,
+            enabled=False,
+        )
+        disabled = asyncio.run(handler_disabled(series_id, 160, 220))
         assert disabled == []
 
-        monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL", "1")
-        recovered = asyncio.run(handler(series_id, 160, 220))
+        handler_enabled = build_gap_backfill_handler(
+            reader=reader,
+            backfill=backfill,
+            enabled=True,
+        )
+        recovered = asyncio.run(handler_enabled(series_id, 160, 220))
         assert [int(c.candle_time) for c in recovered] == [160]
 
 

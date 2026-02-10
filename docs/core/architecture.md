@@ -20,7 +20,7 @@
 │  │  └───────────┘        ▲         │    │         ▼             ▼         │ │
 │  │        │              │         │    │  ┌─────────────────────────┐    │ │
 │  │        ▼              │         │    │  │    Orchestrators        │    │ │
-│  │  ┌─────────────────────────┐    │    │  │  Factor │ Overlay │Plot │    │ │
+│  │  ┌─────────────────────────┐    │    │  │    Factor │ Overlay     │    │ │
 │  │  │   State (Zustand)       │    │    │  └─────────────────────────┘    │ │
 │  │  │  uiStore │ factorStore  │    │    │         │             │         │ │
 │  │  └─────────────────────────┘    │    │         ▼             ▼         │ │
@@ -49,10 +49,11 @@
 ## 1.1 2026-02-10 后端硬化增量（M0-M3）
 
 - 新增 `backend/app/container.py`：集中装配 runtime、orchestrator、store、hub，`main.py` 只保留入口与路由挂载。
-- 新增 `backend/app/flags.py`：集中主链路开关（含 `TRADE_CANVAS_ENABLE_INGEST_PIPELINE_V2`、`TRADE_CANVAS_ENABLE_READ_STRICT_MODE`）。
+- 新增 `backend/app/flags.py`：集中主链路开关（含 `TRADE_CANVAS_ENABLE_READ_STRICT_MODE` 等）。
+- 新增 `backend/app/dependencies.py`：统一 FastAPI 依赖注入入口，路由不再直接访问 `app.state`。
 - 新增 `backend/app/pipelines/ingest_pipeline.py`：统一 closed 写链路（store/factor/overlay/publish）。
 - 新增 `backend/app/read_models/factor_read_service.py`：统一 factor 读模型；strict 模式仅读不写，落后即 `409`。
-- `MarketRuntime` 显式注入 `flags + ingest_pipeline`，路由层改为从 runtime 读取开关与能力。
+- `MarketRuntime` 显式注入 `flags + ingest_pipeline`，WS 入口改为显式注入 runtime/debug 依赖。
 
 ## 2. 目录结构
 
@@ -76,7 +77,7 @@ trade_canvas/
 │       ├── store.py            # CandleStore (SQLite)
 │       ├── factor_*.py         # 因子模块: orchestrator, store
 │       ├── overlay_*.py        # 覆盖层模块: orchestrator, store
-│       ├── plot_*.py           # 绘图模块: orchestrator, store
+│       ├── read_models/        # 读模型: factor/draw read service
 │       ├── ingest_*.py         # 数据摄入: supervisor, binance_ws
 │       ├── ws_hub.py           # WebSocket 连接管理
 │       ├── pivot.py            # 枢纽计算
@@ -178,6 +179,13 @@ trade_canvas/
   - 常态：`LIMIT` 读取最近事件，快速重建增量状态。
   - 命中上限：自动切换为 `paged_full_scan`（按 `candle_time,id` 分页遍历），保证给定时间窗内事件不被截断。
 - 对外通过 debug 事件 `factor.state_rebuild.limit_reached` 暴露降级信息（含 `mode=paged_full_scan`），便于排查“重建窗口过大”场景。
+- 运行时职责已拆分为“调度 + 配置 + 重建”三块：
+  - `factor_orchestrator.py`：保留 tick 调度与写入主链路；
+  - `factor_runtime_config.py`：集中解析因子链路 env 参数；
+  - `factor_rebuild_loader.py`：集中处理重建分桶、分页扫描与 bootstrap 恢复。
+  - `factor_fingerprint.py`：集中处理指纹构建与逻辑版本覆盖，保障自动重建判断的一致性。
+  - `factor_fingerprint_rebuild.py`：集中处理指纹不匹配时的 trim+clear+fingerprint 更新事务流程。
+  - `factor_ingest_window.py`：集中处理 ingest 窗口规划与 candles 读取批次构建（含 process_times 计算）。
 
 ```
 CandleClosed Event
@@ -293,9 +301,6 @@ OverlayStore (overlay_store.py)
 ├── overlay_instruction_versions (version_id, instruction_id, kind, payload)
 └── overlay_series_state (series_id, head_time)
 
-PlotStore (plot_store.py)
-├── plot_line_points (series_id, feature_key, candle_time, value)
-└── plot_overlay_events (series_id, kind, payload)
 ```
 
 ## 8. 关键文件索引

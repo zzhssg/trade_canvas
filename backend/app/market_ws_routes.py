@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from .market_runtime import MarketRuntime
 from .ws_protocol import WS_MSG_SUBSCRIBE, WS_MSG_UNSUBSCRIBE
 
 
-async def handle_market_ws(ws: WebSocket) -> None:
+async def handle_market_ws(ws: WebSocket, *, runtime: MarketRuntime) -> None:
     await ws.accept()
-    runtime = ws.app.state.market_runtime
     ws_messages = runtime.ws_messages
     ws_subscriptions = runtime.ws_subscriptions
     ondemand_enabled = bool(runtime.flags.enable_ondemand_ingest)

@@ -48,6 +48,7 @@ class BacktestDataAvailabilityTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_FREQTRADE_ROOT"] = str(root)
 
         self.client = TestClient(create_app())
+        self.backtest_service = self.client.app.state.container.backtest_service
 
     def tearDown(self) -> None:
         self.tmpdir.cleanup()
@@ -79,8 +80,8 @@ class BacktestDataAvailabilityTests(unittest.TestCase):
             stderr="",
         )
 
-        with patch("backend.app.backtest_routes.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
-            "backend.app.backtest_routes.run_backtest_async", new=AsyncMock()
+        with patch.object(self.backtest_service, "_list_strategies", new=AsyncMock(return_value=list_ok)), patch.object(
+            self.backtest_service, "_run_backtest", new=AsyncMock()
         ) as mock_run:
             resp = self.client.post(
                 "/api/backtest/run",

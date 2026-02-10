@@ -6,41 +6,90 @@ import time
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 
-from .market_flags import debug_api_enabled
+from .dependencies import MarketRuntimeDep
+from .market_health_service import build_market_health_snapshot
 from .market_kline_health import analyze_series_health
-from .schemas import TopMarketItem, TopMarketsLimitQuery, TopMarketsResponse
+from .schemas import MarketBackfillStatusResponse, MarketHealthResponse, TopMarketItem, TopMarketsLimitQuery, TopMarketsResponse
 
 router = APIRouter()
 
 
 @router.get("/api/market/whitelist")
-def get_market_whitelist(request: Request) -> dict[str, list[str]]:
-    whitelist = request.app.state.market_runtime.whitelist
+def get_market_whitelist(runtime: MarketRuntimeDep) -> dict[str, list[str]]:
+    whitelist = runtime.whitelist
     return {"series_ids": list(whitelist.series_ids)}
 
 
 @router.get("/api/market/debug/ingest_state")
-async def get_market_ingest_state(request: Request) -> dict:
-    if not debug_api_enabled():
+async def get_market_ingest_state(runtime: MarketRuntimeDep) -> dict:
+    if not bool(runtime.runtime_flags.enable_debug_api):
         raise HTTPException(status_code=404, detail="not_found")
-    return await request.app.state.market_runtime.supervisor.debug_snapshot()
+    return await runtime.supervisor.debug_snapshot()
 
 
 @router.get("/api/market/debug/series_health")
 def get_market_series_health(
-    request: Request,
     series_id: str = Query(..., min_length=1),
     max_recent_gaps: int = Query(5, ge=1, le=50),
     recent_base_buckets: int = Query(8, ge=1, le=48),
+    *,
+    runtime: MarketRuntimeDep,
 ) -> dict:
-    if not debug_api_enabled():
+    if not bool(runtime.runtime_flags.enable_debug_api):
         raise HTTPException(status_code=404, detail="not_found")
-    runtime = request.app.state.market_runtime
     return analyze_series_health(
         store=runtime.store,
         series_id=series_id,
         max_recent_gaps=int(max_recent_gaps),
         recent_base_buckets=int(recent_base_buckets),
+    )
+
+
+@router.get("/api/market/health", response_model=MarketHealthResponse)
+def get_market_health(
+    series_id: str = Query(..., min_length=1),
+    now_time: int | None = Query(None, ge=0),
+    *,
+    runtime: MarketRuntimeDep,
+) -> MarketHealthResponse:
+    runtime_flags = runtime.runtime_flags
+    if not (bool(runtime_flags.enable_kline_health_v2) or bool(runtime_flags.enable_debug_api)):
+        raise HTTPException(status_code=404, detail="not_found")
+    try:
+        snapshot = build_market_health_snapshot(
+            runtime=runtime,
+            series_id=series_id,
+            now_time=now_time,
+            backfill_recent_seconds=int(runtime_flags.kline_health_backfill_recent_seconds),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return MarketHealthResponse(
+        series_id=snapshot.series_id,
+        timeframe_seconds=snapshot.timeframe_seconds,
+        now_time=snapshot.now_time,
+        expected_latest_closed_time=snapshot.expected_latest_closed_time,
+        head_time=snapshot.head_time,
+        lag_seconds=snapshot.lag_seconds,
+        missing_seconds=snapshot.missing_seconds,
+        missing_candles=snapshot.missing_candles,
+        status=snapshot.status,
+        status_reason=snapshot.status_reason,
+        backfill=MarketBackfillStatusResponse(
+            state=snapshot.backfill.state,
+            progress_pct=snapshot.backfill.progress_pct,
+            started_at=snapshot.backfill.started_at,
+            updated_at=snapshot.backfill.updated_at,
+            reason=snapshot.backfill.reason,
+            note=snapshot.backfill.note,
+            error=snapshot.backfill.error,
+            recent=snapshot.backfill.recent,
+            start_missing_seconds=snapshot.backfill.start_missing_seconds,
+            start_missing_candles=snapshot.backfill.start_missing_candles,
+            current_missing_seconds=snapshot.backfill.current_missing_seconds,
+            current_missing_candles=snapshot.backfill.current_missing_candles,
+        ),
     )
 
 
@@ -52,15 +101,17 @@ def get_top_markets(
     quote_asset: str = Query("USDT", min_length=1, max_length=12),
     limit: TopMarketsLimitQuery = 20,
     force: bool = False,
+    *,
+    runtime: MarketRuntimeDep,
 ) -> TopMarketsResponse:
     if exchange != "binance":
         raise HTTPException(status_code=400, detail="unsupported exchange")
     if force:
         ip = request.client.host if request.client else "unknown"
-        if not request.app.state.market_runtime.force_limiter.allow(key=f"{ip}:{market}"):
+        if not runtime.force_limiter.allow(key=f"{ip}:{market}"):
             raise HTTPException(status_code=429, detail="rate_limited")
     try:
-        items, cached = request.app.state.market_runtime.market_list.get_top_markets(
+        items, cached = runtime.market_list.get_top_markets(
             market=market,
             quote_asset=quote_asset,
             limit=limit,
@@ -102,6 +153,8 @@ async def stream_top_markets(
     limit: TopMarketsLimitQuery = 20,
     interval_s: float = Query(2.0, ge=0.2, le=30.0),
     max_events: int = Query(0, ge=0, le=1000),
+    *,
+    runtime: MarketRuntimeDep,
 ) -> StreamingResponse:
     if exchange != "binance":
         raise HTTPException(status_code=400, detail="unsupported exchange")
@@ -111,7 +164,7 @@ async def stream_top_markets(
         import functools
 
         fn = functools.partial(
-            request.app.state.market_runtime.market_list.get_top_markets,
+            runtime.market_list.get_top_markets,
             market=market,
             quote_asset=quote_asset,
             limit=limit,

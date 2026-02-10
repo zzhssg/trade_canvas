@@ -144,7 +144,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(payload_mid["to_candle_id"], f"{self.series_id}:{t_mid}")
 
         # Force overlay head_time to lag behind, then requesting a later at_time must fail-safe.
-        overlay_store = self.client.app.state.overlay_store
+        overlay_store = self.client.app.state.container.overlay_store
         with overlay_store.connect() as conn:
             conn.execute(
                 "UPDATE overlay_series_state SET head_time = ? WHERE series_id = ?",
@@ -172,7 +172,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(int(warm.json()["to_candle_time"]), int(times[-1]))
 
         # Simulate stale overlay head_time; live draw path should still return latest closed candle.
-        overlay_store = self.client.app.state.overlay_store
+        overlay_store = self.client.app.state.container.overlay_store
         with overlay_store.connect() as conn:
             conn.execute(
                 "UPDATE overlay_series_state SET head_time = ? WHERE series_id = ?",
@@ -349,7 +349,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(first.status_code, 200, first.text)
         self.assertIn("anchor.current", first.json().get("active_ids") or [])
 
-        overlay_store = self.client.app.state.overlay_store
+        overlay_store = self.client.app.state.container.overlay_store
         with overlay_store.connect() as conn:
             conn.execute(
                 "DELETE FROM overlay_instruction_versions WHERE series_id = ? AND instruction_id = ?",
@@ -404,7 +404,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         first_ids = first.json().get("active_ids") or []
         self.assertTrue(any(str(i).startswith("zhongshu.") for i in first_ids), "expected zhongshu instructions before tampering")
 
-        factor_store = self.client.app.state.factor_store
+        factor_store = self.client.app.state.container.factor_store
         with factor_store.connect() as conn:
             factor_store.clear_series_in_conn(conn, series_id=self.series_id)
             conn.commit()
@@ -479,7 +479,7 @@ class DrawDeltaApiTests(unittest.TestCase):
             "lineWidth": 2,
             "entryDirection": 1,
         }
-        overlay_store = self.client.app.state.overlay_store
+        overlay_store = self.client.app.state.container.overlay_store
         with overlay_store.connect() as conn:
             conn.execute(
                 """
@@ -538,8 +538,8 @@ class DrawDeltaApiTests(unittest.TestCase):
         for t, p in zip(times, prices, strict=True):
             self._ingest(t, float(p))
 
-        factor_store = self.client.app.state.factor_store
-        overlay_store = self.client.app.state.overlay_store
+        factor_store = self.client.app.state.container.factor_store
+        overlay_store = self.client.app.state.container.overlay_store
 
         expected_by_start: dict[int, int] = {}
         with factor_store.connect() as conn:

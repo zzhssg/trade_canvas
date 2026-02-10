@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .factor_runtime_contract import FactorRuntimeContext
+
 
 @dataclass(frozen=True)
 class FactorCatalogSubFeatureSpec:
@@ -39,7 +41,7 @@ class FactorPlugin(Protocol):
 
 
 class FactorTickPlugin(FactorPlugin, Protocol):
-    def run_tick(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None: ...
+    def run_tick(self, *, series_id: str, state: Any, runtime: FactorRuntimeContext) -> None: ...
 
 
 class FactorBootstrapPlugin(FactorTickPlugin, Protocol):
@@ -47,8 +49,14 @@ class FactorBootstrapPlugin(FactorTickPlugin, Protocol):
 
     def sort_rebuild_events(self, *, events: list[dict[str, Any]]) -> None: ...
 
-    def bootstrap_from_history(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None: ...
+    def bootstrap_from_history(self, *, series_id: str, state: Any, runtime: FactorRuntimeContext) -> None: ...
 
 
 class FactorHeadSnapshotPlugin(FactorTickPlugin, Protocol):
-    def build_head_snapshot(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> dict[str, Any] | None: ...
+    def build_head_snapshot(
+        self,
+        *,
+        series_id: str,
+        state: Any,
+        runtime: FactorRuntimeContext,
+    ) -> dict[str, Any] | None: ...

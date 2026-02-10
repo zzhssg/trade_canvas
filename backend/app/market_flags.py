@@ -65,3 +65,15 @@ def derived_backfill_base_candles(*, fallback: int = 2000) -> int:
         fallback=int(fallback),
         minimum=100,
     )
+
+
+def kline_health_v2_enabled() -> bool:
+    return resolve_env_bool("TRADE_CANVAS_ENABLE_KLINE_HEALTH_V2", fallback=False)
+
+
+def kline_health_backfill_recent_seconds(*, fallback: int = 120) -> int:
+    return resolve_env_int(
+        "TRADE_CANVAS_KLINE_HEALTH_BACKFILL_RECENT_SECONDS",
+        fallback=int(fallback),
+        minimum=5,
+    )

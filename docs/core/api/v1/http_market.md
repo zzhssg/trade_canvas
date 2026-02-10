@@ -187,6 +187,57 @@ curl --noproxy '*' -sS \
 - 用于排查 K 线链路健康度：给出 head 滞后、间隙统计、以及高周期相对 1m 基准桶的完整性。
 - `max_recent_gaps` 控制返回最近 gap 条数；`recent_base_buckets` 控制最近多少个高周期桶做基准分钟完整性检查。
 
+## GET /api/market/health
+
+### 示例（curl）
+
+```bash
+curl --noproxy '*' -sS \
+  "http://127.0.0.1:8000/api/market/health?series_id=binance:futures:BTC/USDT:5m"
+```
+
+### 示例响应（json）
+
+```json
+{
+  "series_id": "binance:futures:BTC/USDT:5m",
+  "timeframe_seconds": 300,
+  "now_time": 1700000960,
+  "expected_latest_closed_time": 1700000700,
+  "head_time": 1700000400,
+  "lag_seconds": 560,
+  "missing_seconds": 300,
+  "missing_candles": 1,
+  "status": "yellow",
+  "status_reason": "backfill_recent",
+  "backfill": {
+    "state": "succeeded",
+    "progress_pct": 50.0,
+    "started_at": 1700000900,
+    "updated_at": 1700000920,
+    "reason": "tail_coverage",
+    "note": "tail_coverage_partial",
+    "error": null,
+    "recent": true,
+    "start_missing_seconds": 600,
+    "start_missing_candles": 2,
+    "current_missing_seconds": 300,
+    "current_missing_candles": 1
+  }
+}
+```
+
+### 语义
+
+- 仅在 `TRADE_CANVAS_ENABLE_KLINE_HEALTH_V2=1` 时可用（默认关闭）；用于 Live 页三色灯状态判定。
+- `status` 含义：
+  - `green`：已追平最新闭合 K 线；
+  - `red`：至少缺 1 根 K，且近期没有回补动作；
+  - `yellow`：存在延迟，但近期已触发后端回补（含 `progress_pct`）；
+  - `gray`：保留态（当前实现主要用于前端请求失败降级）。
+- `missing_seconds` / `missing_candles` 表示 DB 相对“最新闭合 K”的差距。
+- `backfill.progress_pct` 是 best-effort 回补进度估算（0~100），只作为运维可观测信号，不承诺严格线性。
+
 ## GET /api/market/top_markets
 
 ### 示例（curl）

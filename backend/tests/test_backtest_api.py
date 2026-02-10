@@ -34,6 +34,7 @@ class BacktestApiTests(unittest.TestCase):
         (root / "whitelist.json").write_text('{"series_ids":[]}', encoding="utf-8")
 
         self.client = TestClient(create_app())
+        self.backtest_service = self.client.app.state.container.backtest_service
 
     def tearDown(self) -> None:
         self.tmpdir.cleanup()
@@ -49,16 +50,17 @@ class BacktestApiTests(unittest.TestCase):
     def test_strategies_endpoint_parses_stdout(self) -> None:
         from backend.app.freqtrade_runner import FreqtradeExecResult
 
-        with patch(
-            "backend.app.backtest_routes.list_strategies_async",
+        with patch.object(
+            self.backtest_service,
+            "_list_strategies",
             new=AsyncMock(
                 return_value=FreqtradeExecResult(
-                ok=True,
-                exit_code=0,
-                duration_ms=1,
-                command=["freqtrade", "list-strategies"],
-                stdout="Zeta\nAlpha\n\nnot-a-strategy\n",
-                stderr="",
+                    ok=True,
+                    exit_code=0,
+                    duration_ms=1,
+                    command=["freqtrade", "list-strategies"],
+                    stdout="Zeta\nAlpha\n\nnot-a-strategy\n",
+                    stderr="",
                 )
             ),
         ):
@@ -69,6 +71,8 @@ class BacktestApiTests(unittest.TestCase):
     def test_strategies_endpoint_supports_truthy_mock_env(self) -> None:
         os.environ["TRADE_CANVAS_FREQTRADE_MOCK"] = "true"
         try:
+            self.client.close()
+            self.client = TestClient(create_app())
             resp = self.client.get("/api/backtest/strategies")
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json()["strategies"], ["DemoStrategy"])
@@ -78,16 +82,17 @@ class BacktestApiTests(unittest.TestCase):
     def test_run_backtest_requires_known_strategy(self) -> None:
         from backend.app.freqtrade_runner import FreqtradeExecResult
 
-        with patch(
-            "backend.app.backtest_routes.list_strategies_async",
+        with patch.object(
+            self.backtest_service,
+            "_list_strategies",
             new=AsyncMock(
                 return_value=FreqtradeExecResult(
-                ok=True,
-                exit_code=0,
-                duration_ms=1,
-                command=["freqtrade", "list-strategies"],
-                stdout="KnownStrategy\n",
-                stderr="",
+                    ok=True,
+                    exit_code=0,
+                    duration_ms=1,
+                    command=["freqtrade", "list-strategies"],
+                    stdout="KnownStrategy\n",
+                    stderr="",
                 )
             ),
         ):
@@ -117,8 +122,8 @@ class BacktestApiTests(unittest.TestCase):
             stderr="",
         )
 
-        with patch("backend.app.backtest_routes.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
-            "backend.app.backtest_routes.run_backtest_async", new=AsyncMock(return_value=run_ok)
+        with patch.object(self.backtest_service, "_list_strategies", new=AsyncMock(return_value=list_ok)), patch.object(
+            self.backtest_service, "_run_backtest", new=AsyncMock(return_value=run_ok)
         ) as mock_run:
             resp = self.client.post(
                 "/api/backtest/run",
@@ -149,9 +154,9 @@ class BacktestApiTests(unittest.TestCase):
             stderr="WARNINGS",
         )
 
-        with patch("backend.app.backtest_routes.list_strategies_async", new=AsyncMock(return_value=list_ok)), patch(
-            "backend.app.backtest_routes.run_backtest_async", new=AsyncMock(return_value=run_ok)
-        ), patch("backend.app.backtest_routes.logger") as mock_logger:
+        with patch.object(self.backtest_service, "_list_strategies", new=AsyncMock(return_value=list_ok)), patch.object(
+            self.backtest_service, "_run_backtest", new=AsyncMock(return_value=run_ok)
+        ), patch.object(self.backtest_service, "_logger") as mock_logger:
             resp = self.client.post(
                 "/api/backtest/run",
                 json={"strategy_name": "KnownStrategy", "pair": "BTC/USDT", "timeframe": "1h"},

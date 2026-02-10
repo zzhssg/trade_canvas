@@ -4,18 +4,25 @@ import asyncio
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from .debug_hub import DebugHub
+from .flags import FeatureFlags
 from .flags import resolve_env_bool
 
 
-def _debug_enabled(ws: WebSocket) -> bool:
+def _debug_enabled(*, flags: FeatureFlags) -> bool:
     return resolve_env_bool(
         "TRADE_CANVAS_ENABLE_DEBUG_API",
-        fallback=bool(getattr(getattr(ws.app.state, "flags", None), "enable_debug_api", False)),
+        fallback=bool(flags.enable_debug_api),
     )
 
 
-async def handle_debug_ws(ws: WebSocket) -> None:
-    if not _debug_enabled(ws):
+async def handle_debug_ws(
+    ws: WebSocket,
+    *,
+    debug_hub: DebugHub,
+    flags: FeatureFlags,
+) -> None:
+    if not _debug_enabled(flags=flags):
         try:
             await ws.close(code=1008, reason="debug_api_disabled")
         except Exception:
@@ -23,17 +30,17 @@ async def handle_debug_ws(ws: WebSocket) -> None:
         return
 
     await ws.accept()
-    ws.app.state.debug_hub.register(ws, loop=asyncio.get_running_loop())
+    debug_hub.register(ws, loop=asyncio.get_running_loop())
     try:
-        await ws.send_json({"type": "debug_snapshot", "events": ws.app.state.debug_hub.snapshot()})
+        await ws.send_json({"type": "debug_snapshot", "events": debug_hub.snapshot()})
         while True:
             msg = await ws.receive_json()
             if isinstance(msg, dict) and msg.get("type") == "subscribe":
-                await ws.send_json({"type": "debug_snapshot", "events": ws.app.state.debug_hub.snapshot()})
+                await ws.send_json({"type": "debug_snapshot", "events": debug_hub.snapshot()})
     except WebSocketDisconnect:
         pass
     finally:
-        ws.app.state.debug_hub.unregister(ws)
+        debug_hub.unregister(ws)
         try:
             await ws.close(code=1001)
         except Exception:

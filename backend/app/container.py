@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
+from .backtest_runtime import list_strategies_async, run_backtest_async
+from .backtest_service import BacktestService
 from .config import Settings
 from .debug_hub import DebugHub
 from .factor_orchestrator import FactorOrchestrator
@@ -17,10 +18,12 @@ from .overlay_orchestrator import OverlayOrchestrator
 from .overlay_package_service_v1 import OverlayReplayPackageServiceV1
 from .overlay_store import OverlayStore
 from .pipelines import IngestPipeline
-from .read_models import DrawReadService, FactorReadService
+from .read_models import DrawReadService, FactorReadService, WorldReadService
+from .replay_prepare_service import ReplayPrepareService
 from .replay_package_service_v1 import ReplayPackageServiceV1
-from .schemas import GetFactorSlicesResponseV1
+from .runtime_flags import RuntimeFlags, load_runtime_flags
 from .store import CandleStore
+from .worktree_manager import WorktreeManager
 from .ws_hub import CandleHub
 
 
@@ -29,27 +32,32 @@ class AppContainer:
     project_root: Path
     settings: Settings
     flags: FeatureFlags
+    runtime_flags: RuntimeFlags
     store: CandleStore
     factor_store: FactorStore
     factor_orchestrator: FactorOrchestrator
     factor_slices_service: FactorSlicesService
     factor_read_service: FactorReadService
     draw_read_service: DrawReadService
+    world_read_service: WorldReadService
     overlay_store: OverlayStore
     overlay_orchestrator: OverlayOrchestrator
+    replay_prepare_service: ReplayPrepareService
     replay_service: ReplayPackageServiceV1
     overlay_pkg_service: OverlayReplayPackageServiceV1
+    backtest_service: BacktestService
     debug_hub: DebugHub
     hub: CandleHub
     ingest_pipeline: IngestPipeline
     market_runtime: MarketRuntime
     supervisor: IngestSupervisor
+    worktree_manager: WorktreeManager
     whitelist_ingest_enabled: bool
-    read_factor_slices: Callable[..., GetFactorSlicesResponseV1]
 
 
 def build_app_container(*, settings: Settings, project_root: Path) -> AppContainer:
     flags = load_feature_flags()
+    runtime_flags = load_runtime_flags(base_flags=flags)
 
     store = CandleStore(db_path=settings.db_path)
     factor_store = FactorStore(db_path=settings.db_path)
@@ -80,7 +88,15 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         overlay_orchestrator=overlay_orchestrator,
         factor_read_service=factor_read_service,
         debug_hub=debug_hub,
-        debug_api_fallback=bool(flags.enable_debug_api),
+        debug_api_enabled=bool(runtime_flags.enable_debug_api),
+    )
+    world_read_service = WorldReadService(
+        store=store,
+        overlay_store=overlay_store,
+        factor_read_service=factor_read_service,
+        draw_read_service=draw_read_service,
+        debug_hub=debug_hub,
+        debug_api_enabled=bool(runtime_flags.enable_debug_api),
     )
 
     runtime_build = build_market_runtime(
@@ -90,46 +106,61 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         overlay_orchestrator=overlay_orchestrator,
         debug_hub=debug_hub,
         flags=flags,
+        runtime_flags=runtime_flags,
     )
 
     ingest_pipeline = runtime_build.runtime.ingest_pipeline
 
+    replay_prepare_service = ReplayPrepareService(
+        store=store,
+        factor_store=factor_store,
+        overlay_store=overlay_store,
+        ingest_pipeline=ingest_pipeline,
+        debug_hub=debug_hub,
+        debug_api_enabled=bool(flags.enable_debug_api),
+    )
     replay_service = ReplayPackageServiceV1(
         candle_store=store,
         factor_store=factor_store,
         overlay_store=overlay_store,
         factor_slices_service=factor_slices_service,
         ingest_pipeline=ingest_pipeline,
-        enable_ingest_pipeline_v2=bool(flags.enable_ingest_pipeline_v2),
     )
     overlay_pkg_service = OverlayReplayPackageServiceV1(candle_store=store, overlay_store=overlay_store)
+    backtest_service = BacktestService(
+        settings=settings,
+        project_root=project_root,
+        list_strategies=list_strategies_async,
+        run_backtest=run_backtest_async,
+        require_backtest_trades=bool(runtime_flags.backtest_require_trades),
+        freqtrade_mock_enabled=bool(runtime_flags.freqtrade_mock_enabled),
+    )
 
-    def read_factor_slices(*, series_id: str, at_time: int, window_candles: int) -> GetFactorSlicesResponseV1:
-        return factor_read_service.read_slices(
-            series_id=series_id,
-            at_time=int(at_time),
-            window_candles=int(window_candles),
-        )
+    worktree_manager = WorktreeManager(repo_root=project_root)
 
     return AppContainer(
         project_root=project_root,
         settings=settings,
         flags=flags,
+        runtime_flags=runtime_flags,
         store=store,
         factor_store=factor_store,
         factor_orchestrator=factor_orchestrator,
         factor_slices_service=factor_slices_service,
         factor_read_service=factor_read_service,
         draw_read_service=draw_read_service,
+        world_read_service=world_read_service,
         overlay_store=overlay_store,
         overlay_orchestrator=overlay_orchestrator,
+        replay_prepare_service=replay_prepare_service,
         replay_service=replay_service,
         overlay_pkg_service=overlay_pkg_service,
+        backtest_service=backtest_service,
         debug_hub=debug_hub,
         hub=runtime_build.hub,
         ingest_pipeline=ingest_pipeline,
         market_runtime=runtime_build.runtime,
         supervisor=runtime_build.supervisor,
+        worktree_manager=worktree_manager,
         whitelist_ingest_enabled=runtime_build.whitelist_ingest_on,
-        read_factor_slices=read_factor_slices,
     )

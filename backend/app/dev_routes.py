@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException
 
+from .dependencies import WorktreeManagerDep
 from .schemas import (
     DevCreateWorktreeRequest,
     DevCreateWorktreeResponse,
@@ -65,15 +66,13 @@ def _worktree_to_response(wt) -> DevWorktreeInfo:
 
 
 @router.get("/api/dev/worktrees", response_model=DevWorktreeListResponse)
-def list_worktrees(request: Request) -> DevWorktreeListResponse:
-    worktree_manager = request.app.state.worktree_manager
+def list_worktrees(worktree_manager: WorktreeManagerDep) -> DevWorktreeListResponse:
     worktrees = worktree_manager.list_worktrees()
     return DevWorktreeListResponse(worktrees=[_worktree_to_response(wt) for wt in worktrees])
 
 
 @router.get("/api/dev/worktrees/{worktree_id}", response_model=DevWorktreeInfo)
-def get_worktree(request: Request, worktree_id: str) -> DevWorktreeInfo:
-    worktree_manager = request.app.state.worktree_manager
+def get_worktree(worktree_id: str, worktree_manager: WorktreeManagerDep) -> DevWorktreeInfo:
     wt = worktree_manager.get_worktree(worktree_id)
     if wt is None:
         raise HTTPException(status_code=404, detail="worktree_not_found")
@@ -81,8 +80,7 @@ def get_worktree(request: Request, worktree_id: str) -> DevWorktreeInfo:
 
 
 @router.post("/api/dev/worktrees", response_model=DevCreateWorktreeResponse)
-def create_worktree(request: Request, req: DevCreateWorktreeRequest) -> DevCreateWorktreeResponse:
-    worktree_manager = request.app.state.worktree_manager
+def create_worktree(req: DevCreateWorktreeRequest, worktree_manager: WorktreeManagerDep) -> DevCreateWorktreeResponse:
     try:
         wt = worktree_manager.create_worktree(
             branch=req.branch,
@@ -100,9 +98,8 @@ def create_worktree(request: Request, req: DevCreateWorktreeRequest) -> DevCreat
 
 @router.post("/api/dev/worktrees/{worktree_id}/start", response_model=DevStartServicesResponse)
 def start_worktree_services(
-    request: Request, worktree_id: str, req: DevStartServicesRequest
+    worktree_id: str, req: DevStartServicesRequest, worktree_manager: WorktreeManagerDep
 ) -> DevStartServicesResponse:
-    worktree_manager = request.app.state.worktree_manager
     try:
         status = worktree_manager.start_services(
             worktree_id=worktree_id,
@@ -134,8 +131,7 @@ def start_worktree_services(
 
 
 @router.post("/api/dev/worktrees/{worktree_id}/stop", response_model=DevStopServicesResponse)
-def stop_worktree_services(request: Request, worktree_id: str) -> DevStopServicesResponse:
-    worktree_manager = request.app.state.worktree_manager
+def stop_worktree_services(worktree_id: str, worktree_manager: WorktreeManagerDep) -> DevStopServicesResponse:
     try:
         ok = worktree_manager.stop_services(worktree_id)
         return DevStopServicesResponse(ok=ok)
@@ -145,8 +141,11 @@ def stop_worktree_services(request: Request, worktree_id: str) -> DevStopService
 
 
 @router.delete("/api/dev/worktrees/{worktree_id}", response_model=DevDeleteWorktreeResponse)
-def delete_worktree(request: Request, worktree_id: str, req: DevDeleteWorktreeRequest) -> DevDeleteWorktreeResponse:
-    worktree_manager = request.app.state.worktree_manager
+def delete_worktree(
+    worktree_id: str,
+    req: DevDeleteWorktreeRequest,
+    worktree_manager: WorktreeManagerDep,
+) -> DevDeleteWorktreeResponse:
     try:
         ok = worktree_manager.delete_worktree(worktree_id, force=req.force)
         return DevDeleteWorktreeResponse(ok=ok)
@@ -158,10 +157,9 @@ def delete_worktree(request: Request, worktree_id: str, req: DevDeleteWorktreeRe
 
 
 @router.get("/api/dev/ports/allocate", response_model=DevPortAllocationResponse)
-def allocate_ports_endpoint(request: Request) -> DevPortAllocationResponse:
+def allocate_ports_endpoint(worktree_manager: WorktreeManagerDep) -> DevPortAllocationResponse:
     from .port_allocator import allocate_ports as do_allocate
 
-    worktree_manager = request.app.state.worktree_manager
     index = worktree_manager._read_index()
     used_backend = {v.get("backend_port", 0) for v in index.get("allocations", {}).values()}
     used_frontend = {v.get("frontend_port", 0) for v in index.get("allocations", {}).values()}
@@ -171,9 +169,10 @@ def allocate_ports_endpoint(request: Request) -> DevPortAllocationResponse:
 
 @router.patch("/api/dev/worktrees/{worktree_id}/metadata", response_model=DevUpdateMetadataResponse)
 def update_worktree_metadata(
-    request: Request, worktree_id: str, req: DevUpdateMetadataRequest
+    worktree_id: str,
+    req: DevUpdateMetadataRequest,
+    worktree_manager: WorktreeManagerDep,
 ) -> DevUpdateMetadataResponse:
-    worktree_manager = request.app.state.worktree_manager
     try:
         metadata = worktree_manager.update_metadata(
             worktree_id=worktree_id,

@@ -5,8 +5,7 @@ from typing import Any
 
 from .anchor_semantics import build_anchor_history_from_switches, normalize_anchor_ref
 from .factor_plugin_contract import FactorPluginSpec
-from .factor_processor_slice_buckets import SliceBucketSpec
-from .factor_slice_plugin_contract import FactorSliceBuildContext, FactorSlicePlugin
+from .factor_slice_plugin_contract import FactorSliceBuildContext, FactorSlicePlugin, SliceBucketSpec
 from .factor_slices import build_pen_head_preview
 from .schemas import FactorMetaV1, FactorSliceV1
 from .zhongshu import build_alive_zhongshu_from_confirmed_pens
@@ -267,7 +266,9 @@ class AnchorSlicePlugin:
 
 
 def build_default_factor_slice_plugins() -> tuple[FactorSlicePlugin, ...]:
-    from .factor_default_components import build_default_factor_components
-
-    _, slice_plugins = build_default_factor_components()
-    return slice_plugins
+    return (
+        PivotSlicePlugin(),
+        PenSlicePlugin(),
+        ZhongshuSlicePlugin(),
+        AnchorSlicePlugin(),
+    )

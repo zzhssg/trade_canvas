@@ -48,9 +48,10 @@ class ReplayPackageApiTests(unittest.TestCase):
             os.environ.pop(k, None)
 
     def _ingest(self, t: int, price: float) -> None:
-        store = self.client.app.state.store
-        factor_orch = self.client.app.state.factor_orchestrator
-        overlay_orch = self.client.app.state.overlay_orchestrator
+        container = self.client.app.state.container
+        store = container.store
+        factor_orch = container.factor_orchestrator
+        overlay_orch = container.overlay_orchestrator
         candle = CandleClosed(candle_time=t, open=price, high=price, low=price, close=price, volume=1)
         store.upsert_closed(self.series_id, candle)
         factor_orch.ingest_closed(series_id=self.series_id, up_to_candle_time=t)

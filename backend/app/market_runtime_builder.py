@@ -8,6 +8,7 @@ from .factor_orchestrator import FactorOrchestrator
 from .flags import FeatureFlags, load_feature_flags
 from .ingest_supervisor import IngestSupervisor
 from .market_backfill import backfill_market_gap_best_effort
+from .market_backfill_tracker import MarketBackfillProgressTracker
 from .market_data import (
     DefaultMarketDataOrchestrator,
     HubWsDeliveryService,
@@ -24,6 +25,7 @@ from .market_list import BinanceMarketListService, MinIntervalLimiter
 from .market_runtime import MarketRuntime
 from .pipelines import IngestPipeline
 from .overlay_orchestrator import OverlayOrchestrator
+from .runtime_flags import RuntimeFlags, load_runtime_flags
 from .store import CandleStore
 from .whitelist import load_market_whitelist
 from .ws_hub import CandleHub
@@ -45,20 +47,31 @@ def build_market_runtime(
     overlay_orchestrator: OverlayOrchestrator,
     debug_hub: DebugHub,
     flags: FeatureFlags | None = None,
+    runtime_flags: RuntimeFlags | None = None,
     ingest_pipeline: IngestPipeline | None = None,
 ) -> MarketRuntimeBuildResult:
     effective_flags = flags or load_feature_flags()
+    effective_runtime_flags = runtime_flags or load_runtime_flags(base_flags=effective_flags)
     hub = CandleHub()
+    backfill_progress = MarketBackfillProgressTracker()
     reader_service = StoreCandleReadService(store=store)
     backfill_service = StoreBackfillService(
         store=store,
-        gap_backfill_fn=lambda **kwargs: backfill_market_gap_best_effort(**kwargs),
+        gap_backfill_fn=lambda **kwargs: backfill_market_gap_best_effort(
+            enable_ccxt_backfill=bool(effective_runtime_flags.enable_ccxt_backfill),
+            freqtrade_limit=int(effective_runtime_flags.market_gap_backfill_freqtrade_limit),
+            **kwargs,
+        ),
+        progress_tracker=backfill_progress,
+        enable_ccxt_backfill=bool(effective_runtime_flags.enable_ccxt_backfill),
+        enable_ccxt_backfill_on_read=bool(effective_runtime_flags.enable_ccxt_backfill_on_read),
     )
     hub.set_gap_backfill_handler(
         build_gap_backfill_handler(
             reader=reader_service,
             backfill=backfill_service,
             read_limit=settings.market_gap_backfill_read_limit,
+            enabled=bool(effective_runtime_flags.enable_market_gap_backfill),
         )
     )
     derived_initial_backfill = build_derived_initial_backfill_handler(
@@ -91,13 +104,11 @@ def build_market_runtime(
     supervisor = IngestSupervisor(
         store=store,
         hub=hub,
-        factor_orchestrator=factor_orchestrator,
-        overlay_orchestrator=overlay_orchestrator,
         whitelist_series_ids=whitelist.series_ids,
         ondemand_idle_ttl_s=idle_ttl_s,
+        ondemand_max_jobs=int(effective_runtime_flags.ondemand_max_jobs),
         whitelist_ingest_enabled=whitelist_ingest_on,
         ingest_pipeline=pipeline,
-        enable_ingest_pipeline_v2=bool(effective_flags.enable_ingest_pipeline_v2),
     )
     ws_subscriptions = WsSubscriptionCoordinator(
         hub=hub,
@@ -106,13 +117,9 @@ def build_market_runtime(
     )
     ws_messages = WsMessageParser()
     ingest_service = MarketIngestService(
-        store=store,
-        factor_orchestrator=factor_orchestrator,
-        overlay_orchestrator=overlay_orchestrator,
         hub=hub,
         debug_hub=debug_hub,
         ingest_pipeline=pipeline,
-        enable_ingest_pipeline_v2=bool(effective_flags.enable_ingest_pipeline_v2),
     )
     market_runtime = MarketRuntime(
         store=store,
@@ -134,6 +141,8 @@ def build_market_runtime(
         ws_catchup_limit=int(settings.market_ws_catchup_limit),
         ingest_pipeline=pipeline,
         flags=effective_flags,
+        runtime_flags=effective_runtime_flags,
+        backfill_progress=backfill_progress,
     )
 
     return MarketRuntimeBuildResult(

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
 from .factor_registry import ProcessorSpec
+from .factor_runtime_contract import FactorRuntimeContext
 from .factor_store import FactorEventWrite
 from .zhongshu import (
     ZhongshuDead,
@@ -14,6 +15,36 @@ from .zhongshu import (
     update_zhongshu_state,
     update_zhongshu_state_on_closed_candle,
 )
+
+
+class _CandleLike(Protocol):
+    candle_time: int
+    high: float
+    low: float
+
+
+class _ZhongshuTickState(Protocol):
+    new_confirmed_pen_payloads: list[dict[str, Any]]
+    zhongshu_state: dict[str, Any]
+    events: list[FactorEventWrite]
+    formed_entries: list[dict[str, Any]]
+    time_to_idx: dict[int, int]
+    visible_time: int
+    candles: list[_CandleLike]
+
+
+class _ZhongshuBootstrapState(Protocol):
+    candles: list[_CandleLike]
+    head_time: int
+    confirmed_pens: list[dict[str, Any]]
+    zhongshu_state: dict[str, Any]
+
+
+class _ZhongshuHeadState(Protocol):
+    zhongshu_state: dict[str, Any]
+    confirmed_pens: list[dict[str, Any]]
+    up_to: int
+    candles: list[_CandleLike]
 
 
 @dataclass(frozen=True)
@@ -31,7 +62,7 @@ class ZhongshuProcessor:
         ),
     )
 
-    def run_tick(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None:
+    def run_tick(self, *, series_id: str, state: _ZhongshuTickState, runtime: FactorRuntimeContext) -> None:
         _ = runtime
         for pen_payload in state.new_confirmed_pen_payloads:
             dead_event, formed_entry = self.update_state_from_pen(
@@ -57,7 +88,13 @@ class ZhongshuProcessor:
         if formed_entry_on_candle is not None:
             state.formed_entries.append(formed_entry_on_candle)
 
-    def bootstrap_from_history(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None:
+    def bootstrap_from_history(
+        self,
+        *,
+        series_id: str,
+        state: _ZhongshuBootstrapState,
+        runtime: FactorRuntimeContext,
+    ) -> None:
         _ = series_id
         _ = runtime
         candles_up_to_head = [c for c in state.candles if int(c.candle_time) <= int(state.head_time)]
@@ -167,7 +204,13 @@ class ZhongshuProcessor:
         ]
         return out
 
-    def build_head_snapshot(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> dict[str, Any] | None:
+    def build_head_snapshot(
+        self,
+        *,
+        series_id: str,
+        state: _ZhongshuHeadState,
+        runtime: FactorRuntimeContext,
+    ) -> dict[str, Any] | None:
         _ = series_id
         _ = runtime
         out = self.build_alive_head(

@@ -1,14 +1,38 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
 from .factor_registry import ProcessorSpec
+from .factor_runtime_contract import FactorRuntimeContext
 from .factor_semantics import is_more_extreme_pivot
 from .factor_slices import build_pen_head_preview
 from .factor_store import FactorEventWrite
 from .pen import ConfirmedPen, PivotMajorPoint
+
+
+class _PenTickState(Protocol):
+    major_candidates: list[PivotMajorPoint]
+    effective_pivots: list[PivotMajorPoint]
+    events: list[FactorEventWrite]
+    confirmed_pens: list[dict[str, Any]]
+    new_confirmed_pen_payloads: list[dict[str, Any]]
+    baseline_anchor_strength: float | None
+    best_strong_pen_ref: dict[str, int | str] | None
+    best_strong_pen_strength: float | None
+
+
+class _PenBootstrapState(Protocol):
+    rebuild_events: dict[str, list[dict[str, Any]]]
+    confirmed_pens: list[dict[str, Any]]
+
+
+class _PenHeadState(Protocol):
+    confirmed_pens: list[dict[str, Any]]
+    effective_pivots: list[PivotMajorPoint]
+    candles: list[Any]
+    up_to: int
 
 
 @dataclass(frozen=True)
@@ -27,8 +51,8 @@ class PenProcessor:
         ),
     )
 
-    def run_tick(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None:
-        anchor_processor = runtime.get("anchor_processor")
+    def run_tick(self, *, series_id: str, state: _PenTickState, runtime: FactorRuntimeContext) -> None:
+        anchor_processor = runtime.anchor_processor
         for pivot in state.major_candidates:
             confirmed = self.append_pivot_and_confirm(state.effective_pivots, pivot)
             for pen in confirmed:
@@ -55,12 +79,12 @@ class PenProcessor:
     def sort_rebuild_events(self, *, events: list[dict[str, Any]]) -> None:
         events.sort(key=lambda d: (int(d.get("visible_time") or 0), int(d.get("start_time") or 0)))
 
-    def bootstrap_from_history(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None:
+    def bootstrap_from_history(self, *, series_id: str, state: _PenBootstrapState, runtime: FactorRuntimeContext) -> None:
         _ = series_id
         _ = runtime
         state.confirmed_pens = list(state.rebuild_events.get(self.spec.factor_name) or [])
 
-    def build_head_snapshot(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> dict[str, Any] | None:
+    def build_head_snapshot(self, *, series_id: str, state: _PenHeadState, runtime: FactorRuntimeContext) -> dict[str, Any] | None:
         _ = series_id
         _ = runtime
         if not state.confirmed_pens:

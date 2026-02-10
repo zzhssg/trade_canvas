@@ -84,6 +84,8 @@ class MarketCandlesApiTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_MARKET_HISTORY_SOURCE"] = "freqtrade"
         os.environ["TRADE_CANVAS_FREQTRADE_DATADIR"] = str(datadir)
         os.environ["TRADE_CANVAS_ENABLE_CCXT_BACKFILL"] = "0"
+        self.client.close()
+        self.client = TestClient(create_app())
 
         series_id = "binance:spot:SOL/USDT:1h"
         resp = self.client.get("/api/market/candles", params={"series_id": series_id, "limit": 2000})

@@ -40,12 +40,11 @@ class ReplayPrepareApiTests(unittest.TestCase):
             "TRADE_CANVAS_ENABLE_FACTOR_INGEST",
             "TRADE_CANVAS_ENABLE_OVERLAY_INGEST",
             "TRADE_CANVAS_ENABLE_DEBUG_API",
-            "TRADE_CANVAS_ENABLE_INGEST_PIPELINE_V2",
         ):
             os.environ.pop(key, None)
 
     def _seed_closed(self, *, candle_time: int, price: float) -> None:
-        self.client.app.state.store.upsert_closed(
+        self.client.app.state.container.store.upsert_closed(
             self.series_id,
             CandleClosed(
                 candle_time=int(candle_time),
@@ -57,7 +56,7 @@ class ReplayPrepareApiTests(unittest.TestCase):
             ),
         )
 
-    def test_prepare_replay_legacy_path_works(self) -> None:
+    def test_prepare_replay_pipeline_path_works(self) -> None:
         self._seed_closed(candle_time=1_700_000_000, price=100.0)
 
         res = self.client.post(
@@ -73,8 +72,7 @@ class ReplayPrepareApiTests(unittest.TestCase):
         self.assertEqual(int(payload["aligned_time"]), 1_700_000_000)
         self.assertEqual(payload["series_id"], self.series_id)
 
-    def test_prepare_replay_pipeline_v2_path_works(self) -> None:
-        os.environ["TRADE_CANVAS_ENABLE_INGEST_PIPELINE_V2"] = "1"
+    def test_prepare_replay_pipeline_path_refreshes_ledger(self) -> None:
         self._seed_closed(candle_time=1_700_000_060, price=101.0)
 
         res = self.client.post(

@@ -5,7 +5,8 @@ from typing import Callable
 
 from ..derived_timeframes import rollup_closed_candles
 from ..market_backfill import backfill_from_ccxt_range, backfill_market_gap_best_effort
-from ..market_flags import ccxt_backfill_enabled, ccxt_backfill_on_read_enabled
+from ..market_backfill_tracker import MarketBackfillProgressTracker
+from ..market_health_service import compute_missing_to_time
 from ..history_bootstrapper import backfill_tail_from_freqtrade
 from ..schemas import CandleClosed
 from ..series_id import SeriesId, parse_series_id
@@ -55,10 +56,16 @@ class StoreBackfillService(BackfillService):
         store: CandleStore,
         gap_backfill_fn: Callable[..., int] = backfill_market_gap_best_effort,
         tail_backfill_fn: Callable[..., int] = backfill_tail_from_freqtrade,
+        progress_tracker: MarketBackfillProgressTracker | None = None,
+        enable_ccxt_backfill: bool = False,
+        enable_ccxt_backfill_on_read: bool = False,
     ) -> None:
         self._store = store
         self._gap_backfill_fn = gap_backfill_fn
         self._tail_backfill_fn = tail_backfill_fn
+        self._progress_tracker = progress_tracker
+        self._enable_ccxt_backfill = bool(enable_ccxt_backfill)
+        self._enable_ccxt_backfill_on_read = bool(enable_ccxt_backfill_on_read)
 
     def _best_effort_backfill_from_base_1m(
         self,
@@ -140,10 +147,6 @@ class StoreBackfillService(BackfillService):
         target = int(target_candles)
         if target <= 0:
             return 0
-        try:
-            filled = max(0, int(self._tail_backfill_fn(self._store, series_id=series_id, limit=target)))
-        except Exception:
-            filled = 0
 
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         if to_time is None:
@@ -151,12 +154,36 @@ class StoreBackfillService(BackfillService):
             end_time = int(now // int(tf_s)) * int(tf_s)
         else:
             end_time = int(to_time)
+
+        head_before = self._store.head_time(series_id)
+        start_missing_seconds, start_missing_candles = compute_missing_to_time(
+            head_time=head_before,
+            target_time=end_time,
+            timeframe_seconds=tf_s,
+        )
+        tracking_enabled = self._progress_tracker is not None and int(start_missing_seconds) > 0
+        if tracking_enabled:
+            self._progress_tracker.begin(
+                series_id=series_id,
+                start_missing_seconds=int(start_missing_seconds),
+                start_missing_candles=int(start_missing_candles),
+                reason="tail_coverage",
+            )
+
+        errors: list[str] = []
+        try:
+            filled = max(0, int(self._tail_backfill_fn(self._store, series_id=series_id, limit=target)))
+        except Exception as exc:
+            filled = 0
+            errors.append(f"tail_backfill_failed:{exc}")
+
         start_time = max(0, int(end_time) - (int(target) - 1) * int(tf_s))
 
         try:
             count_after_tail = self._store.count_closed_between_times(series_id, start_time=start_time, end_time=end_time)
-        except Exception:
+        except Exception as exc:
             count_after_tail = 0
+            errors.append(f"count_after_tail_failed:{exc}")
         if int(count_after_tail) < int(target):
             try:
                 self._best_effort_backfill_from_base_1m(
@@ -169,11 +196,11 @@ class StoreBackfillService(BackfillService):
                     start_time=start_time,
                     end_time=end_time,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                errors.append(f"base_rollup_backfill_failed:{exc}")
 
-        allow_ccxt = bool(to_time is not None) or ccxt_backfill_on_read_enabled()
-        if int(count_after_tail) < int(target) and ccxt_backfill_enabled() and allow_ccxt:
+        allow_ccxt = bool(to_time is not None) or bool(self._enable_ccxt_backfill_on_read)
+        if int(count_after_tail) < int(target) and bool(self._enable_ccxt_backfill) and allow_ccxt:
             try:
                 backfill_from_ccxt_range(
                     candle_store=self._store,
@@ -181,13 +208,38 @@ class StoreBackfillService(BackfillService):
                     start_time=int(start_time),
                     end_time=int(end_time),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                errors.append(f"ccxt_backfill_failed:{exc}")
 
         try:
             covered = self._store.count_closed_between_times(series_id, start_time=start_time, end_time=end_time)
-        except Exception:
+        except Exception as exc:
             covered = 0
+            errors.append(f"count_covered_failed:{exc}")
+
+        if tracking_enabled:
+            head_after = self._store.head_time(series_id)
+            current_missing_seconds, current_missing_candles = compute_missing_to_time(
+                head_time=head_after,
+                target_time=end_time,
+                timeframe_seconds=tf_s,
+            )
+            if errors and int(current_missing_seconds) > 0:
+                self._progress_tracker.fail(
+                    series_id=series_id,
+                    current_missing_seconds=int(current_missing_seconds),
+                    current_missing_candles=int(current_missing_candles),
+                    error=";".join(errors[:3]),
+                    note="tail_coverage_best_effort_failed",
+                )
+            else:
+                note = "tail_coverage_done" if int(current_missing_seconds) <= 0 else "tail_coverage_partial"
+                self._progress_tracker.succeed(
+                    series_id=series_id,
+                    current_missing_seconds=int(current_missing_seconds),
+                    current_missing_candles=int(current_missing_candles),
+                    note=note,
+                )
         if to_time is None:
             return max(int(filled), int(covered))
         return int(covered)

@@ -1,24 +1,80 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Protocol
 
 from fastapi import HTTPException
 
-from ..flags import resolve_env_bool
 from ..overlay_integrity_plugins import evaluate_overlay_integrity
+from ..overlay_store import OverlayInstructionVersionRow
 from ..schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1, OverlayInstructionPatchItemV1
 from ..timeframe import series_id_timeframe, timeframe_to_seconds
 
 
+class _StoreLike(Protocol):
+    def head_time(self, series_id: str) -> int | None: ...
+
+    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
+
+
+class _OverlayStoreLike(Protocol):
+    def head_time(self, series_id: str) -> int | None: ...
+
+    def get_latest_defs_up_to_time(self, *, series_id: str, up_to_time: int) -> list[OverlayInstructionVersionRow]: ...
+
+    def get_patch_after_version(
+        self,
+        *,
+        series_id: str,
+        after_version_id: int,
+        up_to_time: int,
+        limit: int = 50000,
+    ) -> list[OverlayInstructionVersionRow]: ...
+
+    def last_version_id(self, series_id: str) -> int: ...
+
+
+class _OverlayOrchestratorLike(Protocol):
+    def reset_series(self, *, series_id: str) -> None: ...
+
+    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None: ...
+
+
+class _FactorReadServiceLike(Protocol):
+    strict_mode: bool
+
+    def read_slices(
+        self,
+        *,
+        series_id: str,
+        at_time: int,
+        window_candles: int,
+        aligned_time: int | None = None,
+        ensure_fresh: bool = True,
+    ) -> GetFactorSlicesResponseV1: ...
+
+
+class _DebugHubLike(Protocol):
+    def emit(
+        self,
+        *,
+        pipe: str,
+        event: str,
+        level: str = "info",
+        message: str,
+        series_id: str | None = None,
+        data: dict | None = None,
+    ) -> None: ...
+
+
 @dataclass(frozen=True)
 class DrawReadService:
-    store: Any
-    overlay_store: Any
-    overlay_orchestrator: Any
-    factor_read_service: Any
-    debug_hub: Any
-    debug_api_fallback: bool = False
+    store: _StoreLike
+    overlay_store: _OverlayStoreLike
+    overlay_orchestrator: _OverlayOrchestratorLike
+    factor_read_service: _FactorReadServiceLike
+    debug_hub: _DebugHubLike
+    debug_api_enabled: bool = False
 
     def _empty_delta(self, *, series_id: str, cursor_version_id: int) -> DrawDeltaV1:
         return DrawDeltaV1(
@@ -32,10 +88,7 @@ class DrawReadService:
         )
 
     def _debug_enabled(self) -> bool:
-        return resolve_env_bool(
-            "TRADE_CANVAS_ENABLE_DEBUG_API",
-            fallback=bool(self.debug_api_fallback),
-        )
+        return bool(self.debug_api_enabled)
 
     def read_delta(
         self,

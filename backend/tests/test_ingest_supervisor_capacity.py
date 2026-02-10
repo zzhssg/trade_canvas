@@ -29,7 +29,7 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_ONDEMAND_MAX_JOBS"] = "1"
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
-        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=())
+        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), ondemand_max_jobs=1)
 
         def _fake_start_job(self, series_id: str, *, refcount: int) -> _Job:  # noqa: ANN001
             stop = asyncio.Event()
@@ -62,7 +62,7 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_ONDEMAND_MAX_JOBS"] = "1"
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
-        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=())
+        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), ondemand_max_jobs=1)
 
         def _fake_start_job(self, series_id: str, *, refcount: int) -> _Job:  # noqa: ANN001
             stop = asyncio.Event()

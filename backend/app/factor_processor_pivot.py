@@ -1,13 +1,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
 from .factor_registry import ProcessorSpec
+from .factor_runtime_contract import FactorRuntimeContext
 from .factor_semantics import is_more_extreme_pivot
 from .factor_store import FactorEventWrite
 from .pen import PivotMajorPoint
+
+
+class _PivotSettingsLike(Protocol):
+    pivot_window_major: int
+    pivot_window_minor: int
+
+
+class _PivotTickState(Protocol):
+    visible_time: int
+    settings: _PivotSettingsLike
+    tf_s: int
+    candles: list[Any]
+    time_to_idx: dict[int, int]
+    major_candidates: list[PivotMajorPoint]
+    events: list[FactorEventWrite]
+    last_major_idx: int | None
+
+
+class _PivotBootstrapState(Protocol):
+    rebuild_events: dict[str, list[dict[str, Any]]]
+    effective_pivots: list[PivotMajorPoint]
+    time_to_idx: dict[int, int]
+    last_major_idx: int | None
 
 
 @dataclass(frozen=True)
@@ -25,7 +49,7 @@ class PivotProcessor:
         ),
     )
 
-    def run_tick(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None:
+    def run_tick(self, *, series_id: str, state: _PivotTickState, runtime: FactorRuntimeContext) -> None:
         _ = runtime
         pivot_time_major = int(state.visible_time) - int(state.settings.pivot_window_major) * int(state.tf_s)
         major_candidates = self.compute_major_candidates(
@@ -115,7 +139,13 @@ class PivotProcessor:
             return int(last.pivot_idx)
         return time_to_idx.get(int(last.pivot_time))
 
-    def bootstrap_from_history(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None:
+    def bootstrap_from_history(
+        self,
+        *,
+        series_id: str,
+        state: _PivotBootstrapState,
+        runtime: FactorRuntimeContext,
+    ) -> None:
         _ = series_id
         _ = runtime
         events = list(state.rebuild_events.get(self.spec.factor_name) or [])

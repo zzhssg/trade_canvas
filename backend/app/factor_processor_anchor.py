@@ -2,13 +2,40 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from .anchor_semantics import should_append_switch
 from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
 from .factor_registry import ProcessorSpec
+from .factor_runtime_contract import FactorRuntimeContext
 from .factor_slices import build_pen_head_candidate
 from .factor_store import FactorEventWrite
+
+
+class _AnchorTickState(Protocol):
+    formed_entries: list[dict[str, Any]]
+    visible_time: int
+    anchor_current_ref: dict[str, Any] | None
+    anchor_strength: float | None
+    events: list[FactorEventWrite]
+    confirmed_pens: list[dict[str, Any]]
+    candles: list[Any]
+    baseline_anchor_strength: float | None
+    best_strong_pen_ref: dict[str, int | str] | None
+    best_strong_pen_strength: float | None
+
+
+class _AnchorBootstrapState(Protocol):
+    rebuild_events: dict[str, list[dict[str, Any]]]
+    confirmed_pens: list[dict[str, Any]]
+    candles: list[Any]
+    anchor_current_ref: dict[str, Any] | None
+    anchor_strength: float | None
+
+
+class _AnchorHeadState(Protocol):
+    confirmed_pens: list[dict[str, Any]]
+    anchor_current_ref: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -27,7 +54,7 @@ class AnchorProcessor:
         ),
     )
 
-    def run_tick(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None:
+    def run_tick(self, *, series_id: str, state: _AnchorTickState, runtime: FactorRuntimeContext) -> None:
         _ = runtime
         for formed_entry in state.formed_entries:
             switch_event, state.anchor_current_ref, state.anchor_strength = self.apply_zhongshu_entry_switch(
@@ -74,7 +101,13 @@ class AnchorProcessor:
     def sort_rebuild_events(self, *, events: list[dict[str, Any]]) -> None:
         events.sort(key=lambda d: (int(d.get("visible_time") or 0), int(d.get("switch_time") or 0)))
 
-    def bootstrap_from_history(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None:
+    def bootstrap_from_history(
+        self,
+        *,
+        series_id: str,
+        state: _AnchorBootstrapState,
+        runtime: FactorRuntimeContext,
+    ) -> None:
         _ = series_id
         _ = runtime
         anchor_current_ref, anchor_strength = self.restore_anchor_state(
@@ -85,7 +118,13 @@ class AnchorProcessor:
         state.anchor_current_ref = anchor_current_ref
         state.anchor_strength = anchor_strength
 
-    def build_head_snapshot(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> dict[str, Any] | None:
+    def build_head_snapshot(
+        self,
+        *,
+        series_id: str,
+        state: _AnchorHeadState,
+        runtime: FactorRuntimeContext,
+    ) -> dict[str, Any] | None:
         _ = series_id
         _ = runtime
         if not state.confirmed_pens and state.anchor_current_ref is None:

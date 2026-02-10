@@ -16,6 +16,12 @@
 - 不再内联具体因子算法，算法下沉到 processor。
 - 每根 `visible_time` 按 `FactorGraph.topo_order` 调用插件 `run_tick(...)`，缺失执行钩子时 fail-fast（`factor_missing_run_tick`）。
 - 状态恢复与 head 落盘同样走插件钩子（`collect_rebuild_event / bootstrap_from_history / build_head_snapshot`），不再手写 `pivot/pen/anchor` 分支。
+- 与 orchestrator 配套的两块运行时职责已拆分：
+  - `backend/app/factor_runtime_config.py`：统一解析 `TRADE_CANVAS_ENABLE_FACTOR_INGEST`、窗口参数、rebuild keep-candles 等运行时参数；
+  - `backend/app/factor_rebuild_loader.py`：统一承载历史事件回放分桶、分页回放与 bootstrap 状态恢复，降低 orchestrator 体积与耦合。
+  - `backend/app/factor_fingerprint.py`：统一承载逻辑指纹构建（文件 hash + graph/settings + 逻辑版本覆盖），避免 orchestrator 再次膨胀。
+  - `backend/app/factor_fingerprint_rebuild.py`：统一承载“指纹不匹配 -> trim candles -> clear factor -> 写入新 fingerprint”的重建闸门逻辑。
+  - `backend/app/factor_ingest_window.py`：统一承载 ingest 窗口规划与 candle 批读取（start_time/read_limit/process_times），避免编排器内联窗口公式。
 
 2) `backend/app/factor_plugin_contract.py`
 - `FactorPluginSpec` 统一描述插件身份与依赖声明（`factor_name` / `depends_on`）。
@@ -120,7 +126,7 @@
 1) `backend/app/pipelines/ingest_pipeline.py`
 - 统一 closed-candle 写路径（store -> factor -> overlay -> publish）。
 - 覆盖 HTTP ingest、WS ingest、Replay coverage sidecar 计算，减少重复与漂移。
-- 开关：`TRADE_CANVAS_ENABLE_INGEST_PIPELINE_V2`（默认关闭）。
+- 当前已作为默认主链路，无 legacy 写路径分支。
 
 2) `backend/app/read_models/factor_read_service.py`
 - 统一 factor 读路径时间对齐与 freshness 策略。
@@ -130,6 +136,10 @@
 3) `backend/app/container.py` + `backend/app/flags.py`
 - 把装配职责从 `main.py` 下沉到容器层；
 - 把主链路高风险开关集中在 `FeatureFlags`，减少散落 `os.environ` 读取。
+
+4) `backend/app/dependencies.py` + `*_routes.py`
+- 路由层统一改为 FastAPI `Depends` 显式注入 `runtime/store/read_service`；
+- `app.state` 仅作为依赖入口，不再在路由实现中散落读取。
 
 ## 2. 标准 factor 的最小能力模型
 

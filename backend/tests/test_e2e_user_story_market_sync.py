@@ -39,6 +39,11 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
         os.environ.pop("TRADE_CANVAS_DB_PATH", None)
         os.environ.pop("TRADE_CANVAS_WHITELIST_PATH", None)
         os.environ.pop("TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL", None)
+        os.environ.pop("TRADE_CANVAS_MARKET_AUTO_TAIL_BACKFILL_MAX_CANDLES", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_CCXT_BACKFILL_ON_READ", None)
+        os.environ.pop("TRADE_CANVAS_MARKET_HISTORY_SOURCE", None)
 
     def _ingest(self, candle_time: int) -> None:
         resp = self.client.post(
@@ -75,6 +80,45 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
         self.assertEqual(resp2.status_code, 200)
         payload2 = resp2.json()
         self.assertEqual([c["candle_time"] for c in payload2["candles"]], [220])
+
+    def test_http_read_live_tail_backfill_uses_ccxt_when_auto_tail_enabled(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL"] = "1"
+        os.environ["TRADE_CANVAS_MARKET_AUTO_TAIL_BACKFILL_MAX_CANDLES"] = "2"
+        os.environ["TRADE_CANVAS_ENABLE_CCXT_BACKFILL"] = "1"
+        os.environ.pop("TRADE_CANVAS_ENABLE_CCXT_BACKFILL_ON_READ", None)
+        os.environ["TRADE_CANVAS_MARKET_HISTORY_SOURCE"] = "freqtrade"
+        calls: list[tuple[int, int]] = []
+
+        def fake_ccxt_backfill(*, candle_store, series_id, start_time, end_time, batch_limit=1000):
+            self.assertEqual(series_id, self.series_id)
+            calls.append((int(start_time), int(end_time)))
+            with candle_store.connect() as conn:
+                candle_store.upsert_closed_in_conn(
+                    conn,
+                    self.series_id,
+                    CandleClosed(candle_time=int(start_time), open=1.0, high=2.0, low=0.5, close=1.5, volume=10.0),
+                )
+                candle_store.upsert_closed_in_conn(
+                    conn,
+                    self.series_id,
+                    CandleClosed(candle_time=int(end_time), open=1.0, high=2.0, low=0.5, close=1.5, volume=10.0),
+                )
+                conn.commit()
+            return 2
+
+        with (
+            mock.patch("backend.app.market_data.read_services.backfill_from_ccxt_range", side_effect=fake_ccxt_backfill),
+            mock.patch("backend.app.market_data.read_services.time.time", return_value=121),
+        ):
+            self.client.close()
+            with TestClient(create_app()) as client:
+                resp = client.get("/api/market/candles", params={"series_id": self.series_id, "limit": 2})
+
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        self.assertEqual(calls, [(60, 120)])
+        self.assertEqual(payload["series_id"], self.series_id)
+        self.assertTrue(len(payload["candles"]) > 0)
 
     def test_ws_catchup_and_live(self) -> None:
         for t in (100, 160, 220):
@@ -167,9 +211,11 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
 
     def test_ws_live_gap_backfill_rehydrates_before_live_candle(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL"] = "1"
+        self.client.close()
+        self.client = TestClient(create_app())
         self._ingest(100)
 
-        def fake_backfill(*, store, series_id, expected_next_time, actual_time):
+        def fake_backfill(*, store, series_id, expected_next_time, actual_time, **kwargs):
             self.assertEqual(series_id, self.series_id)
             self.assertEqual(expected_next_time, 160)
             self.assertEqual(actual_time, 220)

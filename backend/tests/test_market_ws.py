@@ -157,6 +157,8 @@ class MarketWebSocketTests(unittest.TestCase):
 
     def test_ws_subscribe_gap_backfill_enabled_rehydrates_missing_candles(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL"] = "1"
+        self.client.close()
+        self._create_client()
         series_gap = "binance:futures:ETH/USDT:1m"
 
         for t in (100, 220):
@@ -168,7 +170,7 @@ class MarketWebSocketTests(unittest.TestCase):
                 },
             )
 
-        def fake_backfill(*, store, series_id, expected_next_time, actual_time):
+        def fake_backfill(*, store, series_id, expected_next_time, actual_time, **kwargs):
             self.assertEqual(series_id, series_gap)
             self.assertEqual(expected_next_time, 160)
             self.assertEqual(actual_time, 220)

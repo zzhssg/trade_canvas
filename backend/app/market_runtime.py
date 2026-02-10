@@ -19,10 +19,12 @@ from .overlay_orchestrator import OverlayOrchestrator
 from .store import CandleStore
 from .whitelist import MarketWhitelist
 from .ws_hub import CandleHub
+from .market_backfill_tracker import MarketBackfillProgressTracker
 
 if TYPE_CHECKING:
     from .flags import FeatureFlags
     from .pipelines import IngestPipeline
+    from .runtime_flags import RuntimeFlags
 
 
 @dataclass(frozen=True)
@@ -44,5 +46,7 @@ class MarketRuntime:
     derived_initial_backfill: Callable[..., Awaitable[None]]
     ingest_pipeline: IngestPipeline
     flags: FeatureFlags
+    runtime_flags: RuntimeFlags
+    backfill_progress: MarketBackfillProgressTracker
     ingest: MarketIngestService | None = None
     ws_catchup_limit: int = 5000

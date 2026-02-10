@@ -23,16 +23,16 @@ class BacktestService:
         project_root: Path,
         list_strategies: Callable[..., Awaitable[FreqtradeExecResult]],
         run_backtest: Callable[..., Awaitable[FreqtradeExecResult]],
-        require_backtest_trades: Callable[[], bool],
-        freqtrade_mock_enabled: Callable[[], bool],
+        require_backtest_trades: bool = False,
+        freqtrade_mock_enabled: bool = False,
         logger: logging.Logger | None = None,
     ) -> None:
         self._settings = settings
         self._project_root = project_root
         self._list_strategies = list_strategies
         self._run_backtest = run_backtest
-        self._require_backtest_trades = require_backtest_trades
-        self._freqtrade_mock_enabled = freqtrade_mock_enabled
+        self._require_backtest_trades = bool(require_backtest_trades)
+        self._freqtrade_mock_enabled = bool(freqtrade_mock_enabled)
         self._logger = logger or logging.getLogger(__name__)
 
     def _backtest_userdir(self) -> Path | None:
@@ -68,7 +68,7 @@ class BacktestService:
         raise ValueError("missing total_trades/trades in strategy stats")
 
     async def get_strategies(self, *, recursive: bool = True) -> StrategyListResponse:
-        if self._freqtrade_mock_enabled():
+        if self._freqtrade_mock_enabled:
             return StrategyListResponse(strategies=["DemoStrategy"])
 
         if self._settings.freqtrade_strategy_path is None:
@@ -98,7 +98,7 @@ class BacktestService:
         return StrategyListResponse(strategies=strategies)
 
     async def get_pair_timeframes(self, *, pair: str) -> BacktestPairTimeframesResponse:
-        if self._freqtrade_mock_enabled():
+        if self._freqtrade_mock_enabled:
             return BacktestPairTimeframesResponse(pair=pair, trading_mode="mock", datadir="", available_timeframes=[])
 
         if self._settings.freqtrade_config_path is None:
@@ -136,7 +136,7 @@ class BacktestService:
         if not validate_strategy_name(payload.strategy_name):
             raise HTTPException(status_code=400, detail="Invalid strategy_name")
 
-        if self._freqtrade_mock_enabled():
+        if self._freqtrade_mock_enabled:
             if payload.strategy_name != "DemoStrategy":
                 raise HTTPException(status_code=404, detail="Strategy not found in userdir")
             pair = payload.pair
@@ -284,7 +284,7 @@ class BacktestService:
         if res.stderr.strip():
             self._logger.info("freqtrade backtesting stderr:\n%s", res.stderr.rstrip("\n"))
 
-        if res.ok and res.exit_code == 0 and self._require_backtest_trades():
+        if res.ok and res.exit_code == 0 and self._require_backtest_trades:
             zips = sorted(export_dir.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
             if not zips:
                 raise HTTPException(

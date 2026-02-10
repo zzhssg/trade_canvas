@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import time
 
-from .blocking import run_blocking
 from .debug_hub import DebugHub
-from .factor_orchestrator import FactorOrchestrator
 from .flags import resolve_env_bool
-from .overlay_orchestrator import OverlayOrchestrator
 from .pipelines import IngestPipeline
 from .schemas import (
     IngestCandleClosedRequest,
@@ -14,7 +11,6 @@ from .schemas import (
     IngestCandleFormingRequest,
     IngestCandleFormingResponse,
 )
-from .store import CandleStore
 from .ws_hub import CandleHub
 
 
@@ -22,21 +18,13 @@ class MarketIngestService:
     def __init__(
         self,
         *,
-        store: CandleStore,
-        factor_orchestrator: FactorOrchestrator,
-        overlay_orchestrator: OverlayOrchestrator,
         hub: CandleHub,
         debug_hub: DebugHub,
-        ingest_pipeline: IngestPipeline | None = None,
-        enable_ingest_pipeline_v2: bool = False,
+        ingest_pipeline: IngestPipeline,
     ) -> None:
-        self._store = store
-        self._factor_orchestrator = factor_orchestrator
-        self._overlay_orchestrator = overlay_orchestrator
         self._hub = hub
         self._debug_hub = debug_hub
         self._ingest_pipeline = ingest_pipeline
-        self._enable_ingest_pipeline_v2 = bool(enable_ingest_pipeline_v2)
 
     def _debug_enabled(self) -> bool:
         return resolve_env_bool("TRADE_CANVAS_ENABLE_DEBUG_API", fallback=False)
@@ -52,93 +40,19 @@ class MarketIngestService:
                 data={"candle_time": int(req.candle.candle_time)},
             )
 
-        steps: list[dict] = []
-        factor_rebuilt = {"value": False}
-
-        def _persist_and_sidecars() -> None:
-            if self._enable_ingest_pipeline_v2 and self._ingest_pipeline is not None:
-                result = self._ingest_pipeline.run_sync(
-                    batches={req.series_id: [req.candle]},
-                )
-                factor_rebuilt["value"] = bool(req.series_id in set(result.rebuilt_series))
-                steps.extend(
-                    [
-                        {
-                            "name": str(step.name),
-                            "ok": bool(step.ok),
-                            "duration_ms": int(step.duration_ms),
-                        }
-                        for step in result.steps
-                    ]
-                )
-                return
-
-            t_step = time.perf_counter()
-            self._store.upsert_closed(req.series_id, req.candle)
-            steps.append(
-                {
-                    "name": "store.upsert_closed",
-                    "ok": True,
-                    "duration_ms": int((time.perf_counter() - t_step) * 1000),
-                }
-            )
-
-            try:
-                t_step = time.perf_counter()
-                factor_result = self._factor_orchestrator.ingest_closed(
-                    series_id=req.series_id,
-                    up_to_candle_time=req.candle.candle_time,
-                )
-                factor_rebuilt["value"] = bool(getattr(factor_result, "rebuilt", False))
-                steps.append(
-                    {
-                        "name": "factor.ingest_closed",
-                        "ok": True,
-                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
-                    }
-                )
-            except Exception:
-                steps.append(
-                    {
-                        "name": "factor.ingest_closed",
-                        "ok": False,
-                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
-                    }
-                )
-
-            try:
-                t_step = time.perf_counter()
-                if factor_rebuilt["value"]:
-                    self._overlay_orchestrator.reset_series(series_id=req.series_id)
-                self._overlay_orchestrator.ingest_closed(
-                    series_id=req.series_id,
-                    up_to_candle_time=req.candle.candle_time,
-                )
-                steps.append(
-                    {
-                        "name": "overlay.ingest_closed",
-                        "ok": True,
-                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
-                    }
-                )
-            except Exception:
-                steps.append(
-                    {
-                        "name": "overlay.ingest_closed",
-                        "ok": False,
-                        "duration_ms": int((time.perf_counter() - t_step) * 1000),
-                    }
-                )
-
-        await run_blocking(_persist_and_sidecars)
-        await self._hub.publish_closed(series_id=req.series_id, candle=req.candle)
-        if factor_rebuilt["value"]:
-            await self._hub.publish_system(
-                series_id=req.series_id,
-                event="factor.rebuild",
-                message="因子口径更新，已自动完成历史重算",
-                data={"series_id": req.series_id},
-            )
+        result = await self._ingest_pipeline.run(
+            batches={req.series_id: [req.candle]},
+            publish=True,
+        )
+        factor_rebuilt = bool(req.series_id in set(result.rebuilt_series))
+        steps = [
+            {
+                "name": str(step.name),
+                "ok": bool(step.ok),
+                "duration_ms": int(step.duration_ms),
+            }
+            for step in result.steps
+        ]
 
         if self._debug_enabled():
             self._debug_hub.emit(
@@ -148,6 +62,8 @@ class MarketIngestService:
                 message="ingest candle_closed done",
                 data={
                     "candle_time": int(req.candle.candle_time),
+                    "factor_rebuilt": bool(factor_rebuilt),
+                    "pipeline_duration_ms": int(result.duration_ms),
                     "steps": list(steps),
                     "duration_ms": int((time.perf_counter() - t0) * 1000),
                 },

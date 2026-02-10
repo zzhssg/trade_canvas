@@ -4,7 +4,6 @@ from typing import Protocol
 
 from fastapi import HTTPException
 
-from .flags import resolve_env_bool
 from .schemas import GetFactorSlicesResponseV1
 
 
@@ -33,16 +32,6 @@ class _FactorSlicesServiceLike(Protocol):
         at_time: int,
         window_candles: int,
     ) -> GetFactorSlicesResponseV1: ...
-
-
-def _is_read_strict_mode() -> bool:
-    return resolve_env_bool("TRADE_CANVAS_ENABLE_READ_STRICT_MODE", fallback=False)
-
-
-def _resolve_strict_mode(strict_mode: bool | None) -> bool:
-    if strict_mode is None:
-        return _is_read_strict_mode()
-    return bool(strict_mode)
 
 
 def _factor_head_time(
@@ -108,7 +97,7 @@ def read_factor_slices_with_freshness(
     window_candles: int,
     aligned_time: int | None = None,
     ensure_fresh: bool = True,
-    strict_mode: bool | None = None,
+    strict_mode: bool = False,
     factor_store: _FactorStoreLike | None = None,
 ) -> GetFactorSlicesResponseV1:
     aligned: int | None
@@ -119,7 +108,7 @@ def read_factor_slices_with_freshness(
         if aligned <= 0:
             aligned = None
     if bool(ensure_fresh):
-        if _resolve_strict_mode(strict_mode):
+        if bool(strict_mode):
             _ensure_strict_freshness(
                 factor_store=factor_store,
                 factor_slices_service=factor_slices_service,

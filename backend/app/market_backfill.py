@@ -4,7 +4,6 @@ import time
 
 from .ccxt_client import _make_exchange_client, ccxt_symbol_for_series
 from .history_bootstrapper import backfill_tail_from_freqtrade
-from .market_flags import ccxt_backfill_enabled, market_gap_backfill_freqtrade_limit
 from .schemas import CandleClosed
 from .series_id import parse_series_id
 from .store import CandleStore
@@ -99,6 +98,8 @@ def backfill_market_gap_best_effort(
     series_id: str,
     expected_next_time: int,
     actual_time: int,
+    enable_ccxt_backfill: bool = False,
+    freqtrade_limit: int = 2000,
 ) -> int:
     """
     Best-effort gap backfill for realtime market stream.
@@ -114,7 +115,7 @@ def backfill_market_gap_best_effort(
 
     before = store.count_closed_between_times(series_id, start_time=start, end_time=end)
 
-    base_limit = market_gap_backfill_freqtrade_limit(fallback=2000)
+    base_limit = max(1, int(freqtrade_limit))
 
     target_candles = ((end - start) // int(tf_s)) + 1
     freqtrade_limit = max(base_limit, int(target_candles) + 8)
@@ -124,7 +125,7 @@ def backfill_market_gap_best_effort(
     except Exception:
         pass
 
-    if ccxt_backfill_enabled():
+    if bool(enable_ccxt_backfill):
         try:
             backfill_from_ccxt_range(
                 candle_store=store,

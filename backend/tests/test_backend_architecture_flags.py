@@ -26,7 +26,6 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             "TRADE_CANVAS_WHITELIST_PATH",
             "TRADE_CANVAS_ENABLE_FACTOR_INGEST",
             "TRADE_CANVAS_ENABLE_OVERLAY_INGEST",
-            "TRADE_CANVAS_ENABLE_INGEST_PIPELINE_V2",
             "TRADE_CANVAS_ENABLE_READ_STRICT_MODE",
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
@@ -57,10 +56,9 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 200, res.text)
 
-    def test_ingest_pipeline_v2_http_path_keeps_main_flow_available(self) -> None:
+    def test_ingest_pipeline_http_path_keeps_main_flow_available(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "1"
         os.environ["TRADE_CANVAS_ENABLE_OVERLAY_INGEST"] = "1"
-        os.environ["TRADE_CANVAS_ENABLE_INGEST_PIPELINE_V2"] = "1"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MAJOR"] = "2"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MINOR"] = "1"
         os.environ["TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES"] = "5000"
@@ -90,12 +88,14 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
     def test_runtime_pipeline_and_hub_use_single_instance(self) -> None:
         client = self._build_client()
         try:
-            runtime = client.app.state.market_runtime
-            pipeline = client.app.state.ingest_pipeline
+            container = client.app.state.container
+            runtime = container.market_runtime
+            pipeline = container.ingest_pipeline
             self.assertIs(runtime.ingest_pipeline, pipeline)
-            self.assertIs(runtime.flags, client.app.state.flags)
-            self.assertIs(client.app.state.hub, runtime.hub)
-            self.assertIs(getattr(pipeline, "_hub", None), client.app.state.hub)
+            self.assertIs(runtime.flags, container.flags)
+            self.assertIs(runtime.runtime_flags, container.runtime_flags)
+            self.assertIs(container.hub, runtime.hub)
+            self.assertIs(getattr(pipeline, "_hub", None), container.hub)
         finally:
             client.close()
 

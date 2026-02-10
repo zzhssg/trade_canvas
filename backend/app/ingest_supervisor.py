@@ -7,12 +7,9 @@ from dataclasses import dataclass
 from .ingest_binance_ws import run_binance_ws_ingest_loop
 from .ingest_settings import WhitelistIngestSettings
 from .pipelines import IngestPipeline
-from .market_flags import ondemand_max_jobs
 from .series_id import parse_series_id
 from .store import CandleStore
 from .ws_hub import CandleHub
-from .factor_orchestrator import FactorOrchestrator
-from .overlay_orchestrator import OverlayOrchestrator
 from .derived_timeframes import is_derived_series_id, to_base_series_id
 
 
@@ -35,25 +32,21 @@ class IngestSupervisor:
         *,
         store: CandleStore,
         hub: CandleHub,
-        factor_orchestrator: FactorOrchestrator | None = None,
-        overlay_orchestrator: OverlayOrchestrator | None = None,
         whitelist_series_ids: tuple[str, ...],
         ingest_settings: WhitelistIngestSettings | None = None,
         ondemand_idle_ttl_s: int = 60,
+        ondemand_max_jobs: int = 0,
         whitelist_ingest_enabled: bool = False,
         ingest_pipeline: IngestPipeline | None = None,
-        enable_ingest_pipeline_v2: bool = False,
     ) -> None:
         self._store = store
         self._hub = hub
-        self._factor_orchestrator = factor_orchestrator
-        self._overlay_orchestrator = overlay_orchestrator
         self._whitelist = set(whitelist_series_ids)
         self._whitelist_ingest_enabled = bool(whitelist_ingest_enabled)
         self._settings = ingest_settings or WhitelistIngestSettings()
         self._idle_ttl_s = ondemand_idle_ttl_s
+        self._ondemand_max_jobs = max(0, int(ondemand_max_jobs))
         self._ingest_pipeline = ingest_pipeline
-        self._enable_ingest_pipeline_v2 = bool(enable_ingest_pipeline_v2)
         self._lock = asyncio.Lock()
         self._jobs: dict[str, _Job] = {}
         self._reaper_stop = asyncio.Event()
@@ -86,7 +79,7 @@ class IngestSupervisor:
         async with self._lock:
             job = self._jobs.get(series_id)
             if job is None:
-                max_jobs = ondemand_max_jobs(fallback=0)
+                max_jobs = int(self._ondemand_max_jobs)
 
                 if max_jobs > 0:
                     ondemand_jobs = [j for sid, j in self._jobs.items() if not self._is_pinned_whitelist(sid)]
@@ -163,11 +156,10 @@ class IngestSupervisor:
                 for j in self._jobs.values()
             ]
             jobs.sort(key=lambda x: x["series_id"])
-            max_jobs = ondemand_max_jobs(fallback=0)
             return {
                 "jobs": jobs,
                 "whitelist_series_ids": sorted(self._whitelist),
-                "ondemand_max_jobs": max_jobs,
+                "ondemand_max_jobs": int(self._ondemand_max_jobs),
                 "whitelist_ingest_enabled": self._whitelist_ingest_enabled,
             }
 
@@ -187,10 +179,7 @@ class IngestSupervisor:
                     series_id=series_id,
                     store=self._store,
                     hub=self._hub,
-                    factor_orchestrator=self._factor_orchestrator,
-                    overlay_orchestrator=self._overlay_orchestrator,
                     ingest_pipeline=self._ingest_pipeline,
-                    enable_ingest_pipeline_v2=self._enable_ingest_pipeline_v2,
                     settings=self._settings,
                     stop=stop,
                 )
