@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, FastAPI, Query, Request
-
-from .factor_read_freshness import read_factor_slices_with_freshness
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from .schemas import GetFactorSlicesResponseV1, LimitQuery
 
 router = APIRouter()
@@ -19,10 +17,17 @@ def get_factor_slices(
     Read-side factor slices at aligned time t.
     Returns history/head snapshots produced by the current modular factor pipeline.
     """
-    return read_factor_slices_with_freshness(
-        store=request.app.state.store,
-        factor_orchestrator=request.app.state.factor_orchestrator,
-        factor_slices_service=request.app.state.factor_slices_service,
+    reader = request.app.state.read_factor_slices
+    if callable(reader):
+        return reader(
+            series_id=series_id,
+            at_time=int(at_time),
+            window_candles=int(window_candles),
+        )
+    service = getattr(request.app.state, "factor_read_service", None)
+    if service is None:
+        raise HTTPException(status_code=500, detail="factor_read_service_not_ready")
+    return service.read_slices(
         series_id=series_id,
         at_time=int(at_time),
         window_candles=int(window_candles),

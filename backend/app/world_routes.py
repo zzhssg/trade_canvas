@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
 from typing import Callable
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 
+from .flags import resolve_env_bool
 from .schemas import (
     DrawDeltaV1,
     GetFactorSlicesResponseV1,
@@ -17,6 +17,13 @@ from .schemas import (
 )
 
 router = APIRouter()
+
+
+def _debug_enabled(request: Request) -> bool:
+    return resolve_env_bool(
+        "TRADE_CANVAS_ENABLE_DEBUG_API",
+        fallback=bool(getattr(getattr(request.app.state, "flags", None), "enable_debug_api", False)),
+    )
 
 
 def _read_factor_slices(
@@ -89,7 +96,7 @@ def get_world_frame_live(
     candle_id = f"{series_id}:{int(aligned)}"
     if factor_slices.candle_id != candle_id or draw_state.to_candle_id != candle_id:
         raise HTTPException(status_code=409, detail="ledger_out_of_sync")
-    if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
+    if _debug_enabled(request):
         request.app.state.debug_hub.emit(
             pipe="read",
             event="read.http.world_frame_live",
@@ -136,7 +143,7 @@ def get_world_frame_at_time(
     candle_id = f"{series_id}:{int(aligned)}"
     if factor_slices.candle_id != candle_id or draw_state.to_candle_id != candle_id:
         raise HTTPException(status_code=409, detail="ledger_out_of_sync")
-    if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
+    if _debug_enabled(request):
         request.app.state.debug_hub.emit(
             pipe="read",
             event="read.http.world_frame_live",
@@ -193,7 +200,7 @@ def poll_world_delta(
             window_candles=int(window_candles),
         ),
     )
-    if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
+    if _debug_enabled(request):
         request.app.state.debug_hub.emit(
             pipe="read",
             event="read.http.world_delta_poll",

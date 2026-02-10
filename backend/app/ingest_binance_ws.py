@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import time
 from time import perf_counter
 
 from .blocking import run_blocking
+from .flags import resolve_env_float, resolve_env_int, resolve_env_str
+from .pipelines import IngestPipeline
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .store import CandleStore
@@ -105,6 +106,8 @@ async def run_binance_ws_ingest_loop(
     hub: CandleHub,
     factor_orchestrator: FactorOrchestrator | None,
     overlay_orchestrator: OverlayOrchestrator | None = None,
+    ingest_pipeline: IngestPipeline | None = None,
+    enable_ingest_pipeline_v2: bool = False,
     settings: WhitelistIngestSettings,
     stop: asyncio.Event,
 ) -> None:
@@ -114,7 +117,8 @@ async def run_binance_ws_ingest_loop(
         # Supervisor should not select WS for non-binance, but be defensive.
         raise ValueError(f"unsupported exchange: {series.exchange!r}")
 
-    if store.head_time(series_id) is None and (os.environ.get("TRADE_CANVAS_MARKET_HISTORY_SOURCE") or "").strip().lower() == "freqtrade":
+    history_source = resolve_env_str("TRADE_CANVAS_MARKET_HISTORY_SOURCE", fallback="").lower()
+    if store.head_time(series_id) is None and history_source == "freqtrade":
         try:
             from .history_bootstrapper import maybe_bootstrap_from_freqtrade
 
@@ -125,26 +129,18 @@ async def run_binance_ws_ingest_loop(
 
     url = build_binance_kline_ws_url(series)
 
-    batch_max_raw = (os.environ.get("TRADE_CANVAS_BINANCE_WS_BATCH_MAX") or "").strip()
-    flush_s_raw = (os.environ.get("TRADE_CANVAS_BINANCE_WS_FLUSH_S") or "").strip()
-    try:
-        batch_max = max(1, int(batch_max_raw)) if batch_max_raw else 200
-    except ValueError:
-        batch_max = 200
-    try:
-        flush_s = max(0.05, float(flush_s_raw)) if flush_s_raw else 0.5
-    except ValueError:
-        flush_s = 0.5
+    batch_max = resolve_env_int("TRADE_CANVAS_BINANCE_WS_BATCH_MAX", fallback=200, minimum=1)
+    flush_s = resolve_env_float("TRADE_CANVAS_BINANCE_WS_FLUSH_S", fallback=0.5, minimum=0.05)
 
     last_emitted_time = store.head_time(series_id) or 0
     buf: list[CandleClosed] = []
     last_flush_at = time.time()
 
-    forming_min_interval_raw = (os.environ.get("TRADE_CANVAS_MARKET_FORMING_MIN_INTERVAL_MS") or "").strip()
-    try:
-        forming_min_interval_ms = max(0, int(forming_min_interval_raw)) if forming_min_interval_raw else 250
-    except ValueError:
-        forming_min_interval_ms = 250
+    forming_min_interval_ms = resolve_env_int(
+        "TRADE_CANVAS_MARKET_FORMING_MIN_INTERVAL_MS",
+        fallback=250,
+        minimum=0,
+    )
     forming_min_interval_s = forming_min_interval_ms / 1000.0
     last_forming_emit_at = 0.0
     last_forming_candle_time: int | None = None
@@ -192,58 +188,71 @@ async def run_binance_ws_ingest_loop(
             except Exception:
                 derived_batches = {}
 
-        # IMPORTANT: keep the asyncio event loop responsive.
-        # SQLite writes and factor/overlay computation are sync and may take seconds.
-        def _persist_and_compute() -> tuple[int, list[str]]:
-            t0 = perf_counter()
-            rebuilt_series: set[str] = set()
-            with store.connect() as conn:
-                store.upsert_many_closed_in_conn(conn, series_id, deduped)
-                for derived_series_id, derived in derived_batches.items():
-                    store.upsert_many_closed_in_conn(conn, derived_series_id, derived)
-                conn.commit()
+        all_batches: dict[str, list[CandleClosed]] = {series_id: deduped}
+        for derived_series_id, derived in derived_batches.items():
+            if derived:
+                all_batches[derived_series_id] = derived
 
-            if factor_orchestrator is not None:
-                try:
-                    res = factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
-                    if getattr(res, "rebuilt", False):
-                        rebuilt_series.add(series_id)
-                except Exception:
-                    pass
-                for derived_series_id, derived in derived_batches.items():
-                    if not derived:
-                        continue
+        if bool(enable_ingest_pipeline_v2) and ingest_pipeline is not None:
+            pipeline_result = await ingest_pipeline.run(
+                batches=all_batches,
+                publish=False,
+            )
+            db_ms = int(pipeline_result.duration_ms)
+            rebuilt_series = list(pipeline_result.rebuilt_series)
+        else:
+            # IMPORTANT: keep the asyncio event loop responsive.
+            # SQLite writes and factor/overlay computation are sync and may take seconds.
+            def _persist_and_compute() -> tuple[int, list[str]]:
+                t0 = perf_counter()
+                rebuilt_series_local: set[str] = set()
+                with store.connect() as conn:
+                    store.upsert_many_closed_in_conn(conn, series_id, deduped)
+                    for derived_series_id, derived in derived_batches.items():
+                        store.upsert_many_closed_in_conn(conn, derived_series_id, derived)
+                    conn.commit()
+
+                if factor_orchestrator is not None:
                     try:
-                        res = factor_orchestrator.ingest_closed(
-                            series_id=derived_series_id,
-                            up_to_candle_time=int(derived[-1].candle_time),
-                        )
+                        res = factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
                         if getattr(res, "rebuilt", False):
-                            rebuilt_series.add(derived_series_id)
+                            rebuilt_series_local.add(series_id)
                     except Exception:
                         pass
-            if overlay_orchestrator is not None:
-                try:
-                    if series_id in rebuilt_series:
-                        overlay_orchestrator.reset_series(series_id=series_id)
-                    overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
-                except Exception:
-                    pass
-                for derived_series_id, derived in derived_batches.items():
-                    if not derived:
-                        continue
+                    for derived_series_id, derived in derived_batches.items():
+                        if not derived:
+                            continue
+                        try:
+                            res = factor_orchestrator.ingest_closed(
+                                series_id=derived_series_id,
+                                up_to_candle_time=int(derived[-1].candle_time),
+                            )
+                            if getattr(res, "rebuilt", False):
+                                rebuilt_series_local.add(derived_series_id)
+                        except Exception:
+                            pass
+                if overlay_orchestrator is not None:
                     try:
-                        if derived_series_id in rebuilt_series:
-                            overlay_orchestrator.reset_series(series_id=derived_series_id)
-                        overlay_orchestrator.ingest_closed(
-                            series_id=derived_series_id,
-                            up_to_candle_time=int(derived[-1].candle_time),
-                        )
+                        if series_id in rebuilt_series_local:
+                            overlay_orchestrator.reset_series(series_id=series_id)
+                        overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=up_to_time)
                     except Exception:
                         pass
-            return int((perf_counter() - t0) * 1000), sorted(rebuilt_series)
+                    for derived_series_id, derived in derived_batches.items():
+                        if not derived:
+                            continue
+                        try:
+                            if derived_series_id in rebuilt_series_local:
+                                overlay_orchestrator.reset_series(series_id=derived_series_id)
+                            overlay_orchestrator.ingest_closed(
+                                series_id=derived_series_id,
+                                up_to_candle_time=int(derived[-1].candle_time),
+                            )
+                        except Exception:
+                            pass
+                return int((perf_counter() - t0) * 1000), sorted(rebuilt_series_local)
 
-        db_ms, rebuilt_series = await run_blocking(_persist_and_compute)
+            db_ms, rebuilt_series = await run_blocking(_persist_and_compute)
 
         t1 = time.perf_counter()
         await hub.publish_closed_batch(series_id=series_id, candles=deduped)

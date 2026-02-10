@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 from .config import load_settings
+from .flags import resolve_env_str
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .store import CandleStore
 
 
 def _resolve_freqtrade_datadir() -> Path | None:
-    raw = os.environ.get("TRADE_CANVAS_FREQTRADE_DATADIR", "").strip()
+    raw = resolve_env_str("TRADE_CANVAS_FREQTRADE_DATADIR", fallback="")
     if raw:
         return Path(raw).expanduser().resolve()
 
@@ -36,6 +36,10 @@ def _resolve_freqtrade_datadir() -> Path | None:
     userdir = settings.freqtrade_userdir or (settings.freqtrade_root / "user_data")
     candidate = (userdir / "data").resolve()
     return candidate if candidate.exists() else None
+
+
+def _history_source() -> str:
+    return resolve_env_str("TRADE_CANVAS_MARKET_HISTORY_SOURCE", fallback="").lower()
 
 
 def _candidate_ohlcv_paths(datadir: Path, series: SeriesId) -> list[Path]:
@@ -154,7 +158,7 @@ def maybe_bootstrap_from_freqtrade(store: CandleStore, *, series_id: str, limit:
     Best-effort import (tail) OHLCV from freqtrade datadir into CandleStore.
     Returns the number of candles written (0 if skipped / not found).
     """
-    if (os.environ.get("TRADE_CANVAS_MARKET_HISTORY_SOURCE") or "").strip().lower() != "freqtrade":
+    if _history_source() != "freqtrade":
         return 0
 
     try:
@@ -186,7 +190,7 @@ def backfill_tail_from_freqtrade(store: CandleStore, *, series_id: str, limit: i
     Unlike maybe_bootstrap_from_freqtrade, this runs even if the store already has data.
     Returns the number of candles written (0 if skipped / not found).
     """
-    if (os.environ.get("TRADE_CANVAS_MARKET_HISTORY_SOURCE") or "").strip().lower() != "freqtrade":
+    if _history_source() != "freqtrade":
         return 0
 
     try:

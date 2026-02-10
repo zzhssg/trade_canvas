@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 
+from .flags import resolve_env_bool
 from .schemas import TopMarketItem, TopMarketsLimitQuery, TopMarketsResponse
 
 router = APIRouter()
@@ -20,7 +20,10 @@ def get_market_whitelist(request: Request) -> dict[str, list[str]]:
 
 @router.get("/api/market/debug/ingest_state")
 async def get_market_ingest_state(request: Request) -> dict:
-    if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") != "1":
+    if not resolve_env_bool(
+        "TRADE_CANVAS_ENABLE_DEBUG_API",
+        fallback=bool(request.app.state.market_runtime.flags.enable_debug_api),
+    ):
         raise HTTPException(status_code=404, detail="not_found")
     return await request.app.state.market_runtime.supervisor.debug_snapshot()
 

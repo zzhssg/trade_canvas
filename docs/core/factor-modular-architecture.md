@@ -1,6 +1,6 @@
 # Factor 模块化架构（2026-02）
 
-> status: draft | updated: 2026-02-09
+> status: draft | updated: 2026-02-10
 
 本文是当前 factor 主链路的实现真源，目标是回答三件事：
 - 现在的 factor 是否模块化；
@@ -34,6 +34,22 @@
 - 从 `FactorStore` 读历史事件和 head snapshot。
 - 通过 `build_default_slice_bucket_specs()` 生成事件桶映射，统一归类历史事件。
 - `history` 只切片不重算；`head` 优先读存储快照，必要时做有限回补（如 pen preview）。
+
+### 1.3 统一写链路与读写分离（2026-02-10 新增）
+
+1) `backend/app/pipelines/ingest_pipeline.py`
+- 统一 closed-candle 写路径（store -> factor -> overlay -> publish）。
+- 覆盖 HTTP ingest、WS ingest、Replay coverage sidecar 计算，减少重复与漂移。
+- 开关：`TRADE_CANVAS_ENABLE_INGEST_PIPELINE_V2`（默认关闭）。
+
+2) `backend/app/read_models/factor_read_service.py`
+- 统一 factor 读路径时间对齐与 freshness 策略。
+- strict 模式下仅读不写，若 factor/overlay 落后返回 `409 ledger_out_of_sync:*`。
+- 开关：`TRADE_CANVAS_ENABLE_READ_STRICT_MODE`（默认关闭）。
+
+3) `backend/app/container.py` + `backend/app/flags.py`
+- 把装配职责从 `main.py` 下沉到容器层；
+- 把主链路高风险开关集中在 `FeatureFlags`，减少散落 `os.environ` 读取。
 
 ## 2. 标准 factor 的最小能力模型
 
@@ -91,6 +107,7 @@
 
 发生 `feat/fix/refactor` 且触及因子主链路时，至少同步检查：
 - `docs/core/factor-modular-architecture.md`（本文件）
+- `docs/core/architecture.md`
 - `docs/core/contracts/factor_graph_v1.md`
 - `docs/core/contracts/factor_sdk_v1.md`
 - `docs/core/contracts/factor_v1.md`

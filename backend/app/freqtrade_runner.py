@@ -10,6 +10,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from .flags import resolve_env_float
+
 
 _STRATEGY_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -29,13 +31,7 @@ def validate_strategy_name(strategy_name: str) -> bool:
 
 
 def _default_timeout_s() -> float:
-    raw = (os.environ.get("TRADE_CANVAS_FREQTRADE_SUBPROCESS_TIMEOUT_S") or "").strip()
-    if not raw:
-        return 120.0
-    try:
-        return max(1.0, float(raw))
-    except ValueError:
-        return 120.0
+    return resolve_env_float("TRADE_CANVAS_FREQTRADE_SUBPROCESS_TIMEOUT_S", fallback=120.0, minimum=1.0)
 
 
 async def _run_subprocess(

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 
 from .replay_package_protocol_v1 import (
@@ -46,32 +44,50 @@ def prepare_replay(request: Request, payload: ReplayPrepareRequestV1) -> ReplayP
     window_candles = int(payload.window_candles or 2000)
     window_candles = min(5000, max(100, window_candles))
 
+    runtime = request.app.state.market_runtime
     computed = False
     factor_head = request.app.state.factor_store.head_time(series_id)
     overlay_head = request.app.state.overlay_store.head_time(series_id)
 
-    factor_rebuilt = False
-    if factor_head is None or int(factor_head) < int(aligned):
-        factor_result = request.app.state.factor_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
-        factor_rebuilt = bool(getattr(factor_result, "rebuilt", False))
+    if runtime.flags.enable_ingest_pipeline_v2:
+        if (
+            factor_head is None
+            or int(factor_head) < int(aligned)
+            or overlay_head is None
+            or int(overlay_head) < int(aligned)
+        ):
+            pipeline_result = request.app.state.ingest_pipeline.refresh_series_sync(
+                up_to_times={series_id: int(aligned)}
+            )
+            computed = bool(pipeline_result.steps)
         factor_head = request.app.state.factor_store.head_time(series_id)
-        computed = True
-
-    if factor_rebuilt:
-        request.app.state.overlay_orchestrator.reset_series(series_id=series_id)
-        overlay_head = None
-
-    if overlay_head is None or int(overlay_head) < int(aligned):
-        request.app.state.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
         overlay_head = request.app.state.overlay_store.head_time(series_id)
-        computed = True
+    else:
+        factor_rebuilt = False
+        if factor_head is None or int(factor_head) < int(aligned):
+            factor_result = request.app.state.factor_orchestrator.ingest_closed(
+                series_id=series_id,
+                up_to_candle_time=int(aligned),
+            )
+            factor_rebuilt = bool(getattr(factor_result, "rebuilt", False))
+            factor_head = request.app.state.factor_store.head_time(series_id)
+            computed = True
+
+        if factor_rebuilt:
+            request.app.state.overlay_orchestrator.reset_series(series_id=series_id)
+            overlay_head = None
+
+        if overlay_head is None or int(overlay_head) < int(aligned):
+            request.app.state.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(aligned))
+            overlay_head = request.app.state.overlay_store.head_time(series_id)
+            computed = True
 
     if factor_head is None or int(factor_head) < int(aligned):
         raise HTTPException(status_code=409, detail="ledger_out_of_sync:factor")
     if overlay_head is None or int(overlay_head) < int(aligned):
         raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
 
-    if os.environ.get("TRADE_CANVAS_ENABLE_DEBUG_API") == "1":
+    if runtime.flags.enable_debug_api:
         request.app.state.debug_hub.emit(
             pipe="read",
             event="read.http.replay_prepare",
