@@ -8,7 +8,7 @@ from ..schemas import GetFactorSlicesResponseV1
 
 
 class _AlignedStoreLike(Protocol):
-    def floor_time(self, series_id: str, at_time: int) -> int | None: ...
+    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
 
 
 class _FactorStoreLike(Protocol):

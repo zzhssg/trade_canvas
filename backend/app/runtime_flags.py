@@ -41,6 +41,7 @@ class RuntimeFlags:
     enable_ccxt_backfill_on_read: bool
     ondemand_max_jobs: int
     enable_kline_health_v2: bool
+    enable_read_repair_api: bool
     kline_health_backfill_recent_seconds: int
     backtest_require_trades: bool
     freqtrade_mock_enabled: bool
@@ -127,6 +128,7 @@ def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
         ),
         ondemand_max_jobs=env_int("TRADE_CANVAS_ONDEMAND_MAX_JOBS", default=0, minimum=0),
         enable_kline_health_v2=env_bool("TRADE_CANVAS_ENABLE_KLINE_HEALTH_V2"),
+        enable_read_repair_api=env_bool("TRADE_CANVAS_ENABLE_READ_REPAIR_API"),
         kline_health_backfill_recent_seconds=env_int(
             "TRADE_CANVAS_KLINE_HEALTH_BACKFILL_RECENT_SECONDS",
             default=120,

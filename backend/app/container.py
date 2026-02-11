@@ -20,7 +20,7 @@ from .overlay_orchestrator import OverlayOrchestrator, OverlaySettings
 from .overlay_package_service_v1 import OverlayReplayPackageServiceV1
 from .overlay_store import OverlayStore
 from .pipelines import IngestPipeline
-from .read_models import DrawReadService, FactorReadService, WorldReadService
+from .read_models import DrawReadService, FactorReadService, ReadRepairService, WorldReadService
 from .replay_prepare_service import ReplayPrepareService
 from .replay_package_service_v1 import ReplayPackageServiceV1
 from .runtime_flags import RuntimeFlags, load_runtime_flags
@@ -42,6 +42,7 @@ class AppContainer:
     factor_read_service: FactorReadService
     draw_read_service: DrawReadService
     world_read_service: WorldReadService
+    read_repair_service: ReadRepairService
     overlay_store: OverlayStore
     overlay_orchestrator: OverlayOrchestrator
     replay_prepare_service: ReplayPrepareService
@@ -130,6 +131,15 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
     )
 
     ingest_pipeline = runtime_build.runtime.ingest_pipeline
+    read_repair_service = ReadRepairService(
+        store=store,
+        factor_store=factor_store,
+        overlay_store=overlay_store,
+        ingest_pipeline=ingest_pipeline,
+        overlay_orchestrator=overlay_orchestrator,
+        debug_hub=debug_hub,
+        debug_api_enabled=bool(runtime_flags.enable_debug_api),
+    )
 
     replay_prepare_service = ReplayPrepareService(
         store=store,
@@ -178,6 +188,7 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         factor_read_service=factor_read_service,
         draw_read_service=draw_read_service,
         world_read_service=world_read_service,
+        read_repair_service=read_repair_service,
         overlay_store=overlay_store,
         overlay_orchestrator=overlay_orchestrator,
         replay_prepare_service=replay_prepare_service,

@@ -42,6 +42,8 @@ def _overlay_item_from_row(r: OverlayInstructionVersionRow) -> OverlayInstructio
 
 def _marker_time(defn: dict[str, Any]) -> int | None:
     t = defn.get("time")
+    if t is None:
+        return None
     try:
         tt = int(t)
     except Exception:
@@ -59,6 +61,8 @@ def _polyline_min_max(defn: dict[str, Any]) -> tuple[int | None, int | None]:
         if not isinstance(p, dict):
             continue
         t = p.get("time")
+        if t is None:
+            continue
         try:
             tt = int(t)
         except Exception:
@@ -298,4 +302,3 @@ def stable_json_dumps(obj: Any) -> str:
     Stable json serialization used by cache-key hashing.
     """
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-

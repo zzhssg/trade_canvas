@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
-from .debug_hub import DebugHub
 from .factor_store import FactorStore
 from .store import CandleStore
+
+
+class _DebugHubLike(Protocol):
+    def emit(
+        self,
+        *,
+        pipe: str,
+        event: str,
+        level: str = "info",
+        message: str,
+        series_id: str | None = None,
+        data: dict | None = None,
+    ) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -20,7 +33,7 @@ class FactorFingerprintRebuildCoordinator:
         *,
         candle_store: CandleStore,
         factor_store: FactorStore,
-        debug_hub: DebugHub | None = None,
+        debug_hub: _DebugHubLike | None = None,
         keep_candles: int = 2000,
     ) -> None:
         self._candle_store = candle_store

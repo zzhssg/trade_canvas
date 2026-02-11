@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..debug_hub import DebugHub
 from ..schemas import (
     DrawDeltaV1,
     GetFactorSlicesResponseV1,
@@ -49,13 +48,26 @@ class _DrawReadServiceLike(Protocol):
     ) -> DrawDeltaV1: ...
 
 
+class _DebugHubLike(Protocol):
+    def emit(
+        self,
+        *,
+        pipe: str,
+        event: str,
+        level: str = "info",
+        message: str,
+        series_id: str | None = None,
+        data: dict | None = None,
+    ) -> None: ...
+
+
 @dataclass(frozen=True)
 class WorldReadService:
     store: _StoreLike
     overlay_store: _OverlayStoreLike
     factor_read_service: _FactorReadServiceLike
     draw_read_service: _DrawReadServiceLike
-    debug_hub: DebugHub
+    debug_hub: _DebugHubLike
     debug_api_enabled: bool = False
 
     def _debug_enabled(self) -> bool:

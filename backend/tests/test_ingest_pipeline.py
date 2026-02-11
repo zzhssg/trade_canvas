@@ -53,6 +53,9 @@ class _Hub:
         self.closed_batches: list[tuple[str, list[int]]] = []
         self.system_events: list[str] = []
 
+    async def publish_closed(self, *, series_id: str, candle: CandleClosed) -> None:
+        self.closed_batches.append((str(series_id), [int(candle.candle_time)]))
+
     async def publish_closed_batch(self, *, series_id: str, candles: list[CandleClosed]) -> None:
         self.closed_batches.append((str(series_id), [int(c.candle_time) for c in candles]))
 

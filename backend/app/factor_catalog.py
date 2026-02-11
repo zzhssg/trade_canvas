@@ -45,12 +45,12 @@ def _title_from_event_key(event_key: str) -> str:
 
 def _build_factor_items_from_manifest(manifest: FactorManifest) -> list[FactorCatalogItemV1]:
     slice_plugins = {plugin.spec.factor_name: plugin for plugin in manifest.slice_plugins}
-    processor_specs = {processor.spec.factor_name: processor.spec for processor in manifest.processors}
+    tick_plugin_specs = {plugin.spec.factor_name: plugin.spec for plugin in manifest.tick_plugins}
     graph = FactorGraph([FactorSpec(factor_name=s.factor_name, depends_on=s.depends_on) for s in manifest.specs()])
 
     out: list[FactorCatalogItemV1] = []
     for factor_name in graph.topo_order:
-        spec = processor_specs.get(factor_name)
+        spec = tick_plugin_specs.get(factor_name)
         catalog = spec.catalog if spec is not None else None
         label = str(catalog.label).strip() if catalog is not None and catalog.label else _title_from_factor_name(factor_name)
         default_visible = bool(catalog.default_visible) if catalog is not None else True

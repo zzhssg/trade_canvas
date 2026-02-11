@@ -54,6 +54,7 @@ def test_read_model_services_do_not_read_env_flags_directly() -> None:
     target_files = [
         app_root / "factor_read_freshness.py",
         app_root / "read_models" / "draw_read_service.py",
+        app_root / "read_models" / "repair_service.py",
         app_root / "read_models" / "world_read_service.py",
     ]
     pattern = re.compile(r"\bresolve_env_bool\b|\bos\.environ\b")

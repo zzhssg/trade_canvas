@@ -11,7 +11,7 @@ from .factor_fingerprint_rebuild import FactorFingerprintRebuildCoordinator
 from .factor_graph import FactorGraph, FactorSpec
 from .factor_ingest_window import FactorIngestWindowPlanner
 from .factor_manifest import build_default_factor_manifest
-from .factor_processors import AnchorProcessor
+from .factor_processor_anchor import AnchorProcessor
 from .factor_registry import FactorRegistry
 from .factor_rebuild_loader import FactorBootstrapState, FactorRebuildStateLoader, RebuildEventBuckets
 from .factor_tick_executor import FactorTickExecutionResult, FactorTickExecutor, FactorTickState
@@ -73,7 +73,7 @@ class FactorOrchestrator:
         self._logic_version_override = str(logic_version_override or "")
         self._debug_hub: DebugHub | None = None
         manifest = build_default_factor_manifest()
-        self._registry = FactorRegistry(list(manifest.processors))
+        self._registry = FactorRegistry(list(manifest.tick_plugins))
         self._anchor_processor = cast(AnchorProcessor, self._registry.require("anchor"))
         self._graph = FactorGraph([FactorSpec(factor_name=s.factor_name, depends_on=s.depends_on) for s in self._registry.specs()])
         self._tick_runtime = FactorRuntimeContext(anchor_processor=self._anchor_processor)

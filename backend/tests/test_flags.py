@@ -17,7 +17,7 @@ def test_feature_flags_defaults(monkeypatch) -> None:
 
     flags = load_feature_flags()
     assert flags.enable_debug_api is False
-    assert flags.enable_read_strict_mode is False
+    assert flags.enable_read_strict_mode is True
     assert flags.enable_whitelist_ingest is False
     assert flags.enable_ondemand_ingest is False
     assert flags.enable_market_auto_tail_backfill is False

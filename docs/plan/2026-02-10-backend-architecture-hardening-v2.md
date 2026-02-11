@@ -22,7 +22,7 @@ updated: 2026-02-11
 - 引入统一 `IngestPipeline`，收敛 closed-candle 主写链路；
 - 引入读模型 `FactorReadService`，支持 strict 模式下读写分离；
 - 引入 `AppContainer + FeatureFlags`，统一装配与主链路开关治理；
-- 保持现有 HTTP/WS 契约兼容，默认行为不破坏（新能力默认关闭）。
+- 保持现有 HTTP/WS 契约兼容，并通过开关确保可回滚。
 
 ### 非目标
 - 不改动前端接口结构与字段名；
@@ -44,7 +44,7 @@ updated: 2026-02-11
 - 新增 `backend/app/read_models/factor_read_service.py`；
 - `factor/draw/world` 读链路统一读服务；
 - strict 模式下禁止读路径自动重算，出现滞后返回 `409 ledger_out_of_sync:*`；
-- 开关：`TRADE_CANVAS_ENABLE_READ_STRICT_MODE=1` 时启用，默认关闭。
+- 开关：默认启用 strict；回滚到非 strict 使用 `TRADE_CANVAS_ENABLE_READ_STRICT_MODE=0`。
 
 ### M3 容器化装配 + flags 集中治理
 - 新增 `backend/app/container.py`、`backend/app/flags.py`；
@@ -136,3 +136,4 @@ updated: 2026-02-11
 - 2026-02-11: 继续硬化（runtime 配置单真源、service error 分层、ingest overlay 失败补偿开关）
 - 2026-02-11: 继续硬化（factor/draw/world 读模型改为 ServiceError，route 统一映射 HTTP）
 - 2026-02-11: 继续硬化（ingest 新增“新写入 candle 回滚补偿”开关，减少写链路失败后的残留状态）
+- 2026-02-11: 决策 A 落地：`TRADE_CANVAS_ENABLE_READ_STRICT_MODE` 默认改为开启（`0` 可回滚）。

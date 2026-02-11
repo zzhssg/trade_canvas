@@ -40,7 +40,8 @@ class _OverlayOrchestratorLike(Protocol):
 
 
 class _FactorReadServiceLike(Protocol):
-    strict_mode: bool
+    @property
+    def strict_mode(self) -> bool: ...
 
     def read_slices(
         self,
@@ -95,11 +96,12 @@ class DrawReadService:
         series_id: str,
         cursor_version_id: int,
         window_candles: int,
-        at_time: int | None,
+        at_time: int | None = None,
     ) -> DrawDeltaV1:
         strict_mode = bool(getattr(self.factor_read_service, "strict_mode", False))
         store_head = self.store.head_time(series_id)
         overlay_head = self.overlay_store.head_time(series_id)
+        to_time: int | None
 
         if at_time is not None:
             aligned = self.store.floor_time(series_id, at_time=int(at_time))
@@ -113,7 +115,12 @@ class DrawReadService:
                 )
             to_time = int(aligned)
         else:
-            to_time = store_head if store_head is not None else overlay_head
+            if store_head is not None:
+                to_time = int(store_head)
+            elif overlay_head is not None:
+                to_time = int(overlay_head)
+            else:
+                to_time = None
         to_candle_id = f"{series_id}:{to_time}" if to_time is not None else None
 
         if strict_mode and to_time is not None:
@@ -161,26 +168,15 @@ class DrawReadService:
                 latest_defs=latest_defs,
             )
             if should_rebuild_overlay:
-                if strict_mode:
-                    raise ServiceError(
-                        status_code=409,
-                        detail="ledger_out_of_sync:overlay",
-                        code="draw_read.ledger_out_of_sync.overlay",
-                    )
-                self.overlay_orchestrator.reset_series(series_id=series_id)
-                self.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time))
-                latest_defs = self.overlay_store.get_latest_defs_up_to_time(
-                    series_id=series_id,
-                    up_to_time=int(to_time),
-                )
                 if self._debug_enabled():
                     self.debug_hub.emit(
                         pipe="read",
-                        event="read.http.draw_delta.overlay_rebuild",
+                        event="read.http.draw_delta.overlay_out_of_sync",
                         series_id=series_id,
-                        message="overlay rebuilt by integrity plugins",
+                        message="overlay integrity check failed; explicit repair required",
                         data={
                             "at_time": int(to_time),
+                            "strict_mode": bool(strict_mode),
                             "checks": [
                                 {
                                     "plugin": str(item.plugin_name),
@@ -191,11 +187,18 @@ class DrawReadService:
                             ],
                         },
                     )
+                raise ServiceError(
+                    status_code=409,
+                    detail="ledger_out_of_sync:overlay",
+                    code="draw_read.ledger_out_of_sync.overlay",
+                )
 
         active_ids: list[str] = []
         for definition in latest_defs:
             if definition.kind == "marker":
                 marker_time = definition.payload.get("time")
+                if marker_time is None:
+                    continue
                 try:
                     pivot_time = int(marker_time)
                 except Exception:

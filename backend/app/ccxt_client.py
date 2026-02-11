@@ -4,7 +4,7 @@ from .series_id import SeriesId
 
 
 def _make_exchange_client(series: SeriesId, *, timeout_ms: int = 10_000):
-    import ccxt  # imported lazily so tests don't require it unless a path needs ccxt
+    import ccxt  # type: ignore[import-untyped]  # imported lazily so tests don't require it unless a path needs ccxt
 
     if series.exchange != "binance":
         raise ValueError(f"unsupported exchange: {series.exchange!r}")

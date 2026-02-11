@@ -6,12 +6,16 @@ from .factor_processor_pen import PenProcessor
 from .factor_processor_pivot import PivotProcessor
 from .factor_processor_slice_buckets import SliceBucketSpec, build_default_slice_bucket_specs
 from .factor_processor_zhongshu import ZhongshuProcessor
-from .factor_registry import FactorProcessor
+from .factor_registry import FactorPlugin
 
 
-def build_default_factor_processors() -> list[FactorProcessor]:
-    processors, _ = build_default_factor_components()
-    return list(processors)
+def build_default_factor_plugins() -> list[FactorPlugin]:
+    tick_plugins, _ = build_default_factor_components()
+    return list(tick_plugins)
+
+
+def build_default_factor_processors() -> list[FactorPlugin]:
+    return build_default_factor_plugins()
 
 
 __all__ = [
@@ -20,6 +24,7 @@ __all__ = [
     "PivotProcessor",
     "SliceBucketSpec",
     "ZhongshuProcessor",
+    "build_default_factor_plugins",
     "build_default_factor_processors",
     "build_default_slice_bucket_specs",
 ]

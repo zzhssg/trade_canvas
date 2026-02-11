@@ -293,15 +293,15 @@ class ReplayPackageServiceV1:
             return {"status": "build_required", "job_id": job_id, "cache_key": cache_key}
 
         if j.status == "done":
-            meta = self._read_meta(cache_key) if self.cache_exists(cache_key) else None
+            done_meta: ReplayPackageMetadataV1 | None = self._read_meta(cache_key) if self.cache_exists(cache_key) else None
             out2: dict[str, Any] = {
                 "status": "done",
                 "job_id": job_id,
                 "cache_key": cache_key,
-                "metadata": meta.model_dump(mode="json") if meta else None,
+                "metadata": done_meta.model_dump(mode="json") if done_meta else None,
             }
-            if include_preload and meta is not None:
-                preload = self._read_preload_window(cache_key, meta)
+            if include_preload and done_meta is not None:
+                preload = self._read_preload_window(cache_key, done_meta)
                 out2["preload_window"] = preload.model_dump(mode="json") if preload else None
             if include_history:
                 out2["history_events"] = [e.model_dump(mode="json") for e in self._read_history_events(cache_key)]

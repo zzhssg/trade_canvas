@@ -5,6 +5,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
@@ -48,7 +49,8 @@ class ReplayPackageApiTests(unittest.TestCase):
             os.environ.pop(k, None)
 
     def _ingest(self, t: int, price: float) -> None:
-        container = self.client.app.state.container
+        app = cast(Any, self.client.app)
+        container = app.state.container
         store = container.store
         factor_orch = container.factor_orchestrator
         overlay_orch = container.overlay_orchestrator
@@ -170,6 +172,7 @@ class ReplayPackageApiTests(unittest.TestCase):
             time.sleep(0.05)
 
         self.assertIsNotNone(last)
+        assert last is not None
         self.assertEqual(last["status"], "done")
         self.assertEqual(last["candles_ready"], 5)
 

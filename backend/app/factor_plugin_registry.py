@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from .factor_plugin_contract import FactorPlugin, FactorPluginSpec
 
 
@@ -8,7 +10,7 @@ class FactorPluginRegistryError(RuntimeError):
 
 
 class FactorPluginRegistry:
-    def __init__(self, plugins: list[FactorPlugin]) -> None:
+    def __init__(self, plugins: Sequence[FactorPlugin]) -> None:
         by_name: dict[str, FactorPlugin] = {}
         for p in plugins:
             name = (p.spec.factor_name or "").strip()

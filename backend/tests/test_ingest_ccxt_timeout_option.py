@@ -37,4 +37,7 @@ class IngestCcxtTimeoutOptionTests(unittest.TestCase):
         name, options = calls[0]
         self.assertEqual(name, "futures")
         self.assertTrue(options.get("enableRateLimit"))
-        self.assertEqual(int(options.get("timeout")), 12345)
+        timeout = options.get("timeout")
+        self.assertIsNotNone(timeout)
+        assert timeout is not None
+        self.assertEqual(int(timeout), 12345)

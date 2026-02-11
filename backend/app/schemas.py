@@ -188,6 +188,23 @@ class ReplayPrepareResponseV1(BaseModel):
     overlay_head_time: int | None
     computed: bool
 
+
+class RepairOverlayRequestV1(BaseModel):
+    series_id: str = Field(..., min_length=1)
+    to_time: int | None = Field(default=None, ge=0)
+
+
+class RepairOverlayResponseV1(BaseModel):
+    ok: bool
+    series_id: str
+    requested_time: int
+    aligned_time: int
+    factor_head_time: int | None
+    overlay_head_time: int | None
+    refreshed: bool
+    steps: list[str] = Field(default_factory=list)
+
+
 class OverlayInstructionPatchItemV1(BaseModel):
     version_id: int
     instruction_id: str

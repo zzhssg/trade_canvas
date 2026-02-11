@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Mapping, Protocol
 
 from .blocking import run_blocking
 from .timeframe import series_id_timeframe, timeframe_to_seconds
@@ -17,7 +17,7 @@ class _BackfillLike(Protocol):
 
 
 class _IngestPipelineLike(Protocol):
-    def refresh_series_sync(self, *, up_to_times: dict[str, int]): ...
+    def refresh_series_sync(self, *, up_to_times: Mapping[str, int]): ...
 
 
 class _DebugHubLike(Protocol):
@@ -34,11 +34,20 @@ class _DebugHubLike(Protocol):
 
 
 class _RuntimeLike(Protocol):
-    store: _StoreLike
-    backfill: _BackfillLike
-    ingest_pipeline: _IngestPipelineLike | None
-    whitelist: object
-    debug_hub: _DebugHubLike
+    @property
+    def store(self) -> _StoreLike: ...
+
+    @property
+    def backfill(self) -> _BackfillLike: ...
+
+    @property
+    def ingest_pipeline(self) -> _IngestPipelineLike | None: ...
+
+    @property
+    def whitelist(self) -> object: ...
+
+    @property
+    def debug_hub(self) -> _DebugHubLike: ...
 
 
 @dataclass(frozen=True)
@@ -290,4 +299,3 @@ async def run_startup_kline_sync_for_runtime(
         target_candles=int(target_candles),
         debug_hub=runtime.debug_hub,
     )
-

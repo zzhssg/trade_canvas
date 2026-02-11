@@ -12,8 +12,7 @@ from .factor_pen_contract import (
     normalize_anchor_switch_payload,
     pen_strength as calc_pen_strength,
 )
-from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
-from .factor_registry import ProcessorSpec
+from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec, FactorPluginSpec
 from .factor_runtime_contract import FactorRuntimeContext
 from .factor_slices import build_pen_head_candidate
 from .factor_store import FactorEventWrite
@@ -47,7 +46,7 @@ class _AnchorHeadState(Protocol):
 
 @dataclass(frozen=True)
 class AnchorProcessor:
-    spec: ProcessorSpec = ProcessorSpec(
+    spec: FactorPluginSpec = FactorPluginSpec(
         factor_name="anchor",
         depends_on=("pen", "zhongshu"),
         catalog=FactorCatalogSpec(

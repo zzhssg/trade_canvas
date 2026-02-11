@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
@@ -44,7 +45,8 @@ class ReplayPrepareApiTests(unittest.TestCase):
             os.environ.pop(key, None)
 
     def _seed_closed(self, *, candle_time: int, price: float) -> None:
-        self.client.app.state.container.store.upsert_closed(
+        app = cast(Any, self.client.app)
+        app.state.container.store.upsert_closed(
             self.series_id,
             CandleClosed(
                 candle_time=int(candle_time),

@@ -48,6 +48,7 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     monkeypatch.setenv("TRADE_CANVAS_OVERLAY_WINDOW_CANDLES", "9")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_OVERLAY_ERROR", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_READ_REPAIR_API", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_STARTUP_KLINE_SYNC", "1")
     monkeypatch.setenv("TRADE_CANVAS_STARTUP_KLINE_SYNC_TARGET_CANDLES", "9")
     monkeypatch.setenv("TRADE_CANVAS_CCXT_TIMEOUT_MS", "9")
@@ -78,6 +79,7 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     assert flags.overlay_window_candles == 100
     assert flags.enable_ingest_compensate_overlay_error is True
     assert flags.enable_ingest_compensate_new_candles is True
+    assert flags.enable_read_repair_api is True
     assert flags.enable_startup_kline_sync is True
     assert flags.startup_kline_sync_target_candles == 100
     assert flags.ccxt_timeout_ms == 1000

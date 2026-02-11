@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any, cast
 
 from backend.app.factor_graph import FactorGraph, FactorSpec
 from backend.app.factor_plugin_contract import FactorPluginSpec
@@ -85,8 +86,8 @@ class FactorSlicePluginsTests(unittest.TestCase):
             _StubSlicePlugin(factor_name="beta", depends_on=("alpha",), calls=calls),
         )
         service = FactorSlicesService(
-            candle_store=_FakeCandleStore(),
-            factor_store=_FakeFactorStore(),
+            candle_store=cast(Any, _FakeCandleStore()),
+            factor_store=cast(Any, _FakeFactorStore()),
             slice_plugins=plugins,
         )
         payload = service.get_slices_aligned(
@@ -111,8 +112,8 @@ class FactorSlicePluginsTests(unittest.TestCase):
         )
         with self.assertRaises(RuntimeError) as ctx:
             _ = FactorSlicesService(
-                candle_store=_FakeCandleStore(),
-                factor_store=_FakeFactorStore(),
+                candle_store=cast(Any, _FakeCandleStore()),
+                factor_store=cast(Any, _FakeFactorStore()),
                 slice_plugins=plugins,
             )
         self.assertIn("factor_slice_bucket_conflict:pivot:pivot.major", str(ctx.exception))

@@ -166,6 +166,7 @@ class WorldReadServiceTests(unittest.TestCase):
         self.assertEqual(rec.id, 4)
         self.assertEqual(rec.to_candle_id, f"{series_id}:840")
         self.assertIsNotNone(rec.factor_slices)
+        assert rec.factor_slices is not None
         self.assertEqual(rec.factor_slices.candle_id, f"{series_id}:840")
         self.assertEqual(payload.next_cursor.id, 4)
         self.assertEqual(len(debug_hub.events), 1)

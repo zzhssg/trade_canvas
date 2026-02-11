@@ -4,8 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .factor_head_builder import build_zhongshu_alive_head
-from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
-from .factor_registry import ProcessorSpec
+from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec, FactorPluginSpec
 from .factor_runtime_contract import FactorRuntimeContext
 from .factor_store import FactorEventWrite
 from .zhongshu import (
@@ -49,7 +48,7 @@ class _ZhongshuHeadState(Protocol):
 
 @dataclass(frozen=True)
 class ZhongshuProcessor:
-    spec: ProcessorSpec = ProcessorSpec(
+    spec: FactorPluginSpec = FactorPluginSpec(
         factor_name="zhongshu",
         depends_on=("pen",),
         catalog=FactorCatalogSpec(

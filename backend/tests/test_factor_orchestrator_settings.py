@@ -211,7 +211,7 @@ class FactorOrchestratorSettingsTests(unittest.TestCase):
         plugins = {name: _Plugin(name) for name in ("pivot", "pen", "zhongshu", "anchor")}
         self.orchestrator._graph = cast(Any, SimpleNamespace(topo_order=("pivot", "pen", "zhongshu", "anchor")))
         self.orchestrator._registry = cast(Any, SimpleNamespace(require=lambda name: plugins[name]))
-        self.orchestrator._tick_runtime = {}
+        self.orchestrator._tick_runtime = cast(Any, {})
         self.orchestrator._run_tick_steps(series_id="s", state=SimpleNamespace())  # type: ignore[arg-type]
         self.assertEqual(calls, ["pivot", "pen", "zhongshu", "anchor"])
 
@@ -230,7 +230,7 @@ class FactorOrchestratorSettingsTests(unittest.TestCase):
         plugins = {name: _Plugin(name) for name in ("pivot", "pen")}
         self.orchestrator._graph = cast(Any, SimpleNamespace(topo_order=("pivot", "pen")))
         self.orchestrator._registry = cast(Any, SimpleNamespace(require=lambda name: plugins[name]))
-        self.orchestrator._tick_runtime = {}
+        self.orchestrator._tick_runtime = cast(Any, {})
         out = self.orchestrator._build_head_snapshots(
             series_id="s",
             confirmed_pens=[],
@@ -249,7 +249,7 @@ class FactorOrchestratorSettingsTests(unittest.TestCase):
 
         self.orchestrator._graph = cast(Any, SimpleNamespace(topo_order=("pivot",)))
         self.orchestrator._registry = cast(Any, SimpleNamespace(require=lambda name: _PluginWithoutTick()))
-        self.orchestrator._tick_runtime = {}
+        self.orchestrator._tick_runtime = cast(Any, {})
         with self.assertRaises(RuntimeError) as ctx:
             self.orchestrator._run_tick_steps(series_id="s", state=SimpleNamespace())  # type: ignore[arg-type]
         self.assertIn("factor_missing_run_tick:pivot", str(ctx.exception))

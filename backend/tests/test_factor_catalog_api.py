@@ -11,7 +11,7 @@ from backend.app.factor_plugin_contract import FactorCatalogSpec, FactorCatalogS
 from backend.app.main import create_app
 
 
-class _Processor:
+class _TickPlugin:
     def __init__(self) -> None:
         self.spec = FactorPluginSpec(
             factor_name="custom_factor",
@@ -73,9 +73,9 @@ class FactorCatalogApiTests(unittest.TestCase):
         self.assertFalse(bool(by_key["sma"].get("default_visible")))
         self.assertFalse(bool(by_key["signal"].get("default_visible")))
 
-    def test_factor_catalog_uses_processor_catalog_metadata(self) -> None:
+    def test_factor_catalog_uses_tick_plugin_catalog_metadata(self) -> None:
         manifest = build_factor_manifest(
-            processors=(_Processor(),),
+            tick_plugins=(_TickPlugin(),),
             slice_plugins=(_SlicePlugin(),),
         )
         with patch("backend.app.factor_catalog.build_default_factor_manifest", return_value=manifest):

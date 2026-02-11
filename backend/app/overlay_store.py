@@ -131,7 +131,10 @@ class OverlayStore:
                 now_ms,
             ),
         )
-        return int(cur.lastrowid)
+        rowid = cur.lastrowid
+        if rowid is None:
+            raise RuntimeError("overlay_instruction_versions_insert_missing_rowid")
+        return int(rowid)
 
     def get_latest_defs_up_to_time(
         self,

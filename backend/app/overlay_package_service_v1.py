@@ -260,12 +260,12 @@ class OverlayReplayPackageServiceV1:
             return {"status": "build_required", "job_id": job_id, "cache_key": cache_key}
 
         if j.status == "done":
-            meta = self.read_meta(cache_key) if self.cache_exists(cache_key) else None
+            done_meta: OverlayReplayDeltaMetaV1 | None = self.read_meta(cache_key) if self.cache_exists(cache_key) else None
             out2: dict[str, Any] = {
                 "status": "done",
                 "job_id": job_id,
                 "cache_key": cache_key,
-                "delta_meta": meta.model_dump(mode="json") if meta else None,
+                "delta_meta": done_meta.model_dump(mode="json") if done_meta else None,
             }
             if include_delta_package and self.cache_exists(cache_key):
                 pkg = self.read_full_package(cache_key)

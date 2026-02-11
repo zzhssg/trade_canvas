@@ -15,7 +15,7 @@ class _FactorOrchestratorLike(Protocol):
 
 
 class _AlignedStoreLike(Protocol):
-    def floor_time(self, series_id: str, at_time: int) -> int | None: ...
+    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
 
 
 class _FactorStoreLike(Protocol):

@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -48,7 +49,8 @@ class BacktestDataAvailabilityTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_FREQTRADE_ROOT"] = str(root)
 
         self.client = TestClient(create_app())
-        self.backtest_service = self.client.app.state.container.backtest_service
+        app = cast(Any, self.client.app)
+        self.backtest_service = app.state.container.backtest_service
 
     def tearDown(self) -> None:
         self.tmpdir.cleanup()

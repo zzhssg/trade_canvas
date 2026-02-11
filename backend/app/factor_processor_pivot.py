@@ -3,8 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
-from .factor_registry import ProcessorSpec
+from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec, FactorPluginSpec
 from .factor_runtime_contract import FactorRuntimeContext
 from .factor_semantics import is_more_extreme_pivot
 from .factor_store import FactorEventWrite
@@ -36,7 +35,7 @@ class _PivotBootstrapState(Protocol):
 
 @dataclass(frozen=True)
 class PivotProcessor:
-    spec: ProcessorSpec = ProcessorSpec(
+    spec: FactorPluginSpec = FactorPluginSpec(
         factor_name="pivot",
         depends_on=(),
         catalog=FactorCatalogSpec(

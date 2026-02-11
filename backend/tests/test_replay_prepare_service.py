@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from typing import Mapping
 
 from backend.app.replay_prepare_service import ReplayPrepareService
 from backend.app.schemas import ReplayPrepareRequestV1
@@ -36,11 +37,11 @@ class _PipelineStub:
         self.calls: list[dict[str, int]] = []
         self._on_refresh = on_refresh
 
-    def refresh_series_sync(self, *, up_to_times: dict[str, int]):
+    def refresh_series_sync(self, *, up_to_times: Mapping[str, int]):
         self.calls.append(dict(up_to_times))
         if self._on_refresh is not None:
             self._on_refresh(dict(up_to_times))
-        return SimpleNamespace(steps=[{"name": "refresh"}])
+        return SimpleNamespace(steps=(SimpleNamespace(name="refresh"),))
 
 
 class _DebugHubStub:

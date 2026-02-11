@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from backend.app.read_models import FactorReadService
+from backend.app.schemas import GetFactorSlicesResponseV1
 from backend.app.service_errors import ServiceError
 
 
@@ -18,7 +19,7 @@ class _Store:
         self.aligned = aligned
         self.floor_calls: list[tuple[str, int]] = []
 
-    def floor_time(self, series_id: str, at_time: int) -> int | None:
+    def floor_time(self, series_id: str, *, at_time: int) -> int | None:
         self.floor_calls.append((str(series_id), int(at_time)))
         return self.aligned
 
@@ -52,9 +53,14 @@ class _Slices:
         aligned_time: int | None,
         at_time: int,
         window_candles: int,
-    ) -> dict:
+    ) -> GetFactorSlicesResponseV1:
         self.calls.append((str(series_id), aligned_time, int(at_time), int(window_candles)))
-        return {"series_id": str(series_id), "aligned_time": aligned_time, "at_time": int(at_time)}
+        candle_id = f"{series_id}:{int(aligned_time)}" if aligned_time is not None else None
+        return GetFactorSlicesResponseV1(
+            series_id=str(series_id),
+            at_time=int(at_time),
+            candle_id=candle_id,
+        )
 
 
 def test_factor_read_service_non_strict_keeps_legacy_auto_freshness() -> None:
@@ -72,7 +78,7 @@ def test_factor_read_service_non_strict_keeps_legacy_auto_freshness() -> None:
 
     assert orch.calls == [("s", 180)]
     assert slices.calls == [("s", 180, 200, 100)]
-    assert out["aligned_time"] == 180
+    assert out.candle_id == "s:180"
 
 
 def test_factor_read_service_strict_mode_rejects_stale_factor() -> None:
@@ -116,4 +122,4 @@ def test_factor_read_service_strict_mode_can_skip_freshness_check_explicitly() -
 
     assert orch.calls == []
     assert slices.calls == [("s", 300, 300, 20)]
-    assert out["aligned_time"] == 300
+    assert out.candle_id == "s:300"

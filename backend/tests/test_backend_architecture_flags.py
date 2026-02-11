@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
@@ -88,7 +89,8 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
     def test_runtime_pipeline_and_hub_use_single_instance(self) -> None:
         client = self._build_client()
         try:
-            container = client.app.state.container
+            app = cast(Any, client.app)
+            container = app.state.container
             runtime = container.market_runtime
             pipeline = container.ingest_pipeline
             self.assertIs(runtime.ingest_pipeline, pipeline)

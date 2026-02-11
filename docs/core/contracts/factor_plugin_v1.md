@@ -88,8 +88,10 @@ class FactorHeadSnapshotPlugin(FactorTickPlugin, Protocol):
 
 ## 5. 与旧接口兼容
 
-当前仍保留 `FactorRegistry` / `ProcessorSpec` 兼容别名，避免一次性切断存量调用；
-后续阶段逐步替换为 `FactorPluginRegistry` / `FactorPluginSpec`。
+当前兼容策略（2026-02-11）：
+- `FactorRegistry` 新增主接口 `tick_plugins()`，同时保留 `processors()` 只读别名；
+- `FactorPluginSpec` 已作为主类型，`ProcessorSpec` 仅作为兼容别名保留；
+- `build_factor_manifest()` 主参数为 `tick_plugins=...`，仍接受 `processors=...` 兼容调用。
 
 ## 6. 读路径插件扩展（Slice Plugin）
 
@@ -126,15 +128,15 @@ class FactorSlicePlugin(Protocol):
 ```python
 @dataclass(frozen=True)
 class FactorManifest:
-    processors: tuple[FactorProcessor, ...]
+    tick_plugins: tuple[FactorPlugin, ...]
     slice_plugins: tuple[FactorSlicePlugin, ...]
 
 def build_default_factor_manifest() -> FactorManifest: ...
 ```
 
 约束：
-- 默认注册单点维护在 `backend/app/factor_default_components.py`（bundle 形式声明 processor + slice plugin 配对）；
-- `processors` 与 `slice_plugins` 的因子集合必须完全相同；
+- 默认注册单点维护在 `backend/app/factor_default_components.py`（bundle 形式声明 `tick_plugin_builder + slice_plugin_builder` 配对）；
+- `tick_plugins` 与 `slice_plugins` 的因子集合必须完全相同；
 - 同名因子的 `depends_on` 必须完全相同；
 - 违反时启动即 fail-fast（`manifest_*` 错误码）。
 

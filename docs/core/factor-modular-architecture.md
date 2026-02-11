@@ -40,7 +40,7 @@ updated: 2026-02-11
 - `backend/app/factor_graph.py`
   - 生成稳定拓扑序，作为写读两侧统一执行顺序。
 - `backend/app/factor_default_components.py`
-  - 默认 processor 与 slice plugin 的单点挂载。
+  - 默认 tick plugin 与 slice plugin 的单点挂载。
 - `backend/app/factor_manifest.py`
   - 启动时校验读写插件一致性。
 
@@ -54,7 +54,8 @@ updated: 2026-02-11
 
 读链路语义：
 - 按 `aligned_time` 读，不穿透未来。
-- strict 模式下只读不修复，缺新鲜度返回 409。
+- 默认 strict read（`TRADE_CANVAS_ENABLE_READ_STRICT_MODE=1`），可显式设为 `0` 降级。
+- 读接口默认不在请求内执行隐式 repair；账本不一致返回 409，由显式 repair 接口处理。
 
 ### 1.4 与 overlay/world 的耦合边界
 
@@ -95,7 +96,7 @@ flowchart LR
   A["CandleStore closed bars"] --> B["FactorOrchestrator ingest_closed"]
   B --> C["FactorIngestWindow plan"]
   C --> D["FactorTickExecutor run"]
-  D --> E["Processor Plugins"]
+  D --> E["Tick Plugins"]
   E --> F["FactorStore append history/head"]
 ```
 
@@ -128,16 +129,16 @@ flowchart LR
 
 必改项：
 1. `backend/app/factor_processor_*.py`
-   - 新增算法 processor（含 `spec` 与领域事件产出）。
+   - 新增算法 tick plugin（含 `spec` 与领域事件产出）。
 2. `backend/app/factor_slice_plugins.py`
    - 新增对应 slice plugin（history/head/meta 输出）。
 3. `backend/app/factor_default_components.py`
-   - 挂载 processor + slice plugin 对。
+   - 挂载 tick plugin + slice plugin 对。
 4. `docs/core/contracts/factor_*.md`
    - 更新契约与字段语义。
 
 按需改：
-- `backend/app/overlay_renderer_plugins.py`（需要图上呈现时）
+- `backend/app/overlay_renderer_plugins.py`（facade 入口；具体实现见 `overlay_renderer_marker.py` / `overlay_renderer_pen.py` / `overlay_renderer_structure.py`）
 - `backend/app/freqtrade_signal_plugins.py`（需要策略信号列时）
 - `backend/app/overlay_integrity_plugins.py`（需要额外一致性校验时）
 

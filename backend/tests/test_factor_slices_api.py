@@ -33,6 +33,7 @@ class FactorSlicesApiTests(unittest.TestCase):
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
             "TRADE_CANVAS_FACTOR_LOGIC_VERSION",
+            "TRADE_CANVAS_ENABLE_READ_STRICT_MODE",
         ):
             os.environ.pop(k, None)
 
@@ -124,11 +125,13 @@ class FactorSlicesApiTests(unittest.TestCase):
         self.assertIn("zhongshu", before.json()["factors"])
 
         os.environ["TRADE_CANVAS_FACTOR_LOGIC_VERSION"] = "force-rebuild-for-read-path"
+        os.environ["TRADE_CANVAS_ENABLE_READ_STRICT_MODE"] = "0"
         self._recreate_client()
         after = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
         self.assertEqual(after.status_code, 200, after.text)
         self.assertNotIn("zhongshu", after.json()["factors"])
         os.environ.pop("TRADE_CANVAS_FACTOR_LOGIC_VERSION", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_READ_STRICT_MODE", None)
         self._recreate_client()
 
     def test_factor_slices_ignores_stale_zhongshu_head_snapshot(self) -> None:

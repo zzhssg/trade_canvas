@@ -4,6 +4,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 from backend.app.market_data import (
     BackfillGapRequest,
@@ -522,12 +523,12 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
             payloads = [{"type": "candle_closed", "series_id": req.series_id, "candle": req.catchup[0].model_dump()}]
             return SimpleNamespace(payloads=payloads, last_sent_time=int(req.catchup[-1].candle_time) if req.catchup else None)
 
-    hub = _Hub()
+    hub = cast(Any, _Hub())
     ondemand = _OnDemand()
     svc = WsSubscriptionCoordinator(
         hub=hub, ondemand_subscribe=ondemand.subscribe, ondemand_unsubscribe=ondemand.unsubscribe
     )
-    ws = object()
+    ws = cast(Any, object())
 
     err = asyncio.run(
         svc.subscribe(
@@ -553,7 +554,7 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
             since=100,
             supports_batch=False,
             ondemand_enabled=False,
-            market_data=_MarketData(),
+            market_data=cast(Any, _MarketData()),
             derived_initial_backfill=_noop_backfill,
         )
     )

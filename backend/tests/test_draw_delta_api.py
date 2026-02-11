@@ -5,9 +5,11 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
+from backend.app.container import AppContainer
 from backend.app.main import create_app
 
 
@@ -21,6 +23,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MAJOR"] = "2"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MINOR"] = "1"
         os.environ["TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES"] = "5000"
+        os.environ["TRADE_CANVAS_ENABLE_READ_REPAIR_API"] = "1"
         self.client = TestClient(create_app())
         self.series_id = "binance:futures:BTC/USDT:1m"
 
@@ -33,6 +36,7 @@ class DrawDeltaApiTests(unittest.TestCase):
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
+            "TRADE_CANVAS_ENABLE_READ_REPAIR_API",
         ):
             os.environ.pop(k, None)
 
@@ -52,6 +56,17 @@ class DrawDeltaApiTests(unittest.TestCase):
         except Exception:
             pass
         self.client = TestClient(create_app())
+
+    def _repair_overlay(self, *, to_time: int | None = None) -> None:
+        payload: dict[str, object] = {"series_id": self.series_id}
+        if to_time is not None:
+            payload["to_time"] = int(to_time)
+        repaired = self.client.post("/api/dev/repair/overlay", json=payload)
+        self.assertEqual(repaired.status_code, 200, repaired.text)
+
+    def _container(self) -> AppContainer:
+        app = cast(Any, self.client.app)
+        return cast(AppContainer, app.state.container)
 
     def test_draw_delta_is_overlay_compatible_and_cursor_idempotent(self) -> None:
         base = 60
@@ -99,8 +114,12 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertTrue(minors, "expected at least one pivot.minor marker in patch")
         self.assertEqual(str(majors[0].get("shape")), "circle")
         self.assertEqual(str(minors[0].get("shape")), "circle")
-        self.assertAlmostEqual(float(majors[0].get("size")), 1.0, places=6)
-        self.assertAlmostEqual(float(minors[0].get("size")), 0.5, places=6)
+        major_size = majors[0].get("size")
+        minor_size = minors[0].get("size")
+        self.assertIsInstance(major_size, (int, float))
+        self.assertIsInstance(minor_size, (int, float))
+        self.assertAlmostEqual(float(cast(int | float, major_size)), 1.0, places=6)
+        self.assertAlmostEqual(float(cast(int | float, minor_size)), 0.5, places=6)
         # Regression: keep `text` field but should be blank.
         self.assertIn("text", majors[0])
         self.assertEqual(str(majors[0].get("text")), "")
@@ -151,7 +170,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(payload_mid["to_candle_id"], f"{self.series_id}:{t_mid}")
 
         # Force overlay head_time to lag behind, then requesting a later at_time must fail-safe.
-        overlay_store = self.client.app.state.container.overlay_store
+        overlay_store = self._container().overlay_store
         with overlay_store.connect() as conn:
             conn.execute(
                 "UPDATE overlay_series_state SET head_time = ? WHERE series_id = ?",
@@ -166,7 +185,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(res_late.status_code, 409, res_late.text)
         self.assertIn("ledger_out_of_sync", res_late.text)
 
-    def test_draw_delta_live_defaults_to_store_head_when_overlay_head_stale(self) -> None:
+    def test_draw_delta_live_strict_mode_rejects_when_overlay_head_stale(self) -> None:
         base = 60
         prices = [1, 2, 5, 2, 1, 2, 5, 2, 1]
         times = [base * (i + 1) for i in range(len(prices))]
@@ -178,8 +197,8 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(warm.status_code, 200, warm.text)
         self.assertEqual(int(warm.json()["to_candle_time"]), int(times[-1]))
 
-        # Simulate stale overlay head_time; live draw path should still return latest closed candle.
-        overlay_store = self.client.app.state.container.overlay_store
+        # Simulate stale overlay head_time; strict read should fail fast.
+        overlay_store = self._container().overlay_store
         with overlay_store.connect() as conn:
             conn.execute(
                 "UPDATE overlay_series_state SET head_time = ? WHERE series_id = ?",
@@ -188,9 +207,8 @@ class DrawDeltaApiTests(unittest.TestCase):
             conn.commit()
 
         res_live = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
-        self.assertEqual(res_live.status_code, 200, res_live.text)
-        payload_live = res_live.json()
-        self.assertEqual(int(payload_live["to_candle_time"]), int(times[-1]))
+        self.assertEqual(res_live.status_code, 409, res_live.text)
+        self.assertIn("ledger_out_of_sync:overlay", res_live.text)
 
     def test_anchor_history_polyline_uses_blue_color(self) -> None:
         base = 60
@@ -314,7 +332,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         res_overlay = self.client.get("/api/overlay/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
         self.assertEqual(res_overlay.status_code, 404, res_overlay.text)
 
-    def test_draw_delta_rebuilds_overlay_when_anchor_current_missing(self) -> None:
+    def test_draw_delta_requires_explicit_repair_when_anchor_current_missing(self) -> None:
         base = 60
         prices = [
             1,
@@ -356,7 +374,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         self.assertEqual(first.status_code, 200, first.text)
         self.assertIn("anchor.current", first.json().get("active_ids") or [])
 
-        overlay_store = self.client.app.state.container.overlay_store
+        overlay_store = self._container().overlay_store
         with overlay_store.connect() as conn:
             conn.execute(
                 "DELETE FROM overlay_instruction_versions WHERE series_id = ? AND instruction_id = ?",
@@ -364,11 +382,15 @@ class DrawDeltaApiTests(unittest.TestCase):
             )
             conn.commit()
 
+        out_of_sync = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(out_of_sync.status_code, 409, out_of_sync.text)
+        self.assertIn("ledger_out_of_sync:overlay", out_of_sync.text)
+        self._repair_overlay(to_time=times[-1])
         repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
         self.assertEqual(repaired.status_code, 200, repaired.text)
         self.assertIn("anchor.current", repaired.json().get("active_ids") or [])
 
-    def test_draw_delta_rebuilds_overlay_when_zhongshu_presence_mismatched(self) -> None:
+    def test_draw_delta_requires_explicit_repair_when_zhongshu_presence_mismatched(self) -> None:
         base = 60
         prices = [
             1,
@@ -411,7 +433,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         first_ids = first.json().get("active_ids") or []
         self.assertTrue(any(str(i).startswith("zhongshu.") for i in first_ids), "expected zhongshu instructions before tampering")
 
-        factor_store = self.client.app.state.container.factor_store
+        factor_store = self._container().factor_store
         with factor_store.connect() as conn:
             factor_store.clear_series_in_conn(conn, series_id=self.series_id)
             conn.commit()
@@ -419,13 +441,15 @@ class DrawDeltaApiTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "0"
         self._recreate_client()
         try:
-            repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+            out_of_sync = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+            self.assertEqual(out_of_sync.status_code, 409, out_of_sync.text)
+            self.assertIn("ledger_out_of_sync", out_of_sync.text)
         finally:
             os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "1"
             self._recreate_client()
+        self._repair_overlay(to_time=times[-1])
+        repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
         self.assertEqual(repaired.status_code, 200, repaired.text)
-        repaired_ids = repaired.json().get("active_ids") or []
-        self.assertFalse(any(str(i).startswith("zhongshu.") for i in repaired_ids), "stale zhongshu instructions should be reset")
 
         zhongshu_patch_defs: list[dict] = []
         for item in repaired.json().get("instruction_catalog_patch") or []:
@@ -435,9 +459,9 @@ class DrawDeltaApiTests(unittest.TestCase):
             definition = item.get("definition")
             if instruction_id.startswith("zhongshu.") and isinstance(definition, dict):
                 zhongshu_patch_defs.append(definition)
-        self.assertEqual(zhongshu_patch_defs, [])
+        self.assertTrue(zhongshu_patch_defs)
 
-    def test_draw_delta_rebuilds_overlay_when_zhongshu_signature_mismatched(self) -> None:
+    def test_draw_delta_requires_explicit_repair_when_zhongshu_signature_mismatched(self) -> None:
         base = 60
         prices = [
             1,
@@ -488,7 +512,7 @@ class DrawDeltaApiTests(unittest.TestCase):
             "lineWidth": 2,
             "entryDirection": 1,
         }
-        overlay_store = self.client.app.state.container.overlay_store
+        overlay_store = self._container().overlay_store
         with overlay_store.connect() as conn:
             conn.execute(
                 """
@@ -504,6 +528,10 @@ class DrawDeltaApiTests(unittest.TestCase):
             )
             conn.commit()
 
+        out_of_sync = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(out_of_sync.status_code, 409, out_of_sync.text)
+        self.assertIn("ledger_out_of_sync:overlay", out_of_sync.text)
+        self._repair_overlay(to_time=times[-1])
         repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
         self.assertEqual(repaired.status_code, 200, repaired.text)
         repaired_ids = repaired.json().get("active_ids") or []
@@ -547,8 +575,8 @@ class DrawDeltaApiTests(unittest.TestCase):
         for t, p in zip(times, prices, strict=True):
             self._ingest(t, float(p))
 
-        factor_store = self.client.app.state.container.factor_store
-        overlay_store = self.client.app.state.container.overlay_store
+        factor_store = self._container().factor_store
+        overlay_store = self._container().overlay_store
 
         expected_by_start: dict[int, int] = {}
         with factor_store.connect() as conn:
@@ -594,6 +622,10 @@ class DrawDeltaApiTests(unittest.TestCase):
             overlay_store.clear_series_in_conn(conn, series_id=self.series_id)
             conn.commit()
 
+        out_of_sync = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
+        self.assertEqual(out_of_sync.status_code, 409, out_of_sync.text)
+        self.assertIn("ledger_out_of_sync:overlay", out_of_sync.text)
+        self._repair_overlay(to_time=times[-1])
         repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
         self.assertEqual(repaired.status_code, 200, repaired.text)
 

@@ -160,7 +160,7 @@ def delete_worktree(
 def allocate_ports_endpoint(worktree_manager: WorktreeManagerDep) -> DevPortAllocationResponse:
     from .port_allocator import allocate_ports as do_allocate
 
-    index = worktree_manager._read_index()
+    index = worktree_manager.read_index()
     used_backend = {v.get("backend_port", 0) for v in index.get("allocations", {}).values()}
     used_frontend = {v.get("frontend_port", 0) for v in index.get("allocations", {}).values()}
     backend_port, frontend_port = do_allocate(used_backend, used_frontend)

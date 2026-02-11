@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import cast
+from typing import Protocol, cast
 
 from .debug_hub import DebugHub
 from .factor_graph import FactorGraph, FactorSpec
 from .factor_plugin_registry import FactorPluginRegistry
 from .factor_store import FactorStore
+from .overlay_ingest_reader import OverlayIngestInput, OverlayIngestReader
+from .overlay_ingest_writer import OverlayInstructionWriter
 from .overlay_store import OverlayStore
 from .overlay_renderer_plugins import (
     OverlayRenderContext,
@@ -15,7 +17,6 @@ from .overlay_renderer_plugins import (
     OverlayRendererPlugin,
     build_default_overlay_render_plugins,
     build_overlay_event_bucket_config,
-    collect_overlay_event_buckets,
 )
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
@@ -27,11 +28,34 @@ class OverlaySettings:
     window_candles: int = 2000
 
 
+class OverlayIngestReaderLike(Protocol):
+    def read(
+        self,
+        *,
+        series_id: str,
+        to_time: int,
+        tf_s: int,
+        window_candles: int,
+    ) -> OverlayIngestInput: ...
+
+
+class OverlayInstructionWriterLike(Protocol):
+    def persist(
+        self,
+        *,
+        series_id: str,
+        to_time: int,
+        marker_defs: list[tuple[str, str, int, dict]],
+        polyline_defs: list[tuple[str, int, dict]],
+    ) -> int: ...
+
+
 class OverlayOrchestrator:
     """
     v0 overlay orchestrator:
-    - Reads FactorStore (pivot.major/minor, pen.confirmed)
-    - Builds overlay instructions and persists them to OverlayStore as versioned defs.
+    - Delegates window/event loading to OverlayIngestReader.
+    - Builds overlay instructions via renderer plugins.
+    - Persists deduplicated instruction versions via OverlayInstructionWriter.
     - instruction_catalog_patch is derived from version_id cursor.
     """
 
@@ -42,6 +66,8 @@ class OverlayOrchestrator:
         factor_store: FactorStore,
         overlay_store: OverlayStore,
         settings: OverlaySettings | None = None,
+        ingest_reader: OverlayIngestReaderLike | None = None,
+        instruction_writer: OverlayInstructionWriterLike | None = None,
     ) -> None:
         self._candle_store = candle_store
         self._factor_store = factor_store
@@ -63,6 +89,14 @@ class OverlayOrchestrator:
         self._event_bucket_by_kind = by_kind
         self._event_bucket_sort_keys = sort_keys
         self._event_bucket_names = bucket_names
+        self._ingest_reader = ingest_reader or OverlayIngestReader(
+            candle_store=self._candle_store,
+            factor_store=self._factor_store,
+            event_bucket_by_kind=self._event_bucket_by_kind,
+            event_bucket_sort_keys=self._event_bucket_sort_keys,
+            event_bucket_names=self._event_bucket_names,
+        )
+        self._instruction_writer = instruction_writer or OverlayInstructionWriter(overlay_store=self._overlay_store)
 
     def set_debug_hub(self, hub: DebugHub | None) -> None:
         self._debug_hub = hub
@@ -103,80 +137,30 @@ class OverlayOrchestrator:
 
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         window_candles = self._load_window_candles()
-        cutoff_time = max(0, to_time - int(window_candles) * int(tf_s))
-
-        factor_rows = self._factor_store.get_events_between_times(
+        ingest_input = self._ingest_reader.read(
             series_id=series_id,
-            factor_name=None,
-            start_candle_time=int(cutoff_time),
-            end_candle_time=int(to_time),
-            limit=50000,
-        )
-        buckets = collect_overlay_event_buckets(
-            rows=factor_rows,
-            event_bucket_by_kind=self._event_bucket_by_kind,
-            event_bucket_sort_keys=self._event_bucket_sort_keys,
-            event_bucket_names=self._event_bucket_names,
-        )
-
-        candles = self._candle_store.get_closed_between_times(
-            series_id,
-            start_time=int(cutoff_time),
-            end_time=int(to_time),
-            limit=int(window_candles) + 10,
+            to_time=int(to_time),
+            tf_s=int(tf_s),
+            window_candles=int(window_candles),
         )
         rendered = self._run_render_plugins(
             ctx=OverlayRenderContext(
                 series_id=series_id,
                 to_time=int(to_time),
-                cutoff_time=int(cutoff_time),
-                window_candles=int(window_candles),
-                candles=candles,
-                buckets=buckets,
+                cutoff_time=int(ingest_input.cutoff_time),
+                window_candles=int(ingest_input.window_candles),
+                candles=ingest_input.candles,
+                buckets=ingest_input.buckets,
             )
         )
         marker_defs = rendered.marker_defs
         polyline_defs = rendered.polyline_defs
-
-        with self._overlay_store.connect() as conn:
-            before_changes = int(conn.total_changes)
-            for instruction_id, kind, visible_time, payload in marker_defs:
-                prev = self._overlay_store.get_latest_def_for_instruction_in_conn(
-                    conn,
-                    series_id=series_id,
-                    instruction_id=instruction_id,
-                )
-                if prev == payload:
-                    continue
-                self._overlay_store.insert_instruction_version_in_conn(
-                    conn,
-                    series_id=series_id,
-                    instruction_id=instruction_id,
-                    kind=kind,
-                    visible_time=visible_time,
-                    payload=payload,
-                )
-
-            for instruction_id, visible_time, payload in polyline_defs:
-                prev = self._overlay_store.get_latest_def_for_instruction_in_conn(
-                    conn,
-                    series_id=series_id,
-                    instruction_id=instruction_id,
-                )
-                if prev == payload:
-                    continue
-                self._overlay_store.insert_instruction_version_in_conn(
-                    conn,
-                    series_id=series_id,
-                    instruction_id=instruction_id,
-                    kind="polyline",
-                    visible_time=int(visible_time),
-                    payload=payload,
-                )
-
-            self._overlay_store.upsert_head_time_in_conn(conn, series_id=series_id, head_time=int(to_time))
-            conn.commit()
-            wrote = int(conn.total_changes) - before_changes
+        wrote = self._instruction_writer.persist(
+            series_id=series_id,
+            to_time=int(to_time),
+            marker_defs=marker_defs,
+            polyline_defs=polyline_defs,
+        )
 
         if self._debug_hub is not None:
             self._debug_hub.emit(
@@ -186,8 +170,8 @@ class OverlayOrchestrator:
                 message="overlay ingest done",
                 data={
                     "up_to_candle_time": int(to_time),
-                    "cutoff_time": int(cutoff_time),
-                    "factor_rows": int(len(factor_rows)),
+                    "cutoff_time": int(ingest_input.cutoff_time),
+                    "factor_rows": int(len(ingest_input.factor_rows)),
                     "marker_defs": int(len(marker_defs)),
                     "pen_points": int(rendered.pen_points_count),
                     "polyline_defs": int(len(polyline_defs)),

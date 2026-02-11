@@ -34,6 +34,7 @@ updated: 2026-02-11
 | 配置真源（代码） | `backend/app/flags.py` / `backend/app/runtime_flags.py` | FeatureFlags 与 RuntimeFlags 唯一实现 |
 | DI 装配真源（代码） | `backend/app/container.py` | 所有核心依赖的启动装配入口 |
 | 写链路真源（代码） | `backend/app/pipelines/ingest_pipeline.py` | candles->factor->overlay 单路径编排 |
+| 读修复入口（代码） | `backend/app/repair_routes.py` / `backend/app/read_models/repair_service.py` | 显式 repair（默认关闭，受 `TRADE_CANVAS_ENABLE_READ_REPAIR_API` 控制） |
 
 ## 非真源文档处理
 

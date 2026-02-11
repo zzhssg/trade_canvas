@@ -163,9 +163,11 @@ class StoreBackfillService(BackfillService):
             target_time=end_time,
             timeframe_seconds=tf_s,
         )
-        tracking_enabled = self._progress_tracker is not None and int(start_missing_seconds) > 0
+        tracker = self._progress_tracker
+        tracking_enabled = tracker is not None and int(start_missing_seconds) > 0
         if tracking_enabled:
-            self._progress_tracker.begin(
+            assert tracker is not None
+            tracker.begin(
                 series_id=series_id,
                 start_missing_seconds=int(start_missing_seconds),
                 start_missing_candles=int(start_missing_candles),
@@ -221,6 +223,7 @@ class StoreBackfillService(BackfillService):
             errors.append(f"count_covered_failed:{exc}")
 
         if tracking_enabled:
+            assert tracker is not None
             head_after = self._store.head_time(series_id)
             current_missing_seconds, current_missing_candles = compute_missing_to_time(
                 head_time=head_after,
@@ -228,7 +231,7 @@ class StoreBackfillService(BackfillService):
                 timeframe_seconds=tf_s,
             )
             if errors and int(current_missing_seconds) > 0:
-                self._progress_tracker.fail(
+                tracker.fail(
                     series_id=series_id,
                     current_missing_seconds=int(current_missing_seconds),
                     current_missing_candles=int(current_missing_candles),
@@ -237,7 +240,7 @@ class StoreBackfillService(BackfillService):
                 )
             else:
                 note = "tail_coverage_done" if int(current_missing_seconds) <= 0 else "tail_coverage_partial"
-                self._progress_tracker.succeed(
+                tracker.succeed(
                     series_id=series_id,
                     current_missing_seconds=int(current_missing_seconds),
                     current_missing_candles=int(current_missing_candles),

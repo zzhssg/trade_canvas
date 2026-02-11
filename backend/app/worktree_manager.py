@@ -135,6 +135,10 @@ class WorktreeManager:
             return json.loads(index_path.read_text(encoding="utf-8"))
         return {"version": 1, "allocations": {}, "active_services": {}}
 
+    def read_index(self) -> dict[str, Any]:
+        """Public readonly view of worktree index metadata."""
+        return self._read_index()
+
     def _write_index(self, data: dict[str, Any]) -> None:
         """Write the index file."""
         index_path = self.metadata_dir / "index.json"

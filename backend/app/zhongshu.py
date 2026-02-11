@@ -191,6 +191,8 @@ def _alive_to_dict(alive: _AliveZhongshu | None) -> dict | None:
 def _as_range(pen: dict) -> tuple[float, float] | None:
     sp = pen.get("start_price")
     ep = pen.get("end_price")
+    if sp is None or ep is None:
+        return None
     try:
         a = float(sp)
         b = float(ep)
@@ -228,9 +230,13 @@ def _entry_direction(pen: dict) -> int:
     r = _as_range(pen)
     if r is None:
         return 1
+    sp_raw = pen.get("start_price")
+    ep_raw = pen.get("end_price")
+    if sp_raw is None or ep_raw is None:
+        return 1
     try:
-        sp = float(pen.get("start_price"))
-        ep = float(pen.get("end_price"))
+        sp = float(sp_raw)
+        ep = float(ep_raw)
     except Exception:
         return 1
     return 1 if ep >= sp else -1
@@ -362,8 +368,8 @@ def _try_form_from_pending_with_confirmed(
 
     alive = _build_alive_from_parts(
         entry_pen=dict(pending.entry_pen),
-        p1_range=tuple(pending.p1_range),
-        p2_range=tuple(pending.p2_range),
+        p1_range=pending.p1_range,
+        p2_range=pending.p2_range,
         p3_range=p3_range,
         formed_time=int(formed_time),
         visible_time=int(visible_time),
@@ -389,8 +395,8 @@ def _try_form_from_pending_with_cross(
     end_time = int(visible_time)
     alive = _build_alive_from_parts(
         entry_pen=dict(pending.entry_pen),
-        p1_range=tuple(pending.p1_range),
-        p2_range=tuple(pending.p2_range),
+        p1_range=pending.p1_range,
+        p2_range=pending.p2_range,
         p3_range=p3_range,
         formed_time=int(cross_time),
         visible_time=int(visible_time),

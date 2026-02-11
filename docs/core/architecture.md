@@ -56,6 +56,8 @@ updated: 2026-02-11
 - 市场写入编排：`backend/app/pipelines/ingest_pipeline.py`
 - 因子编排：`backend/app/factor_orchestrator.py`
 - 绘图编排：`backend/app/overlay_orchestrator.py`
+- 绘图读写拆分：`backend/app/overlay_ingest_reader.py` + `backend/app/overlay_ingest_writer.py`
+- 绘图编排支持 reader/writer 依赖注入（便于测试与替换实现）。
 - 市场实时监督：`backend/app/ingest_supervisor.py`
 - 市场应用服务：`backend/app/market_ingest_service.py`
 
@@ -73,7 +75,7 @@ updated: 2026-02-11
 
 职责：
 - 按 `aligned_time + candle_id` 对齐输出。
-- strict 模式拒绝隐式修复，直接返回 `409 ledger_out_of_sync*`。
+- 读链路默认不做隐式修复；发现账本不一致直接返回 `409 ledger_out_of_sync*`。
 - world 聚合 factor + draw，保证同一时间面快照一致。
 - 读模型层统一抛 `ServiceError`，由 route 层映射 `HTTPException`，避免读模型与 FastAPI 框架耦合。
 
@@ -165,6 +167,7 @@ flowchart LR
 原则：
 - 新能力必须由 `TRADE_CANVAS_ENABLE_*` 开关控制（默认关闭）。
 - 路由层不直接拼装复杂逻辑，统一下沉应用服务。
+- 市场 meta 路由按职责拆分（health/debug/top_markets），避免单文件膨胀。
 
 ### 4.3 新增回测/适配能力
 
@@ -206,3 +209,4 @@ bash scripts/e2e_acceptance.sh
 - 不再使用 `market_flags.py` 作为市场链路配置真源（已收口到 `FeatureFlags + RuntimeFlags`）。
 - 不再在路由实现中直接读取散落 `app.state.*` 字段（统一通过 `dependencies.py` 获取容器依赖）。
 - 不再保留“写路径多套实现”的灰度分支（统一走 `IngestPipeline`）。
+- 不再允许 draw/factor 读接口在请求内触发隐式 overlay repair；需走显式 repair 入口（受 `TRADE_CANVAS_ENABLE_READ_REPAIR_API` 控制）。

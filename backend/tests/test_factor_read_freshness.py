@@ -4,10 +4,11 @@ import unittest
 from dataclasses import dataclass
 
 from backend.app.factor_read_freshness import ensure_factor_fresh_for_read, read_factor_slices_with_freshness
+from backend.app.schemas import GetFactorSlicesResponseV1
 from backend.app.service_errors import ServiceError
 
 
-@dataclass(frozen=True)
+@dataclass
 class _FakeResult:
     rebuilt: bool
 
@@ -27,7 +28,7 @@ class _FakeStore:
         self.aligned_time = aligned_time
         self.calls: list[tuple[str, int]] = []
 
-    def floor_time(self, series_id: str, at_time: int) -> int | None:
+    def floor_time(self, series_id: str, *, at_time: int) -> int | None:
         self.calls.append((str(series_id), int(at_time)))
         return self.aligned_time
 
@@ -43,9 +44,14 @@ class _FakeSlicesService:
         aligned_time: int | None,
         at_time: int,
         window_candles: int,
-    ) -> dict:
+    ) -> GetFactorSlicesResponseV1:
         self.calls.append((str(series_id), aligned_time, int(at_time), int(window_candles)))
-        return {"series_id": str(series_id), "aligned_time": aligned_time, "at_time": int(at_time)}
+        candle_id = f"{series_id}:{int(aligned_time)}" if aligned_time is not None else None
+        return GetFactorSlicesResponseV1(
+            series_id=str(series_id),
+            at_time=int(at_time),
+            candle_id=candle_id,
+        )
 
 
 class _FakeFactorStore:
@@ -101,7 +107,7 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
         self.assertEqual(store.calls, [("s", 200)])
         self.assertEqual(orchestrator.calls, [("s", 180)])
         self.assertEqual(slices_service.calls, [("s", 180, 200, 100)])
-        self.assertEqual(payload["aligned_time"], 180)
+        self.assertEqual(payload.candle_id, "s:180")
 
     def test_read_factor_slices_with_freshness_respects_aligned_time_hint(self) -> None:
         store = _FakeStore(aligned_time=999)
@@ -119,7 +125,7 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
         self.assertEqual(store.calls, [])
         self.assertEqual(orchestrator.calls, [("s", 160)])
         self.assertEqual(slices_service.calls, [("s", 160, 200, 50)])
-        self.assertEqual(payload["aligned_time"], 160)
+        self.assertEqual(payload.candle_id, "s:160")
 
     def test_read_factor_slices_with_freshness_can_skip_ingest(self) -> None:
         store = _FakeStore(aligned_time=300)
@@ -137,7 +143,7 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
         )
         self.assertEqual(orchestrator.calls, [])
         self.assertEqual(slices_service.calls, [("s", 300, 360, 120)])
-        self.assertEqual(payload["aligned_time"], 300)
+        self.assertEqual(payload.candle_id, "s:300")
 
     def test_read_factor_slices_with_freshness_strict_mode_rejects_stale_factor(self) -> None:
         store = _FakeStore(aligned_time=300)
@@ -176,7 +182,7 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
         )
         self.assertEqual(orchestrator.calls, [("s", 300)])
         self.assertEqual(slices_service.calls, [("s", 300, 360, 120)])
-        self.assertEqual(payload["aligned_time"], 300)
+        self.assertEqual(payload.candle_id, "s:300")
 
 
 if __name__ == "__main__":

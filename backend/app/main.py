@@ -19,7 +19,9 @@ from .market_http_routes import register_market_http_routes
 from .market_meta_routes import register_market_meta_routes
 from .market_ws_routes import handle_market_ws
 from .overlay_package_routes import register_overlay_package_routes
+from .repair_routes import register_repair_routes
 from .replay_routes import register_replay_routes
+from .shutdown_cancellation_middleware import ShutdownCancellationMiddleware, ShutdownState
 from .startup_kline_sync import run_startup_kline_sync_for_runtime
 from .world_routes import register_world_routes
 
@@ -63,8 +65,11 @@ def create_app() -> FastAPI:
     project_root = Path(__file__).resolve().parents[2]
     container = build_app_container(settings=settings, project_root=project_root)
 
+    shutdown_state = ShutdownState(shutting_down=False)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        shutdown_state.shutting_down = False
         if bool(container.runtime_flags.enable_startup_kline_sync):
             await run_startup_kline_sync_for_runtime(
                 runtime=container.market_runtime,
@@ -81,6 +86,7 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
+            shutdown_state.shutting_down = True
             try:
                 await container.hub.close_all()
             except Exception:
@@ -95,12 +101,14 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(ShutdownCancellationMiddleware, shutdown_state=shutdown_state)
 
     app.state.container = container
 
     register_factor_routes(app)
     register_draw_routes(app)
     register_dev_routes(app)
+    register_repair_routes(app)
     register_backtest_routes(app)
     register_replay_routes(app)
     register_world_routes(app)

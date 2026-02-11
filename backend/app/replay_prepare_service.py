@@ -1,23 +1,56 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Mapping, Protocol
 
-from .debug_hub import DebugHub
-from .factor_store import FactorStore
-from .overlay_store import OverlayStore
-from .pipelines import IngestPipeline
 from .schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
 from .service_errors import ServiceError
-from .store import CandleStore
+
+
+class _StoreLike(Protocol):
+    def head_time(self, series_id: str) -> int | None: ...
+
+    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
+
+
+class _HeadStoreLike(Protocol):
+    def head_time(self, series_id: str) -> int | None: ...
+
+
+class _PipelineStepLike(Protocol):
+    @property
+    def name(self) -> str: ...
+
+
+class _RefreshResultLike(Protocol):
+    @property
+    def steps(self) -> tuple[_PipelineStepLike, ...] | list[_PipelineStepLike]: ...
+
+
+class _IngestPipelineLike(Protocol):
+    def refresh_series_sync(self, *, up_to_times: Mapping[str, int]) -> _RefreshResultLike: ...
+
+
+class _DebugHubLike(Protocol):
+    def emit(
+        self,
+        *,
+        pipe: str,
+        event: str,
+        level: str = "info",
+        message: str,
+        series_id: str | None = None,
+        data: dict | None = None,
+    ) -> None: ...
 
 
 @dataclass(frozen=True)
 class ReplayPrepareService:
-    store: CandleStore
-    factor_store: FactorStore
-    overlay_store: OverlayStore
-    ingest_pipeline: IngestPipeline
-    debug_hub: DebugHub
+    store: _StoreLike
+    factor_store: _HeadStoreLike
+    overlay_store: _HeadStoreLike
+    ingest_pipeline: _IngestPipelineLike
+    debug_hub: _DebugHubLike
     debug_api_enabled: bool = False
 
     def _require_aligned_time(self, *, series_id: str, to_time: int | None) -> tuple[int, int]:

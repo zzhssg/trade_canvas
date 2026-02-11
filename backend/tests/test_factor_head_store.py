@@ -50,17 +50,20 @@ class FactorHeadStoreTests(unittest.TestCase):
 
                 row_at_100 = store.get_head_at_or_before(series_id="s", factor_name="pen", candle_time=100)
                 self.assertIsNotNone(row_at_100)
+                assert row_at_100 is not None
                 self.assertEqual(row_at_100.candle_time, 100)
                 self.assertEqual(row_at_100.seq, 1)
                 self.assertEqual(row_at_100.head.get("candidate", {}).get("x"), 2)
 
                 row_at_110 = store.get_head_at_or_before(series_id="s", factor_name="pen", candle_time=110)
                 self.assertIsNotNone(row_at_110)
+                assert row_at_110 is not None
                 self.assertEqual(row_at_110.candle_time, 100)
                 self.assertEqual(row_at_110.seq, 1)
 
                 row_at_130 = store.get_head_at_or_before(series_id="s", factor_name="pen", candle_time=130)
                 self.assertIsNotNone(row_at_130)
+                assert row_at_130 is not None
                 self.assertEqual(row_at_130.candle_time, 120)
                 self.assertEqual(row_at_130.seq, 0)
 

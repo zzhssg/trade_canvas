@@ -4,8 +4,9 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Sequence
 
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 from backend.app.factor_plugin_contract import FactorPluginSpec
 from backend.app.freqtrade_adapter_v1 import annotate_factor_ledger
@@ -37,7 +38,7 @@ class FreqtradeAdapterV1Tests(unittest.TestCase):
         ):
             os.environ.pop(k, None)
 
-    def _build_df(self, prices: list[float]) -> pd.DataFrame:
+    def _build_df(self, prices: Sequence[float]) -> pd.DataFrame:
         base = 60
         times = [base * (i + 1) for i in range(len(prices))]
         df = pd.DataFrame(

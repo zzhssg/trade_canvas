@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
@@ -47,7 +48,8 @@ class MarketIngestErrorObservabilityTests(unittest.TestCase):
         os.environ.pop("TRADE_CANVAS_ENABLE_DEBUG_API", None)
 
     def test_ingest_pipeline_error_is_mapped_and_debug_event_exposes_compensation(self) -> None:
-        runtime = self.client.app.state.container.market_runtime
+        app = cast(Any, self.client.app)
+        runtime = app.state.container.market_runtime
         runtime.ingest._ingest_pipeline = _FailingIngestPipeline(series_id=self.series_id)  # type: ignore[attr-defined]
 
         response = self.client.post(

@@ -303,3 +303,47 @@ JSON
 
 - 停止服务后删除 worktree，并将 `.worktree-meta/{id}.json` 归档到 `.worktree-meta/archive/`。
 - `force=true` 时会以 `git worktree remove --force` 删除（谨慎使用）。
+
+## POST /api/dev/repair/overlay
+
+```bash
+curl --noproxy '*' -fsS -X POST http://127.0.0.1:8000/api/dev/repair/overlay \
+  -H "Content-Type: application/json" \
+  -d @- <<'JSON'
+{
+  "series_id": "binance:futures:BTC/USDT:1m",
+  "to_time": 1800
+}
+JSON
+```
+
+```json
+{
+  "series_id": "binance:futures:BTC/USDT:1m",
+  "to_time": 1800
+}
+```
+
+```json
+{
+  "ok": true,
+  "series_id": "binance:futures:BTC/USDT:1m",
+  "requested_time": 1800,
+  "aligned_time": 1800,
+  "factor_head_time": 1800,
+  "overlay_head_time": 1800,
+  "refreshed": true,
+  "steps": [
+    "factor.ingest_closed:binance:futures:BTC/USDT:1m",
+    "overlay.ingest_closed:binance:futures:BTC/USDT:1m",
+    "overlay.reset_series",
+    "overlay.ingest_closed"
+  ]
+}
+```
+
+### 语义
+
+- 用于显式修复 draw/world 读链路中的 `ledger_out_of_sync:overlay` 场景。
+- 该 endpoint **默认关闭**，需要 `TRADE_CANVAS_ENABLE_READ_REPAIR_API=1` 才可访问；关闭时返回 `404 not_found`。
+- 调用会触发写入 side-effects（刷新 factor/overlay 并重建 overlay 指令），仅用于开发/调试面，不建议常驻业务流量调用。

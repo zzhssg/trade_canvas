@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any
 
 from backend.app.factor_manifest import FactorManifestError, build_default_factor_manifest, build_factor_manifest
 from backend.app.factor_plugin_contract import FactorPluginSpec
 
 
-class _Processor:
+class _TickPlugin:
     def __init__(self, factor_name: str, depends_on: tuple[str, ...] = ()) -> None:
         self.spec = FactorPluginSpec(factor_name=factor_name, depends_on=depends_on)
+
+    def run_tick(self, *, series_id: str, state: Any, runtime: Any) -> None:  # pragma: no cover - contract stub only
+        _ = series_id
+        _ = state
+        _ = runtime
 
 
 class _SlicePlugin:
@@ -22,17 +28,17 @@ class _SlicePlugin:
 
 
 class FactorManifestTests(unittest.TestCase):
-    def test_default_manifest_aligns_processors_and_slice_plugins(self) -> None:
+    def test_default_manifest_aligns_tick_plugins_and_slice_plugins(self) -> None:
         manifest = build_default_factor_manifest()
-        processor_names = [p.spec.factor_name for p in manifest.processors]
+        tick_plugin_names = [p.spec.factor_name for p in manifest.tick_plugins]
         slice_names = [p.spec.factor_name for p in manifest.slice_plugins]
-        self.assertEqual(processor_names, ["pivot", "pen", "zhongshu", "anchor"])
+        self.assertEqual(tick_plugin_names, ["pivot", "pen", "zhongshu", "anchor"])
         self.assertEqual(slice_names, ["pivot", "pen", "zhongshu", "anchor"])
 
     def test_manifest_rejects_factor_set_mismatch(self) -> None:
         with self.assertRaises(FactorManifestError) as ctx:
             build_factor_manifest(
-                processors=(_Processor("pivot"), _Processor("pen")),
+                tick_plugins=(_TickPlugin("pivot"), _TickPlugin("pen")),
                 slice_plugins=(_SlicePlugin("pivot"),),
             )
         self.assertIn("manifest_factor_set_mismatch", str(ctx.exception))
@@ -40,26 +46,34 @@ class FactorManifestTests(unittest.TestCase):
     def test_manifest_rejects_depends_on_mismatch(self) -> None:
         with self.assertRaises(FactorManifestError) as ctx:
             build_factor_manifest(
-                processors=(_Processor("pen", depends_on=("pivot",)),),
+                tick_plugins=(_TickPlugin("pen", depends_on=("pivot",)),),
                 slice_plugins=(_SlicePlugin("pen", depends_on=()),),
             )
         self.assertIn("manifest_depends_on_mismatch:pen", str(ctx.exception))
 
-    def test_manifest_rejects_duplicate_processor(self) -> None:
+    def test_manifest_rejects_duplicate_tick_plugin(self) -> None:
         with self.assertRaises(FactorManifestError) as ctx:
             build_factor_manifest(
-                processors=(_Processor("pivot"), _Processor("pivot")),
+                tick_plugins=(_TickPlugin("pivot"), _TickPlugin("pivot")),
                 slice_plugins=(_SlicePlugin("pivot"),),
             )
-        self.assertIn("manifest_duplicate_processor:pivot", str(ctx.exception))
+        self.assertIn("manifest_duplicate_tick_plugin:pivot", str(ctx.exception))
 
     def test_manifest_rejects_duplicate_slice_plugin(self) -> None:
         with self.assertRaises(FactorManifestError) as ctx:
             build_factor_manifest(
-                processors=(_Processor("pivot"),),
+                tick_plugins=(_TickPlugin("pivot"),),
                 slice_plugins=(_SlicePlugin("pivot"), _SlicePlugin("pivot")),
             )
         self.assertIn("manifest_duplicate_slice_plugin:pivot", str(ctx.exception))
+
+    def test_manifest_accepts_legacy_processors_keyword(self) -> None:
+        manifest = build_factor_manifest(
+            processors=(_TickPlugin("pivot"),),
+            slice_plugins=(_SlicePlugin("pivot"),),
+        )
+        self.assertEqual([p.spec.factor_name for p in manifest.tick_plugins], ["pivot"])
+        self.assertEqual([p.spec.factor_name for p in manifest.processors], ["pivot"])
 
 
 if __name__ == "__main__":

@@ -59,6 +59,7 @@ class AnchorFactorTests(unittest.TestCase):
         head = a.get("head") or {}
         cur = head.get("current_anchor_ref")
         self.assertIsInstance(cur, dict)
+        assert isinstance(cur, dict)
         self.assertIn(cur.get("kind"), ("confirmed", "candidate"))
         self.assertLessEqual(int(cur.get("end_time") or 0), int(payload["at_time"]))
 
@@ -70,6 +71,7 @@ class AnchorFactorTests(unittest.TestCase):
         for idx, sw in enumerate(switches):
             new_anchor = sw.get("new_anchor") if isinstance(sw, dict) else None
             self.assertIsInstance(new_anchor, dict)
+            assert isinstance(new_anchor, dict)
             self.assertEqual(anchors[idx], new_anchor)
 
         # Idempotent: re-ingesting the last candle should not grow switches (FactorStore UNIQUE event_key).

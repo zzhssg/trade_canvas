@@ -142,18 +142,51 @@ kill_listeners() {
   fi
 }
 
+wait_pid_exit() {
+  local pid="$1"
+  local ticks="${2:-30}" # 30 * 0.1s = 3s
+  local i
+  for ((i=0; i<ticks; i++)); do
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+stop_frontend() {
+  if [[ -z "${frontend_pid}" ]]; then
+    return 0
+  fi
+  kill -- -"${frontend_pid}" >/dev/null 2>&1 || kill "${frontend_pid}" >/dev/null 2>&1 || true
+  if ! wait_pid_exit "${frontend_pid}" 40; then
+    kill -9 -- -"${frontend_pid}" >/dev/null 2>&1 || kill -9 "${frontend_pid}" >/dev/null 2>&1 || true
+  fi
+  kill_listeners "$frontend_port"
+  frontend_pid=""
+}
+
+stop_backend() {
+  if [[ -z "${backend_pid}" ]]; then
+    return 0
+  fi
+  kill -- -"${backend_pid}" >/dev/null 2>&1 || kill "${backend_pid}" >/dev/null 2>&1 || true
+  if ! wait_pid_exit "${backend_pid}" 80; then
+    kill -9 -- -"${backend_pid}" >/dev/null 2>&1 || kill -9 "${backend_pid}" >/dev/null 2>&1 || true
+  fi
+  kill_listeners "$backend_port"
+  backend_pid=""
+}
+
 cleanup() {
   set +e
   # We start servers in the background; kill their whole process groups to avoid leaving orphaned children
   # (e.g. `npm run dev` -> node) after the script exits.
-  if [[ -n "${frontend_pid}" ]]; then
-    kill -- -"${frontend_pid}" >/dev/null 2>&1 || kill "${frontend_pid}" >/dev/null 2>&1 || true
-    kill_listeners "$frontend_port"
-  fi
-  if [[ -n "${backend_pid}" ]]; then
-    kill -- -"${backend_pid}" >/dev/null 2>&1 || kill "${backend_pid}" >/dev/null 2>&1 || true
-    kill_listeners "$backend_port"
-  fi
+  stop_frontend
+  # Give backend a short grace window to observe frontend disconnects before SIGTERM.
+  sleep 1
+  stop_backend
   if [[ -n "${e2e_db_path}" ]]; then
     rm -f "${e2e_db_path}" "${e2e_db_path}-wal" "${e2e_db_path}-shm" 2>/dev/null || true
   fi
@@ -254,6 +287,13 @@ reuse_preflight_or_die
 
 echo
 echo "[e2e_acceptance] OK: Playwright E2E passed."
+
+# Drain and stop spawned FE/BE services before non-E2E post steps.
+# This avoids frontend polling during docs audit from creating in-flight backend tasks
+# right before shutdown.
+stop_frontend
+sleep 1
+stop_backend
 
 if [[ "${skip_doc_audit}" != "1" && -x "docs/scripts/doc_audit.sh" ]]; then
   echo "[e2e_acceptance] Running docs audit..."

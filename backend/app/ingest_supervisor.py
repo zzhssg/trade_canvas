@@ -170,7 +170,7 @@ class IngestSupervisor:
                 }
                 for j in self._jobs.values()
             ]
-            jobs.sort(key=lambda x: x["series_id"])
+            jobs.sort(key=lambda x: str(x.get("series_id") or ""))
             return {
                 "jobs": jobs,
                 "whitelist_series_ids": sorted(self._whitelist),

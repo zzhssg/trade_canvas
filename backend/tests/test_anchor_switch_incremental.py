@@ -174,6 +174,7 @@ class AnchorSwitchIncrementalTests(unittest.TestCase):
         self.assertEqual(len(picked), 1)
         ref = picked[0].get("new_anchor") if isinstance(picked[0], dict) else None
         self.assertIsInstance(ref, dict)
+        assert isinstance(ref, dict)
         self.assertEqual(int(ref.get("start_time") or 0), 1200)
         self.assertEqual(str(ref.get("kind") or ""), "candidate")
 

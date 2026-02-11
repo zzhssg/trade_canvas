@@ -4,6 +4,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query
 
 from .dependencies import MarketRuntimeDep
 from .market_data import CatchupReadRequest
+from .market_ingest_service import MarketIngestService
 from .schemas import (
     GetCandlesResponse,
     IngestCandleClosedRequest,
@@ -16,6 +17,13 @@ from .schemas import (
 from .service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
+
+
+def _require_market_ingest_service(runtime: MarketRuntimeDep) -> MarketIngestService:
+    ingest_service = runtime.ingest
+    if ingest_service is None:
+        raise HTTPException(status_code=500, detail="market_ingest_not_ready")
+    return ingest_service
 
 
 @router.get("/api/market/candles", response_model=GetCandlesResponse)
@@ -63,8 +71,9 @@ async def ingest_candle_closed(
     req: IngestCandleClosedRequest,
     runtime: MarketRuntimeDep,
 ) -> IngestCandleClosedResponse:
+    ingest_service = _require_market_ingest_service(runtime)
     try:
-        return await runtime.ingest.ingest_candle_closed(req)
+        return await ingest_service.ingest_candle_closed(req)
     except ServiceError as exc:
         raise to_http_exception(exc) from exc
 
@@ -76,8 +85,9 @@ async def ingest_candle_forming(
 ) -> IngestCandleFormingResponse:
     if not bool(runtime.runtime_flags.enable_debug_api):
         raise HTTPException(status_code=404, detail="not_found")
+    ingest_service = _require_market_ingest_service(runtime)
     try:
-        return await runtime.ingest.ingest_candle_forming(req)
+        return await ingest_service.ingest_candle_forming(req)
     except ServiceError as exc:
         raise to_http_exception(exc) from exc
 

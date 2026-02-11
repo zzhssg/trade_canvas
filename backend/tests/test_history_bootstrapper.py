@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 from backend.app.history_bootstrapper import maybe_bootstrap_from_freqtrade
 from backend.app.store import CandleStore

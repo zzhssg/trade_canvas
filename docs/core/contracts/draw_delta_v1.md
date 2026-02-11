@@ -106,5 +106,6 @@ type DrawDeltaV1 = {
 
 关键实现语义：
 - `cursor_version_id=0` 首帧会触发完整性校验；
-- strict 模式下不执行隐式修复，直接返回 409；
-- 非 strict 模式下允许按完整性插件建议进行 overlay 重建。
+- 读接口默认 strict（`TRADE_CANVAS_ENABLE_READ_STRICT_MODE=1`）；
+- 发现 overlay 不一致时统一返回 `409 ledger_out_of_sync:overlay`，不在读请求内执行隐式重建；
+- 若历史兼容需要非 strict 口径，可显式设置 `TRADE_CANVAS_ENABLE_READ_STRICT_MODE=0`。

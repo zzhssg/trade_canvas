@@ -9,6 +9,7 @@ from backend.app.factor_processors import (
     PenProcessor,
     PivotProcessor,
     ZhongshuProcessor,
+    build_default_factor_plugins,
     build_default_factor_processors,
     build_default_slice_bucket_specs,
 )
@@ -35,7 +36,11 @@ class FactorRegistryTests(unittest.TestCase):
         graph = FactorGraph(specs)
         self.assertEqual(graph.topo_order, ("pivot", "pen", "zhongshu", "anchor"))
 
-    def test_default_processors_are_graph_ready(self) -> None:
+    def test_default_tick_plugins_are_graph_ready(self) -> None:
+        reg = FactorRegistry(build_default_factor_plugins())
+        self.assertEqual([s.factor_name for s in reg.specs()], ["pivot", "pen", "zhongshu", "anchor"])
+
+    def test_default_processors_alias_is_graph_ready(self) -> None:
         reg = FactorRegistry(build_default_factor_processors())
         self.assertEqual([s.factor_name for s in reg.specs()], ["pivot", "pen", "zhongshu", "anchor"])
 
@@ -105,6 +110,8 @@ class FactorRegistryTests(unittest.TestCase):
             old_anchor=old_ref,
         )
         self.assertIsNotNone(z_event)
+        assert z_event is not None
+        assert z_ref is not None
         self.assertEqual(z_event.event_key, "zhongshu_entry:300:180:240:1")
         self.assertEqual(z_ref["kind"], "confirmed")
         self.assertGreater(z_strength, 0.0)
@@ -118,6 +125,8 @@ class FactorRegistryTests(unittest.TestCase):
             new_anchor_strength=15.0,
         )
         self.assertIsNotNone(s_event)
+        assert s_event is not None
+        assert s_cur is not None
         self.assertEqual(s_event.event_key, "strong_pen:360:candidate:240:300:-1")
         self.assertEqual(s_cur["kind"], "candidate")
         self.assertEqual(s_strength, 15.0)
@@ -131,6 +140,7 @@ class FactorRegistryTests(unittest.TestCase):
         ]
         pick = proc._last_confirmed_pen_before_or_at(confirmed_pens=confirmed, switch_time=300)
         self.assertIsNotNone(pick)
+        assert pick is not None
         self.assertEqual(int(pick["start_time"]), 120)
         self.assertEqual(int(pick["visible_time"]), 260)
         self.assertIsNone(proc._last_confirmed_pen_before_or_at(confirmed_pens=confirmed, switch_time=100))
@@ -164,6 +174,8 @@ class FactorRegistryTests(unittest.TestCase):
             candles=[],
         )
         self.assertIsNotNone(cur)
+        assert cur is not None
+        assert strength is not None
         self.assertEqual(cur["kind"], "confirmed")
         self.assertEqual(int(cur["start_time"]), 120)
         self.assertEqual(float(strength), 20.0)

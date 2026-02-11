@@ -91,6 +91,7 @@ class ReplayOverlayPackageApiTests(unittest.TestCase):
             time.sleep(0.05)
 
         self.assertIsNotNone(status)
+        assert status is not None
         self.assertEqual(status["status"], "done")
         window = self.client.get(
             "/api/replay/overlay_package/window",

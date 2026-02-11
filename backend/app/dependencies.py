@@ -13,7 +13,7 @@ from .flags import FeatureFlags
 from .market_runtime import MarketRuntime
 from .overlay_package_service_v1 import OverlayReplayPackageServiceV1
 from .overlay_store import OverlayStore
-from .read_models import DrawReadService, FactorReadService, WorldReadService
+from .read_models import DrawReadService, FactorReadService, ReadRepairService, WorldReadService
 from .replay_prepare_service import ReplayPrepareService
 from .replay_package_service_v1 import ReplayPackageServiceV1
 from .store import CandleStore
@@ -63,6 +63,10 @@ def get_world_read_service(container: AppContainer = Depends(get_app_container))
     return container.world_read_service
 
 
+def get_read_repair_service(container: AppContainer = Depends(get_app_container)) -> ReadRepairService:
+    return container.read_repair_service
+
+
 def get_debug_hub(container: AppContainer = Depends(get_app_container)) -> DebugHub:
     return container.debug_hub
 
@@ -99,6 +103,7 @@ OverlayStoreDep = Annotated[OverlayStore, Depends(get_overlay_store)]
 FactorReadServiceDep = Annotated[FactorReadService, Depends(get_factor_read_service)]
 DrawReadServiceDep = Annotated[DrawReadService, Depends(get_draw_read_service)]
 WorldReadServiceDep = Annotated[WorldReadService, Depends(get_world_read_service)]
+ReadRepairServiceDep = Annotated[ReadRepairService, Depends(get_read_repair_service)]
 DebugHubDep = Annotated[DebugHub, Depends(get_debug_hub)]
 ReplayServiceDep = Annotated[ReplayPackageServiceV1, Depends(get_replay_service)]
 ReplayPrepareServiceDep = Annotated[ReplayPrepareService, Depends(get_replay_prepare_service)]

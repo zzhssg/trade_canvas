@@ -7,7 +7,7 @@ from .factor_processor_anchor import AnchorProcessor
 from .factor_processor_pen import PenProcessor
 from .factor_processor_pivot import PivotProcessor
 from .factor_processor_zhongshu import ZhongshuProcessor
-from .factor_registry import FactorProcessor
+from .factor_registry import FactorPlugin
 from .factor_slice_plugin_contract import FactorSlicePlugin
 from .factor_slice_plugins import AnchorSlicePlugin, PenSlicePlugin, PivotSlicePlugin, ZhongshuSlicePlugin
 
@@ -18,26 +18,30 @@ class FactorDefaultComponentsError(RuntimeError):
 
 @dataclass(frozen=True)
 class FactorDefaultBundleSpec:
-    processor_builder: Callable[[], FactorProcessor]
+    tick_plugin_builder: Callable[[], FactorPlugin]
     slice_plugin_builder: Callable[[], FactorSlicePlugin]
+
+    @property
+    def processor_builder(self) -> Callable[[], FactorPlugin]:
+        return self.tick_plugin_builder
 
 
 def build_default_factor_bundle_specs() -> tuple[FactorDefaultBundleSpec, ...]:
     return (
         FactorDefaultBundleSpec(
-            processor_builder=PivotProcessor,
+            tick_plugin_builder=PivotProcessor,
             slice_plugin_builder=PivotSlicePlugin,
         ),
         FactorDefaultBundleSpec(
-            processor_builder=PenProcessor,
+            tick_plugin_builder=PenProcessor,
             slice_plugin_builder=PenSlicePlugin,
         ),
         FactorDefaultBundleSpec(
-            processor_builder=ZhongshuProcessor,
+            tick_plugin_builder=ZhongshuProcessor,
             slice_plugin_builder=ZhongshuSlicePlugin,
         ),
         FactorDefaultBundleSpec(
-            processor_builder=AnchorProcessor,
+            tick_plugin_builder=AnchorProcessor,
             slice_plugin_builder=AnchorSlicePlugin,
         ),
     )
@@ -46,22 +50,22 @@ def build_default_factor_bundle_specs() -> tuple[FactorDefaultBundleSpec, ...]:
 def build_factor_components_from_bundles(
     *,
     bundles: tuple[FactorDefaultBundleSpec, ...],
-) -> tuple[tuple[FactorProcessor, ...], tuple[FactorSlicePlugin, ...]]:
-    processors: list[FactorProcessor] = []
+) -> tuple[tuple[FactorPlugin, ...], tuple[FactorSlicePlugin, ...]]:
+    tick_plugins: list[FactorPlugin] = []
     slice_plugins: list[FactorSlicePlugin] = []
     for bundle in bundles:
-        processor = bundle.processor_builder()
+        tick_plugin = bundle.tick_plugin_builder()
         slice_plugin = bundle.slice_plugin_builder()
-        processor_name = str(processor.spec.factor_name)
+        tick_plugin_name = str(tick_plugin.spec.factor_name)
         slice_plugin_name = str(slice_plugin.spec.factor_name)
-        if processor_name != slice_plugin_name:
+        if tick_plugin_name != slice_plugin_name:
             raise FactorDefaultComponentsError(
-                f"factor_default_bundle_mismatch:processor={processor_name}:slice_plugin={slice_plugin_name}"
+                f"factor_default_bundle_mismatch:tick_plugin={tick_plugin_name}:slice_plugin={slice_plugin_name}"
             )
-        processors.append(processor)
+        tick_plugins.append(tick_plugin)
         slice_plugins.append(slice_plugin)
-    return tuple(processors), tuple(slice_plugins)
+    return tuple(tick_plugins), tuple(slice_plugins)
 
 
-def build_default_factor_components() -> tuple[tuple[FactorProcessor, ...], tuple[FactorSlicePlugin, ...]]:
+def build_default_factor_components() -> tuple[tuple[FactorPlugin, ...], tuple[FactorSlicePlugin, ...]]:
     return build_factor_components_from_bundles(bundles=build_default_factor_bundle_specs())

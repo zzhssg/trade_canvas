@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from typing import Mapping
 
 from backend.app.startup_kline_sync import run_startup_kline_sync, run_startup_kline_sync_for_runtime
 
@@ -35,7 +36,7 @@ class _FakePipeline:
     def __init__(self) -> None:
         self.calls: list[dict[str, int]] = []
 
-    def refresh_series_sync(self, *, up_to_times: dict[str, int]):
+    def refresh_series_sync(self, *, up_to_times: Mapping[str, int]):
         self.calls.append({str(k): int(v) for k, v in dict(up_to_times).items()})
         return object()
 
@@ -173,4 +174,3 @@ def test_startup_kline_sync_for_runtime_uses_whitelist_series(monkeypatch) -> No
     assert result.series_total == 1
     assert len(backfill.calls) == 1
     assert backfill.calls[0][0] == series_id
-

@@ -8,8 +8,7 @@ from .factor_pen_contract import (
     build_confirmed_pen_payload,
     normalize_confirmed_pen_payload,
 )
-from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
-from .factor_registry import ProcessorSpec
+from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec, FactorPluginSpec
 from .factor_runtime_contract import FactorRuntimeContext
 from .factor_semantics import is_more_extreme_pivot
 from .factor_store import FactorEventWrite
@@ -41,7 +40,7 @@ class _PenHeadState(Protocol):
 
 @dataclass(frozen=True)
 class PenProcessor:
-    spec: ProcessorSpec = ProcessorSpec(
+    spec: FactorPluginSpec = FactorPluginSpec(
         factor_name="pen",
         depends_on=("pivot",),
         catalog=FactorCatalogSpec(

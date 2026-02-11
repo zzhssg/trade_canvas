@@ -85,7 +85,9 @@ def load_feature_flags() -> FeatureFlags:
             max_candles = None
     return FeatureFlags(
         enable_debug_api=env_bool("TRADE_CANVAS_ENABLE_DEBUG_API"),
-        enable_read_strict_mode=env_bool("TRADE_CANVAS_ENABLE_READ_STRICT_MODE"),
+        # Read-model default is strict (read path side-effect free).
+        # Rollback switch: set TRADE_CANVAS_ENABLE_READ_STRICT_MODE=0.
+        enable_read_strict_mode=env_bool("TRADE_CANVAS_ENABLE_READ_STRICT_MODE", default=True),
         enable_whitelist_ingest=env_bool("TRADE_CANVAS_ENABLE_WHITELIST_INGEST"),
         enable_ondemand_ingest=env_bool("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST"),
         enable_market_auto_tail_backfill=env_bool("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL"),

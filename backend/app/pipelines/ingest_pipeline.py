@@ -2,14 +2,34 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Mapping, Protocol, Sequence
 
 from ..blocking import run_blocking
-from ..factor_orchestrator import FactorOrchestrator
-from ..overlay_orchestrator import OverlayOrchestrator
 from ..schemas import CandleClosed
 from ..store import CandleStore
-from ..ws_hub import CandleHub
+
+
+class _FactorIngestResultLike(Protocol):
+    @property
+    def rebuilt(self) -> bool: ...
+
+
+class _FactorOrchestratorLike(Protocol):
+    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> _FactorIngestResultLike: ...
+
+
+class _OverlayOrchestratorLike(Protocol):
+    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None: ...
+
+    def reset_series(self, *, series_id: str) -> None: ...
+
+
+class _HubLike(Protocol):
+    async def publish_closed(self, *, series_id: str, candle: CandleClosed) -> None: ...
+
+    async def publish_closed_batch(self, *, series_id: str, candles: list[CandleClosed]) -> None: ...
+
+    async def publish_system(self, *, series_id: str, event: str, message: str, data: dict) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -69,9 +89,9 @@ class IngestPipeline:
         self,
         *,
         store: CandleStore,
-        factor_orchestrator: FactorOrchestrator | None,
-        overlay_orchestrator: OverlayOrchestrator | None,
-        hub: CandleHub | None,
+        factor_orchestrator: _FactorOrchestratorLike | None,
+        overlay_orchestrator: _OverlayOrchestratorLike | None,
+        hub: _HubLike | None,
         overlay_compensate_on_error: bool = False,
         candle_compensate_on_error: bool = False,
     ) -> None:
@@ -168,19 +188,19 @@ class IngestPipeline:
 
         for series_id in sorted(up_to_by_series.keys()):
             up_to_time = int(up_to_by_series[series_id])
-            batch = series_batch_by_id.get(series_id)
+            matched_batch = series_batch_by_id.get(series_id)
             new_candle_times: list[int] = []
-            if batch is not None and batch.candles:
+            if matched_batch is not None and matched_batch.candles:
                 t_step = time.perf_counter()
                 try:
-                    candle_times = [int(c.candle_time) for c in batch.candles]
+                    candle_times = [int(c.candle_time) for c in matched_batch.candles]
                     with self._store.connect() as conn:
                         existing_times = self._store.existing_closed_times_in_conn(
                             conn,
-                            series_id=batch.series_id,
+                            series_id=matched_batch.series_id,
                             candle_times=candle_times,
                         )
-                        self._store.upsert_many_closed_in_conn(conn, batch.series_id, list(batch.candles))
+                        self._store.upsert_many_closed_in_conn(conn, matched_batch.series_id, list(matched_batch.candles))
                         conn.commit()
                     new_candle_times = [t for t in candle_times if int(t) not in existing_times]
                 except Exception as exc:

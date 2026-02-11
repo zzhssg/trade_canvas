@@ -84,6 +84,8 @@ class AnchorBtc4hLogicTests(unittest.TestCase):
         )
         self.assertIsNotNone(new_ref)
         self.assertIsNotNone(new_strength)
+        assert new_ref is not None
+        assert new_strength is not None
         self.assertGreater(float(new_strength), float(baseline_strength))
 
         switch_event, current_ref, current_strength = processor.apply_strong_pen_switch(
@@ -94,8 +96,14 @@ class AnchorBtc4hLogicTests(unittest.TestCase):
             new_anchor_strength=float(new_strength),
         )
         self.assertIsNotNone(switch_event)
-        self.assertEqual(str((switch_event.payload or {}).get("reason")), "strong_pen")
-        self.assertEqual(int((current_ref or {}).get("start_time") or 0), self.FOURTH_CANDIDATE_START)
+        assert switch_event is not None
+        payload = switch_event.payload or {}
+        self.assertEqual(str(dict(payload).get("reason")), "strong_pen")
+        self.assertIsNotNone(current_ref)
+        assert current_ref is not None
+        self.assertEqual(int(current_ref.get("start_time") or 0), self.FOURTH_CANDIDATE_START)
+        self.assertIsNotNone(current_strength)
+        assert current_strength is not None
         self.assertGreater(float(current_strength), float(baseline_strength))
 
 

@@ -77,7 +77,7 @@ updated: 2026-02-11
 
 当前后端实现对应关系：
 - 注册中心：`backend/app/factor_registry.py`
-- 处理器集合：`backend/app/factor_processors.py`
+- Tick 插件集合：`backend/app/factor_processors.py`
 - 统一装配清单：`backend/app/factor_manifest.py`
 - DAG 构建：`backend/app/factor_graph.py`
 - 调度入口：`backend/app/factor_orchestrator.py`
@@ -85,8 +85,8 @@ updated: 2026-02-11
 - 读路径调度：`backend/app/factor_slices_service.py`
 
 要求：
-- 默认运行时必须从同一份 manifest 同时注入写路径 processors 与读路径 slice_plugins，不允许两份手工列表长期分叉。
+- 默认运行时必须从同一份 manifest 同时注入写路径 tick_plugins 与读路径 slice_plugins，不允许两份手工列表长期分叉。
 - 因子拓扑必须由 registry 的 `specs()` 生成，不允许在 orchestrator 重复手写一份依赖图。
 - 写路径 bootstrap/head 也必须按同一拓扑执行插件钩子（`bootstrap_from_history` / `build_head_snapshot`），避免重建逻辑漂移。
-- 新增 factor 时，`ProcessorSpec` 与 DAG 结果必须在测试中可验证（例如 topo_order 包含新增节点且顺序稳定）。
+- 新增 factor 时，`FactorPluginSpec` 与 DAG 结果必须在测试中可验证（例如 topo_order 包含新增节点且顺序稳定）。
 - 与拓扑对应的读路径组装应通过 `FactorSlicePlugin` 统一声明（`bucket_specs + build_snapshot`），避免写路径新增后读路径漏接入。

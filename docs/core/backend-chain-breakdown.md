@@ -83,6 +83,8 @@ sequenceDiagram
 - 先 candles，后 factor，再 overlay。
 - sidecar 失败必须带 step 语义（`IngestPipelineError`）。
 - forming 不进入该链路。
+- overlay ingest 内部读写职责拆分：窗口读取/归桶在 `overlay_ingest_reader.py`，落库去重在 `overlay_ingest_writer.py`。
+- overlay orchestrator 允许注入 reader/writer 实现，编排层测试无需依赖真实存储。
 
 ---
 
@@ -123,7 +125,7 @@ sequenceDiagram
 
 - 路由：`/api/factor/slices`
 - 服务：`FactorReadService`
-- 关键点：对齐 `aligned_time`，按 strict/non-strict 执行 freshness。
+- 关键点：对齐 `aligned_time`；默认 strict（`TRADE_CANVAS_ENABLE_READ_STRICT_MODE=1`），非 strict 需显式降级。
 
 ### 5.2 draw
 
@@ -131,7 +133,8 @@ sequenceDiagram
 - 服务：`DrawReadService`
 - 关键点：
   - cursor=0 首帧做 overlay integrity checks。
-  - strict 模式不做隐式修复，直接 409。
+  - 发现 overlay 不一致直接 `409 ledger_out_of_sync:overlay`，不在读请求内隐式重建。
+  - 显式修复走 `/api/dev/repair/overlay`（受 `TRADE_CANVAS_ENABLE_READ_REPAIR_API` 控制，默认关闭）。
 
 ### 5.3 world
 
@@ -190,6 +193,11 @@ sequenceDiagram
 3. 看 orchestrator/pipeline（主链路）
 4. 看 store（状态落盘）
 5. 看 flags（配置是否偏差）
+
+市场 meta 路由拆分后的定位入口：
+- 健康：`backend/app/market_health_routes.py`
+- 调试：`backend/app/market_debug_routes.py`
+- 榜单/SSE：`backend/app/market_top_markets_routes.py`
 
 ---
 

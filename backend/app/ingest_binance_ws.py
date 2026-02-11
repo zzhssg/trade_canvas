@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+from typing import SupportsFloat, SupportsInt, cast
 
 from .pipelines import IngestPipeline
 from .schemas import CandleClosed
@@ -14,6 +15,28 @@ from .ingest_settings import WhitelistIngestSettings
 from .derived_timeframes import DerivedTimeframeFanout
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (int, str, bytes, bytearray)):
+            return int(value)
+        return int(cast(SupportsInt, value))
+    except Exception:
+        return None
+
+
+def _coerce_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (int, float, str, bytes, bytearray)):
+            return float(value)
+        return float(cast(SupportsFloat, value))
+    except Exception:
+        return None
 
 
 def _binance_stream_symbol(symbol: str) -> str | None:
@@ -71,10 +94,8 @@ def parse_binance_kline_payload_any(payload: object) -> tuple[CandleClosed, bool
         return None
 
     # Binance: kline open time is milliseconds.
-    open_ms = k.get("t")
-    try:
-        open_ms_int = int(open_ms)
-    except Exception:
+    open_ms_int = _coerce_int(k.get("t"))
+    if open_ms_int is None:
         return None
     if open_ms_int <= 0:
         return None
@@ -82,16 +103,22 @@ def parse_binance_kline_payload_any(payload: object) -> tuple[CandleClosed, bool
 
     is_final = bool(k.get("x"))
 
-    try:
-        o = float(k.get("o"))
-        h = float(k.get("h"))
-        l = float(k.get("l"))
-        c = float(k.get("c"))
-        v = float(k.get("v"))
-    except Exception:
+    o = _coerce_float(k.get("o"))
+    h = _coerce_float(k.get("h"))
+    l = _coerce_float(k.get("l"))
+    c = _coerce_float(k.get("c"))
+    v = _coerce_float(k.get("v"))
+    if o is None or h is None or l is None or c is None or v is None:
         return None
 
-    return CandleClosed(candle_time=candle_time, open=o, high=h, low=l, close=c, volume=v), is_final
+    return CandleClosed(
+        candle_time=candle_time,
+        open=float(o),
+        high=float(h),
+        low=float(l),
+        close=float(c),
+        volume=float(v),
+    ), is_final
 
 
 async def run_binance_ws_ingest_loop(
