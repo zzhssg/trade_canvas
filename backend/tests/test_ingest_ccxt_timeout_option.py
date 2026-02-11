@@ -15,12 +15,13 @@ class IngestCcxtTimeoutOptionTests(unittest.TestCase):
         os.environ.pop("TRADE_CANVAS_CCXT_TIMEOUT_MS", None)
 
     def test_make_exchange_client_sets_timeout_ms(self) -> None:
-        calls: list[tuple[str, dict]] = []
+        calls: list[tuple[str, dict, types.SimpleNamespace]] = []
 
         def _mk(name: str):
             def _ctor(options: dict):
-                calls.append((name, dict(options)))
-                return object()
+                session = types.SimpleNamespace(trust_env=False)
+                calls.append((name, dict(options), session))
+                return types.SimpleNamespace(session=session)
 
             return _ctor
 
@@ -34,10 +35,11 @@ class IngestCcxtTimeoutOptionTests(unittest.TestCase):
             _make_exchange_client(series, timeout_ms=timeout_ms)
 
         self.assertEqual(len(calls), 1)
-        name, options = calls[0]
+        name, options, session = calls[0]
         self.assertEqual(name, "futures")
         self.assertTrue(options.get("enableRateLimit"))
         timeout = options.get("timeout")
         self.assertIsNotNone(timeout)
         assert timeout is not None
         self.assertEqual(int(timeout), 12345)
+        self.assertTrue(bool(session.trust_env))

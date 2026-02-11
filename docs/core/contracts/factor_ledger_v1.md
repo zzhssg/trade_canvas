@@ -74,11 +74,10 @@ type FactorHeadSnapshotV1 = {
 
 账本需要一个“推进度”指针（例如 `series_head_time`）用于快速判断是否已 ingest 到位：
 - 该指针不是事实真源，可以 upsert（它只是“我已处理到哪”）。
-- fail-safe：若 `series_head_time < requested_time`，读路径必须返回 `ledger_missing/build_required`，禁止隐式写入或隐式全量重算。
+- fail-safe：若 `series_head_time < requested_time`，读路径必须返回 `ledger_out_of_sync`（409），禁止隐式写入或隐式全量重算。
 
 ## 5. 最小校验矩阵（必须可自动化）
 
 1) `seed ≡ incremental`：全量 seed 结果 == 逐根 apply_closed 结果（至少对 `pivot→pen→zhongshu` 的关键产物对拍）。
 2) 幂等：重复 ingest 同一段 candles，不产生重复 history/head 记录（或只产生“更大 seq”的尾部版本，且读取语义一致）。
 3) 切片纯度：`seed(2000)+slice(1000)` == `seed(1000)+slice(1000)`（避免末态倒推/未来函数）。
-

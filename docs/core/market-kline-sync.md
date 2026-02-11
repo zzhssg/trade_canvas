@@ -177,7 +177,6 @@ sequenceDiagram
 ### 7.1 FeatureFlags（`flags.py`）
 
 - `enable_debug_api`
-- `enable_read_strict_mode`
 - `enable_whitelist_ingest`
 - `enable_ondemand_ingest`
 - `enable_market_auto_tail_backfill`

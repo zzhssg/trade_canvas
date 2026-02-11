@@ -16,6 +16,7 @@ from .overlay_replay_protocol_v1 import (
     OverlayReplayWindowV1,
 )
 from .overlay_store import OverlayStore
+from .service_errors import ServiceError
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 
@@ -29,7 +30,6 @@ class OverlayReplayPackageServiceV1(PackageBuildServiceBase):
     Disk-cached overlay replay package builder (v1).
 
     Key constraints:
-    - read-only path must not implicitly compute; cache miss returns build_required
     - build is explicit; output is reproducible (stable cache_key)
     - window API serves window slices with catalog_base/patch + checkpoints/diffs
     """
@@ -121,38 +121,6 @@ class OverlayReplayPackageServiceV1(PackageBuildServiceBase):
         si = min(200, max(5, si))
         return (wc, ws, si)
 
-    def read_only(
-        self,
-        *,
-        series_id: str,
-        to_time: int | None,
-        window_candles: int | None = None,
-        window_size: int | None = None,
-        snapshot_interval: int | None = None,
-    ) -> tuple[str, str, str, OverlayReplayDeltaMetaV1 | None, str | None]:
-        """
-        Returns: (status, job_id, cache_key, delta_meta, compute_hint)
-
-        status:
-          - done
-          - build_required
-        """
-        to_candle_time = self._resolve_to_time(series_id, to_time)
-        self._preflight_fail_safe(series_id, to_time=to_candle_time)
-
-        wc, ws, si = self._normalize_window_params(
-            window_candles=window_candles,
-            window_size=window_size,
-            snapshot_interval=snapshot_interval,
-        )
-
-        cache_key = self._compute_cache_key(series_id, to_time=to_candle_time, window_candles=wc, window_size=ws, snapshot_interval=si)
-        job_id = cache_key
-        if self.cache_exists(cache_key):
-            return ("done", job_id, cache_key, self.read_meta(cache_key), None)
-        hint = "build_required: overlay replay package is not cached; click Build to generate it"
-        return ("build_required", job_id, cache_key, None, hint)
-
     def build(
         self,
         *,
@@ -239,7 +207,7 @@ class OverlayReplayPackageServiceV1(PackageBuildServiceBase):
             cache_exists=self.cache_exists,
         )
         if status == "build_required":
-            return {"status": "build_required", "job_id": normalized_job_id, "cache_key": cache_key}
+            raise ServiceError(status_code=404, detail="not_found", code="overlay_replay.status.not_found")
         if status == "done":
             done_meta: OverlayReplayDeltaMetaV1 | None = self.read_meta(cache_key) if self.cache_exists(cache_key) else None
             out: dict[str, Any] = {

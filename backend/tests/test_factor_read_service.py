@@ -9,11 +9,6 @@ from backend.app.schemas import GetFactorSlicesResponseV1
 from backend.app.service_errors import ServiceError
 
 
-@dataclass(frozen=True)
-class _FakeResult:
-    rebuilt: bool
-
-
 class _Store:
     def __init__(self, *, aligned: int | None) -> None:
         self.aligned = aligned
@@ -24,22 +19,13 @@ class _Store:
         return self.aligned
 
 
+@dataclass(frozen=True)
 class _FactorStore:
-    def __init__(self, *, head: int | None) -> None:
-        self.head = head
+    head: int | None
 
     def head_time(self, series_id: str) -> int | None:
         _ = series_id
         return self.head
-
-
-class _Orchestrator:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, int]] = []
-
-    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> _FakeResult:
-        self.calls.append((str(series_id), int(up_to_candle_time)))
-        return _FakeResult(rebuilt=False)
 
 
 class _Slices:
@@ -63,50 +49,11 @@ class _Slices:
         )
 
 
-def test_factor_read_service_non_strict_skips_implicit_recompute_by_default() -> None:
-    orch = _Orchestrator()
-    slices = _Slices()
-    service = FactorReadService(
-        store=_Store(aligned=180),
-        factor_store=_FactorStore(head=100),
-        factor_orchestrator=orch,
-        factor_slices_service=slices,
-        strict_mode=False,
-    )
-
-    out = service.read_slices(series_id="s", at_time=200, window_candles=100, ensure_fresh=True)
-
-    assert orch.calls == []
-    assert slices.calls == [("s", 180, 200, 100)]
-    assert out.candle_id == "s:180"
-
-
-def test_factor_read_service_non_strict_can_enable_implicit_recompute_explicitly() -> None:
-    orch = _Orchestrator()
-    slices = _Slices()
-    service = FactorReadService(
-        store=_Store(aligned=180),
-        factor_store=_FactorStore(head=100),
-        factor_orchestrator=orch,
-        factor_slices_service=slices,
-        strict_mode=False,
-        implicit_recompute_enabled=True,
-    )
-
-    out = service.read_slices(series_id="s", at_time=200, window_candles=100, ensure_fresh=True)
-
-    assert orch.calls == [("s", 180)]
-    assert slices.calls == [("s", 180, 200, 100)]
-    assert out.candle_id == "s:180"
-
-
 def test_factor_read_service_strict_mode_rejects_stale_factor() -> None:
-    orch = _Orchestrator()
     slices = _Slices()
     service = FactorReadService(
         store=_Store(aligned=300),
         factor_store=_FactorStore(head=240),
-        factor_orchestrator=orch,
         factor_slices_service=slices,
         strict_mode=True,
     )
@@ -116,17 +63,14 @@ def test_factor_read_service_strict_mode_rejects_stale_factor() -> None:
 
     assert exc.value.status_code == 409
     assert "ledger_out_of_sync:factor" in str(exc.value.detail)
-    assert orch.calls == []
     assert slices.calls == []
 
 
-def test_factor_read_service_strict_mode_can_skip_freshness_check_explicitly() -> None:
-    orch = _Orchestrator()
+def test_factor_read_service_can_skip_freshness_check_explicitly() -> None:
     slices = _Slices()
     service = FactorReadService(
         store=_Store(aligned=300),
         factor_store=_FactorStore(head=0),
-        factor_orchestrator=orch,
         factor_slices_service=slices,
         strict_mode=True,
     )
@@ -139,6 +83,17 @@ def test_factor_read_service_strict_mode_can_skip_freshness_check_explicitly() -
         ensure_fresh=False,
     )
 
-    assert orch.calls == []
     assert slices.calls == [("s", 300, 300, 20)]
     assert out.candle_id == "s:300"
+
+
+def test_factor_read_service_default_is_strict() -> None:
+    slices = _Slices()
+    service = FactorReadService(
+        store=_Store(aligned=180),
+        factor_store=_FactorStore(head=100),
+        factor_slices_service=slices,
+    )
+
+    with pytest.raises(ServiceError):
+        service.read_slices(series_id="s", at_time=200, window_candles=100, ensure_fresh=True)

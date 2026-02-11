@@ -32,6 +32,20 @@ class IngestCandleClosedResponse(BaseModel):
     candle_time: int
 
 
+class IngestCandlesClosedBatchRequest(BaseModel):
+    series_id: str
+    candles: list[CandleClosed] = Field(default_factory=list, min_length=1, max_length=20000)
+    publish_ws: bool = False
+
+
+class IngestCandlesClosedBatchResponse(BaseModel):
+    ok: bool
+    series_id: str
+    count: int
+    first_candle_time: int | None
+    last_candle_time: int | None
+
+
 class IngestCandleFormingRequest(BaseModel):
     series_id: str
     candle: CandleClosed

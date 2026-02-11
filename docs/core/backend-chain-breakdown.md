@@ -41,9 +41,13 @@ updated: 2026-02-11
 ### 2.1 两层配置模型
 
 - `FeatureFlags`（`backend/app/flags.py`）
-  - 偏“功能开关与治理阈值”（如 strict/read、whitelist、ondemand）。
+  - 偏“功能开关与治理阈值”（如 whitelist、ondemand）。
 - `RuntimeFlags`（`backend/app/runtime_flags.py`）
   - 偏“运行时参数与高风险开关”（factor/replay/derived/ws 批次等）。
+  - `TRADE_CANVAS_ENABLE_DEV_API`（默认 `0`）控制 `/api/dev/**` 入口可见性（默认关闭）。
+  - `TRADE_CANVAS_ENABLE_RUNTIME_METRICS`（默认 `0`）控制运行时指标采集与 `/api/market/debug/metrics` 调试接口。
+  - `TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE`（默认 `0`）控制 backfill 进度快照落盘（单机重启恢复）。
+  - SQLite schema migrations 固定启用；不再保留 legacy schema 初始化路径。
 
 ### 2.2 注入原则
 
@@ -96,6 +100,11 @@ sequenceDiagram
 - 处理：`market_ws_routes.handle_market_ws`
 - 消息解析：`WsMessageParser`
 - 订阅协同：`WsSubscriptionCoordinator`
+- 运行时指标（需 `TRADE_CANVAS_ENABLE_RUNTIME_METRICS=1`）：
+  - `market_ws_subscribe_total{result=ok|capacity}`
+  - `market_ws_unsubscribe_total{result=ok|noop}`
+  - `market_ws_active_subscriptions`（gauge）
+  - `market_ws_last_catchup_count` / `market_ws_last_payload_count`
 
 ### 4.2 作业监督
 
@@ -116,11 +125,9 @@ sequenceDiagram
 - `binance_ws_batch_max`
 - `binance_ws_flush_s`
 - `market_forming_min_interval_ms`
-- `enable_ingest_ws_pipeline_publish`（env: `TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH`，默认 `0`）
 
 发布语义：
-- 默认（`0`）：`IngestPipeline.publish_ws` 走 legacy 兼容策略（primary strict + secondary/system best-effort）。
-- 灰度（`1`）：`IngestPipeline.publish_ws` 切到 unified 策略（`publish(best_effort=True)`）。
+- `IngestPipeline.publish_ws` 固定走 unified 策略（`publish(best_effort=True)`）。
 - WS 入口（`ingest_binance_ws.py`）不再手工拼装 `hub.publish_*`，发布职责统一收口到 pipeline。
 
 ---
@@ -131,8 +138,8 @@ sequenceDiagram
 
 - 路由：`/api/factor/slices`
 - 服务：`FactorReadService`
-- 关键点：对齐 `aligned_time`；默认 strict（`TRADE_CANVAS_ENABLE_READ_STRICT_MODE=1`）。
-- 非 strict 默认不隐式重算；仅在 `TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE=1` 时允许兼容性重算。
+- 关键点：对齐 `aligned_time`；固定 strict（读路径只读不写）。
+- 不支持隐式重算，账本不一致直接 `409`。
 
 ### 5.2 draw
 
@@ -141,7 +148,7 @@ sequenceDiagram
 - 关键点：
   - cursor=0 首帧做 overlay integrity checks。
   - 发现 overlay 不一致直接 `409 ledger_out_of_sync:overlay`，不在读请求内隐式重建。
-  - 显式修复走 `/api/dev/repair/overlay`（受 `TRADE_CANVAS_ENABLE_READ_REPAIR_API` 控制，默认关闭）。
+  - 显式修复走 `/api/dev/repair/overlay`（同时受 `TRADE_CANVAS_ENABLE_DEV_API` 与 `TRADE_CANVAS_ENABLE_READ_REPAIR_API` 控制，默认关闭）。
 
 ### 5.3 world
 
@@ -169,7 +176,7 @@ sequenceDiagram
 - 接口：`/api/replay/*`
 - 服务：`ReplayPackageServiceV1`
 - 语义：
-  - read_only/build/status/window
+  - build/status/window
   - 可选 ensure coverage
   - 可选 ccxt/freqtrade 历史补齐
 

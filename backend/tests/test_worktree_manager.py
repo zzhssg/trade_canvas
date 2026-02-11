@@ -83,6 +83,10 @@ def test_start_services_passes_frontend_port_to_backend_start(
     )
     monkeypatch.setattr(manager, "_write_index", lambda _data: None)
     monkeypatch.setattr(manager, "_start_frontend", lambda _p, _fp, _bp: 2222)
+    monkeypatch.setattr(
+        "backend.app.worktree_manager.allocate_ports",
+        lambda _used_backend, _used_frontend: (8001, 5174),
+    )
 
     def fake_start_backend(_path: str, backend_port: int, frontend_port: int) -> int:
         calls["backend"] = (backend_port, frontend_port)

@@ -29,14 +29,18 @@ def test_bootstrap_from_freqtrade_datadir_env(tmp_path, monkeypatch) -> None:
     datadir.mkdir(parents=True, exist_ok=True)
     _write_feather(datadir / "BTC_USDT-1m.feather", n=10)
 
-    monkeypatch.setenv("TRADE_CANVAS_MARKET_HISTORY_SOURCE", "freqtrade")
     monkeypatch.setenv("TRADE_CANVAS_FREQTRADE_DATADIR", str(datadir))
 
     db_path = tmp_path / "market.db"
     store = CandleStore(db_path=db_path)
     series_id = "binance:spot:BTC/USDT:1m"
 
-    wrote = maybe_bootstrap_from_freqtrade(store, series_id=series_id, limit=2000)
+    wrote = maybe_bootstrap_from_freqtrade(
+        store,
+        series_id=series_id,
+        limit=2000,
+        market_history_source="freqtrade",
+    )
     assert wrote == 10
 
     head = store.head_time(series_id)
@@ -50,7 +54,6 @@ def test_bootstrap_from_freqtrade_datadir_env(tmp_path, monkeypatch) -> None:
 
 
 def test_bootstrap_skips_when_disabled(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("TRADE_CANVAS_MARKET_HISTORY_SOURCE", raising=False)
     monkeypatch.delenv("TRADE_CANVAS_FREQTRADE_DATADIR", raising=False)
 
     db_path = tmp_path / "market.db"
@@ -64,14 +67,18 @@ def test_bootstrap_futures_accepts_freqtrade_usdt_suffix_filename(tmp_path, monk
     datadir.mkdir(parents=True, exist_ok=True)
     _write_feather(datadir / "BTC_USDT_USDT-5m-futures.feather", n=12)
 
-    monkeypatch.setenv("TRADE_CANVAS_MARKET_HISTORY_SOURCE", "freqtrade")
     monkeypatch.setenv("TRADE_CANVAS_FREQTRADE_DATADIR", str(tmp_path / "datadir"))
 
     db_path = tmp_path / "market.db"
     store = CandleStore(db_path=db_path)
     series_id = "binance:futures:BTC/USDT:5m"
 
-    wrote = maybe_bootstrap_from_freqtrade(store, series_id=series_id, limit=2000)
+    wrote = maybe_bootstrap_from_freqtrade(
+        store,
+        series_id=series_id,
+        limit=2000,
+        market_history_source="freqtrade",
+    )
     assert wrote == 12
     assert store.head_time(series_id) is not None
 
@@ -82,9 +89,13 @@ def test_bootstrap_handles_invalid_feather_schema_gracefully(tmp_path, monkeypat
     bad = pd.DataFrame({"foo": [1, 2], "bar": [3, 4]})
     bad.to_feather(datadir / "BTC_USDT-1m.feather")
 
-    monkeypatch.setenv("TRADE_CANVAS_MARKET_HISTORY_SOURCE", "freqtrade")
     monkeypatch.setenv("TRADE_CANVAS_FREQTRADE_DATADIR", str(datadir))
 
     store = CandleStore(db_path=tmp_path / "market.db")
-    wrote = maybe_bootstrap_from_freqtrade(store, series_id="binance:spot:BTC/USDT:1m", limit=100)
+    wrote = maybe_bootstrap_from_freqtrade(
+        store,
+        series_id="binance:spot:BTC/USDT:1m",
+        limit=100,
+        market_history_source="freqtrade",
+    )
     assert wrote == 0

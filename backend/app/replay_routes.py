@@ -9,7 +9,6 @@ from .replay_package_protocol_v1 import (
     ReplayCoverageStatusResponseV1,
     ReplayEnsureCoverageRequestV1,
     ReplayEnsureCoverageResponseV1,
-    ReplayReadOnlyResponseV1,
     ReplayStatusResponseV1,
     ReplayWindowResponseV1,
 )
@@ -37,37 +36,6 @@ def prepare_replay(
     """
     try:
         return replay_prepare_service.prepare(payload)
-    except ServiceError as exc:
-        raise to_http_exception(exc) from exc
-
-
-@router.get("/api/replay/read_only", response_model=ReplayReadOnlyResponseV1)
-def get_replay_read_only(
-    series_id: str = Query(..., min_length=1),
-    to_time: int | None = Query(default=None, ge=0),
-    window_candles: int | None = Query(default=None, ge=1, le=5000),
-    window_size: int | None = Query(default=None, ge=1, le=2000),
-    snapshot_interval: int | None = Query(default=None, ge=1, le=200),
-    *,
-    replay_service: ReplayServiceDep,
-) -> ReplayReadOnlyResponseV1:
-    service = _replay_service_or_404(replay_service)
-    try:
-        status, job_id, cache_key, coverage, metadata, hint = service.read_only(
-            series_id=series_id,
-            to_time=to_time,
-            window_candles=window_candles,
-            window_size=window_size,
-            snapshot_interval=snapshot_interval,
-        )
-        return ReplayReadOnlyResponseV1(
-            status=status,
-            job_id=job_id,
-            cache_key=cache_key,
-            coverage=coverage,
-            metadata=metadata,
-            compute_hint=hint,
-        )
     except ServiceError as exc:
         raise to_http_exception(exc) from exc
 

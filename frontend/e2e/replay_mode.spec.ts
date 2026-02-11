@@ -1,58 +1,56 @@
-import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+
+import {
+  buildSeriesId,
+  ingestClosedCandlesWithFallback,
+  type CandleSeed,
+  uniqueSymbol,
+} from "./helpers/marketIngest";
+import { buildDefaultUiState, initTradeCanvasStorage } from "./helpers/localStorage";
 
 const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
 const apiBase =
   process.env.E2E_API_BASE_URL ?? process.env.VITE_API_BASE ?? process.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
-function seriesId() {
-  return "binance:futures:BTC/USDT:5m";
-}
-
-async function ingestClosedCandle(request: APIRequestContext, candle_time: number, price: number) {
-  const res = await request.post(`${apiBase}/api/market/ingest/candle_closed`, {
-    data: {
-      series_id: seriesId(),
-      candle: {
-        candle_time,
-        open: price,
-        high: price,
-        low: price,
-        close: price,
-        volume: 10
-      }
-    }
-  });
-  expect(res.ok()).toBeTruthy();
+function seriesId(symbol: string) {
+  return buildSeriesId(symbol, "5m");
 }
 
 test("replay mode prepares data and plays", async ({ page, request }) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-    localStorage.setItem(
-      "trade-canvas-ui",
-      JSON.stringify({
-        version: 2,
-        state: {
-          exchange: "binance",
-          market: "futures",
-          symbol: "BTC/USDT",
-          timeframe: "5m",
-          sidebarCollapsed: false,
-          sidebarWidth: 280,
-          bottomCollapsed: true,
-          activeSidebarTab: "Replay",
-          activeBottomTab: "Ledger"
-        }
-      })
-    );
+  const symbol = uniqueSymbol("TCREPLAY");
+  const sid = seriesId(symbol);
+  await initTradeCanvasStorage(page, {
+    clear: true,
+    uiVersion: 2,
+    uiState: buildDefaultUiState({
+      symbol,
+      timeframe: "5m",
+      overrides: {
+        bottomCollapsed: true,
+        activeSidebarTab: "Replay",
+      },
+    }),
   });
 
   const base = 300;
   const total = 40;
+  const seedCandles: CandleSeed[] = [];
   for (let i = 0; i < total; i++) {
-    await ingestClosedCandle(request, base * (i + 1), i + 1);
+    const price = i + 1;
+    seedCandles.push({
+      candle_time: base * (i + 1),
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+      volume: 10
+    });
   }
+  await ingestClosedCandlesWithFallback(request, {
+    apiBase,
+    seriesId: sid,
+    candles: seedCandles,
+  });
 
   const preparePromise = page.waitForResponse((r) => {
     return r.url().includes("/api/replay/prepare") && r.request().method() === "POST" && r.status() === 200;

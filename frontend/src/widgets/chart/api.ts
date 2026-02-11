@@ -11,7 +11,6 @@ import type {
   ReplayCoverageStatusResponseV1,
   ReplayEnsureCoverageRequestV1,
   ReplayEnsureCoverageResponseV1,
-  ReplayReadOnlyResponseV1,
   ReplayStatusResponseV1,
   ReplayWindowResponseV1,
   WorldDeltaPollResponseV1
@@ -28,6 +27,19 @@ function pruneFetchCache(nowMs: number) {
   for (const [k, v] of candlesFetchCache.entries()) {
     if (nowMs - v.at > CANDLES_FETCH_CACHE_MS) candlesFetchCache.delete(k);
   }
+}
+
+async function throwHttpError(res: Response): Promise<never> {
+  let detail = "";
+  try {
+    const payload = (await res.json()) as { detail?: unknown };
+    if (typeof payload.detail === "string" && payload.detail.trim()) {
+      detail = payload.detail.trim();
+    }
+  } catch {
+    detail = "";
+  }
+  throw new Error(detail ? `HTTP ${res.status}:${detail}` : `HTTP ${res.status}`);
 }
 
 export async function fetchCandles(params: {
@@ -153,24 +165,6 @@ export async function pollWorldDelta(params: {
   return (await res.json()) as WorldDeltaPollResponseV1;
 }
 
-export async function fetchReplayReadOnly(params: {
-  seriesId: string;
-  toTime?: number;
-  windowCandles?: number;
-  windowSize?: number;
-  snapshotInterval?: number;
-}): Promise<ReplayReadOnlyResponseV1> {
-  const url = new URL(apiUrl("/api/replay/read_only"), window.location.origin);
-  url.searchParams.set("series_id", params.seriesId);
-  if (params.toTime !== undefined) url.searchParams.set("to_time", String(params.toTime));
-  if (params.windowCandles !== undefined) url.searchParams.set("window_candles", String(params.windowCandles));
-  if (params.windowSize !== undefined) url.searchParams.set("window_size", String(params.windowSize));
-  if (params.snapshotInterval !== undefined) url.searchParams.set("snapshot_interval", String(params.snapshotInterval));
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as ReplayReadOnlyResponseV1;
-}
-
 export async function fetchReplayEnsureCoverage(
   payload: ReplayEnsureCoverageRequestV1
 ): Promise<ReplayEnsureCoverageResponseV1> {
@@ -199,7 +193,7 @@ export async function fetchReplayBuild(payload: ReplayBuildRequestV1): Promise<R
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload)
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) await throwHttpError(res);
   return (await res.json()) as ReplayBuildResponseV1;
 }
 
@@ -213,7 +207,7 @@ export async function fetchReplayStatus(params: {
   if (params.includePreload) url.searchParams.set("include_preload", "1");
   if (params.includeHistory) url.searchParams.set("include_history", "1");
   const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) await throwHttpError(res);
   return (await res.json()) as ReplayStatusResponseV1;
 }
 

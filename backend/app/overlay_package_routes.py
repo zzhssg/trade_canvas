@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, FastAPI, HTTPException, Query
 
 from .dependencies import OverlayPackageServiceDep
 from .overlay_replay_protocol_v1 import (
     ReplayOverlayPackageBuildRequestV1,
     ReplayOverlayPackageBuildResponseV1,
-    ReplayOverlayPackageReadOnlyRequestV1,
-    ReplayOverlayPackageReadOnlyResponseV1,
     ReplayOverlayPackageStatusResponseV1,
     ReplayOverlayPackageWindowResponseV1,
 )
@@ -20,32 +18,6 @@ def _overlay_pkg_service_or_404(service: OverlayPackageServiceDep):
     if not service.enabled():
         raise HTTPException(status_code=404, detail="not_found")
     return service
-
-
-@router.get("/api/replay/overlay_package/read_only", response_model=ReplayOverlayPackageReadOnlyResponseV1)
-def replay_overlay_package_read_only(
-    req: ReplayOverlayPackageReadOnlyRequestV1 = Depends(),
-    *,
-    overlay_pkg_service: OverlayPackageServiceDep,
-) -> ReplayOverlayPackageReadOnlyResponseV1:
-    service = _overlay_pkg_service_or_404(overlay_pkg_service)
-    try:
-        status, job_id, cache_key, meta, hint = service.read_only(
-            series_id=req.series_id,
-            to_time=req.to_time,
-            window_candles=req.window_candles,
-            window_size=req.window_size,
-            snapshot_interval=req.snapshot_interval,
-        )
-        return ReplayOverlayPackageReadOnlyResponseV1(
-            status=status,
-            job_id=job_id,
-            cache_key=cache_key,
-            delta_meta=meta,
-            compute_hint=hint,
-        )
-    except ServiceError as exc:
-        raise to_http_exception(exc) from exc
 
 
 @router.post("/api/replay/overlay_package/build", response_model=ReplayOverlayPackageBuildResponseV1)

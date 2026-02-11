@@ -104,6 +104,9 @@ class OverlayOrchestrator:
     def enabled(self) -> bool:
         return bool(self._settings.ingest_enabled)
 
+    def head_time(self, series_id: str) -> int | None:
+        return self._overlay_store.head_time(series_id)
+
     def reset_series(self, *, series_id: str) -> None:
         with self._overlay_store.connect() as conn:
             self._overlay_store.clear_series_in_conn(conn, series_id=series_id)

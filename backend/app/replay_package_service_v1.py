@@ -157,56 +157,39 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
         si = min(200, max(5, si))
         return (wc, ws, si)
 
-    def read_only(
+    def _preflight_build(
         self,
         *,
         series_id: str,
-        to_time: int | None,
-        window_candles: int | None = None,
-        window_size: int | None = None,
-        snapshot_interval: int | None = None,
-    ) -> tuple[str, str, str, ReplayCoverageV1, ReplayPackageMetadataV1 | None, str | None]:
-        to_candle_time = self._resolve_to_time(series_id, to_time)
-        wc, ws, si = self._normalize_window_params(
-            window_candles=window_candles,
-            window_size=window_size,
-            snapshot_interval=snapshot_interval,
+        to_candle_time: int,
+        window_candles: int,
+    ) -> ReplayCoverageV1:
+        coverage = self._coverage(
+            series_id=series_id,
+            to_time=to_candle_time,
+            target_candles=int(window_candles),
         )
-
-        coverage = self._coverage(series_id=series_id, to_time=to_candle_time, target_candles=wc)
-        if coverage.candles_ready < wc:
-            cache_key = self._compute_cache_key(
-                series_id=series_id,
-                to_time=to_candle_time,
-                window_candles=wc,
-                window_size=ws,
-                snapshot_interval=si,
+        if coverage.candles_ready < int(window_candles):
+            raise ServiceError(
+                status_code=409,
+                detail="coverage_missing",
+                code="replay.build.coverage_missing",
             )
-            return ("coverage_missing", cache_key, cache_key, coverage, None, "coverage_missing: not enough closed candles")
 
         factor_head = self._factor_store.head_time(series_id)
         overlay_head = self._overlay_store.head_time(series_id)
-        if factor_head is None or overlay_head is None or int(factor_head) < int(to_candle_time) or int(overlay_head) < int(to_candle_time):
-            cache_key = self._compute_cache_key(
-                series_id=series_id,
-                to_time=to_candle_time,
-                window_candles=wc,
-                window_size=ws,
-                snapshot_interval=si,
+        if (
+            factor_head is None
+            or overlay_head is None
+            or int(factor_head) < int(to_candle_time)
+            or int(overlay_head) < int(to_candle_time)
+        ):
+            raise ServiceError(
+                status_code=409,
+                detail="ledger_out_of_sync:replay",
+                code="replay.build.ledger_out_of_sync",
             )
-            return ("out_of_sync", cache_key, cache_key, coverage, None, "out_of_sync: ledger not ready")
-
-        cache_key = self._compute_cache_key(
-            series_id=series_id,
-            to_time=to_candle_time,
-            window_candles=wc,
-            window_size=ws,
-            snapshot_interval=si,
-        )
-        job_id = cache_key
-        if self.cache_exists(cache_key):
-            return ("done", job_id, cache_key, coverage, self._read_meta(cache_key), None)
-        return ("build_required", job_id, cache_key, coverage, None, "build_required: replay package not cached")
+        return coverage
 
     def build(
         self,
@@ -222,6 +205,11 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
             window_candles=window_candles,
             window_size=window_size,
             snapshot_interval=snapshot_interval,
+        )
+        self._preflight_build(
+            series_id=series_id,
+            to_candle_time=to_candle_time,
+            window_candles=wc,
         )
 
         cache_key = self._compute_cache_key(
@@ -274,7 +262,7 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
             cache_exists=self.cache_exists,
         )
         if status == "build_required":
-            return {"status": "build_required", "job_id": normalized_job_id, "cache_key": cache_key}
+            raise ServiceError(status_code=404, detail="not_found", code="replay.status.not_found")
         if status == "done":
             done_meta: ReplayPackageMetadataV1 | None = self._read_meta(cache_key) if self.cache_exists(cache_key) else None
             out: dict[str, Any] = {

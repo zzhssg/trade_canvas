@@ -21,6 +21,7 @@ from backend.app.market_data import (
     build_gap_backfill_handler,
     build_ws_error_payload,
 )
+from backend.app.runtime_metrics import RuntimeMetrics
 from backend.app.schemas import CandleClosed
 from backend.app.store import CandleStore
 
@@ -525,8 +526,12 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
 
     hub = cast(Any, _Hub())
     ondemand = _OnDemand()
+    metrics = RuntimeMetrics(enabled=True)
     svc = WsSubscriptionCoordinator(
-        hub=hub, ondemand_subscribe=ondemand.subscribe, ondemand_unsubscribe=ondemand.unsubscribe
+        hub=hub,
+        ondemand_subscribe=ondemand.subscribe,
+        ondemand_unsubscribe=ondemand.unsubscribe,
+        runtime_metrics=metrics,
     )
     ws = cast(Any, object())
 
@@ -543,6 +548,22 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
     assert ondemand.subscribed == ["binance:futures:BTC/USDT:1m"]
     assert hub.sub_calls == [("binance:futures:BTC/USDT:1m", 100, True)]
     assert hub.last_sent_time is None
+
+    err_dup = asyncio.run(
+        svc.subscribe(
+            ws=ws,
+            series_id="binance:futures:BTC/USDT:1m",
+            since=120,
+            supports_batch=False,
+            ondemand_enabled=True,
+        )
+    )
+    assert err_dup is None
+    assert ondemand.subscribed == ["binance:futures:BTC/USDT:1m"]
+    assert hub.sub_calls == [
+        ("binance:futures:BTC/USDT:1m", 100, True),
+        ("binance:futures:BTC/USDT:1m", 120, False),
+    ]
 
     async def _noop_backfill(*, series_id: str) -> None:
         return None
@@ -564,6 +585,7 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
     assert hub.last_sent_time == 160
     assert hub.sub_calls == [
         ("binance:futures:BTC/USDT:1m", 100, True),
+        ("binance:futures:BTC/USDT:1m", 120, False),
         ("binance:futures:BTC/USDT:1m", 100, False),
     ]
 
@@ -579,6 +601,7 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
     assert err_ok2 is None
     assert hub.sub_calls == [
         ("binance:futures:BTC/USDT:1m", 100, True),
+        ("binance:futures:BTC/USDT:1m", 120, False),
         ("binance:futures:BTC/USDT:1m", 100, False),
         ("binance:futures:SOL/USDT:1m", 100, False),
     ]
@@ -597,6 +620,7 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
     assert err2["code"] == "capacity"
     assert hub.sub_calls == [
         ("binance:futures:BTC/USDT:1m", 100, True),
+        ("binance:futures:BTC/USDT:1m", 120, False),
         ("binance:futures:BTC/USDT:1m", 100, False),
         ("binance:futures:SOL/USDT:1m", 100, False),
     ]
@@ -611,6 +635,16 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
     assert ondemand.unsubscribed == ["binance:futures:BTC/USDT:1m"]
     assert hub.unsub_calls == ["binance:futures:BTC/USDT:1m"]
 
+    asyncio.run(
+        svc.unsubscribe(
+            ws=ws,
+            series_id="binance:futures:BTC/USDT:1m",
+            ondemand_enabled=True,
+        )
+    )
+    assert ondemand.unsubscribed == ["binance:futures:BTC/USDT:1m"]
+    assert hub.unsub_calls == ["binance:futures:BTC/USDT:1m", "binance:futures:BTC/USDT:1m"]
+
     hub.pop_result = ["binance:futures:SOL/USDT:1m", "binance:futures:DOGE/USDT:1m"]
     asyncio.run(
         svc.cleanup_disconnect(
@@ -624,6 +658,23 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
         "binance:futures:SOL/USDT:1m",
         "binance:futures:DOGE/USDT:1m",
     }
+    snapshot = metrics.snapshot()
+    assert snapshot["counters"]["market_ws_subscribe_total{result=ok}"] == 4.0
+    assert snapshot["counters"]["market_ws_subscribe_total{result=capacity}"] == 1.0
+    assert snapshot["counters"]["market_ws_unsubscribe_total{result=ok}"] == 1.0
+    assert snapshot["counters"]["market_ws_unsubscribe_total{result=noop}"] == 1.0
+    assert snapshot["counters"]["market_ws_payloads_total"] == 1.0
+    assert snapshot["counters"]["market_ws_catchup_candles_total"] == 1.0
+    assert snapshot["counters"]["market_ws_disconnect_cleanup_total"] == 1.0
+    assert snapshot["counters"]["market_ws_disconnect_unsubscribe_total{result=ok}"] == 2.0
+    assert snapshot["gauges"]["market_ws_last_catchup_count"] == 1.0
+    assert snapshot["gauges"]["market_ws_last_payload_count"] == 1.0
+    assert snapshot["gauges"]["market_ws_disconnect_cleanup_series_count"] == 2.0
+    assert snapshot["gauges"]["market_ws_active_subscriptions"] == 0.0
+    assert snapshot["timers"]["market_ws_subscribe_duration_ms{result=ok}"]["count"] == 4.0
+    assert snapshot["timers"]["market_ws_subscribe_duration_ms{result=capacity}"]["count"] == 1.0
+    assert snapshot["timers"]["market_ws_unsubscribe_duration_ms{result=ok}"]["count"] == 1.0
+    assert snapshot["timers"]["market_ws_unsubscribe_duration_ms{result=noop}"]["count"] == 1.0
 
 
 def test_ws_message_parser_validates_subscribe_and_unsubscribe_payloads() -> None:

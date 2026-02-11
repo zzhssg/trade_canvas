@@ -107,24 +107,12 @@ class OverlayReplayDeltaPackageV1(BaseModel):
     windows: list[OverlayReplayWindowV1] = Field(default_factory=list)
 
 
-class ReplayOverlayPackageReadOnlyRequestV1(BaseModel):
+class ReplayOverlayPackageBuildRequestV1(BaseModel):
     series_id: str = Field(..., min_length=1)
     to_time: int | None = Field(default=None, ge=0, description="Optional upper-bound time (unix seconds)")
     window_candles: int | None = Field(default=None, ge=1, le=2000)
     window_size: int | None = Field(default=None, ge=1, le=2000)
     snapshot_interval: int | None = Field(default=None, ge=1, le=200)
-
-
-class ReplayOverlayPackageReadOnlyResponseV1(BaseModel):
-    status: str = Field(..., description="done | build_required")
-    job_id: str
-    cache_key: str
-    delta_meta: OverlayReplayDeltaMetaV1 | None = None
-    compute_hint: str | None = None
-
-
-class ReplayOverlayPackageBuildRequestV1(ReplayOverlayPackageReadOnlyRequestV1):
-    pass
 
 
 class ReplayOverlayPackageBuildResponseV1(BaseModel):
@@ -134,7 +122,7 @@ class ReplayOverlayPackageBuildResponseV1(BaseModel):
 
 
 class ReplayOverlayPackageStatusResponseV1(BaseModel):
-    status: str = Field(..., description="building | done | error | build_required")
+    status: str = Field(..., description="building | done | error")
     job_id: str
     cache_key: str
     error: str | None = None

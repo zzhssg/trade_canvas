@@ -1,27 +1,21 @@
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+
+import {
+  buildSeriesId,
+  ingestClosedCandle,
+  ingestClosedCandlesWithFallback,
+  type CandleSeed,
+  uniqueSymbol,
+} from "./helpers/marketIngest";
+import { buildDefaultUiState, initTradeCanvasStorage } from "./helpers/localStorage";
 
 const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
 const apiBase =
   process.env.E2E_API_BASE_URL ?? process.env.VITE_API_BASE ?? process.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 function seriesId(symbol: string) {
-  return `binance:futures:${symbol}:1m`;
-}
-
-async function ingestClosedCandle(
-  request: APIRequestContext,
-  symbol: string,
-  candle_time: number,
-  ohlc: { open: number; high: number; low: number; close: number } = { open: 1, high: 2, low: 0.5, close: 1.5 }
-) {
-  const res = await request.post(`${apiBase}/api/market/ingest/candle_closed`, {
-    data: {
-      series_id: seriesId(symbol),
-      candle: { candle_time, volume: 10, ...ohlc }
-    }
-  });
-  expect(res.ok()).toBeTruthy();
+  return buildSeriesId(symbol, "1m");
 }
 
 async function expectChartCanvasVisible(page: Page) {
@@ -37,14 +31,31 @@ async function readBarSpacing(page: Page): Promise<number | null> {
 }
 
 test("mouse wheel zoom works and survives live updates", async ({ page, request }) => {
-  await page.addInitScript(() => localStorage.clear());
+  const symbol = uniqueSymbol("TCWZ");
+  await initTradeCanvasStorage(page, {
+    clear: true,
+    uiVersion: 2,
+    uiState: buildDefaultUiState({ symbol, timeframe: "1m" }),
+  });
 
-  const symbol = "BTC/USDT";
   // Seed enough candles so zooming has a visible effect (fitContent + wheel scale).
+  const seedCandles: CandleSeed[] = [];
   for (let i = 1; i <= 180; i++) {
     const t = i * 60;
-    await ingestClosedCandle(request, symbol, t, { open: 1, high: 2, low: 0.5, close: 1000 + i });
+    seedCandles.push({
+      candle_time: t,
+      open: 1,
+      high: 2,
+      low: 0.5,
+      close: 1000 + i,
+      volume: 10
+    });
   }
+  await ingestClosedCandlesWithFallback(request, {
+    apiBase,
+    seriesId: seriesId(symbol),
+    candles: seedCandles,
+  });
 
   await page.goto(`${frontendBase}/live`, { waitUntil: "domcontentloaded" });
   await expectChartCanvasVisible(page);
@@ -65,7 +76,11 @@ test("mouse wheel zoom works and survives live updates", async ({ page, request 
 
   // Ensure a live update doesn't reset the zoom level.
   const nextTime = 181 * 60;
-  await ingestClosedCandle(request, symbol, nextTime, { open: 1, high: 2, low: 0.5, close: 999_999 });
+  await ingestClosedCandle(request, {
+    apiBase,
+    seriesId: seriesId(symbol),
+    candle: { candle_time: nextTime, open: 1, high: 2, low: 0.5, close: 999_999, volume: 10 },
+  });
   await expect(page.getByTestId("chart-view")).toHaveAttribute("data-last-ws-candle-time", String(nextTime), {
     timeout: 10_000
   });

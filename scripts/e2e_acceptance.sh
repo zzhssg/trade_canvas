@@ -14,6 +14,9 @@ Environment overrides (optional):
   E2E_BACKEND_PORT=8000
   E2E_FRONTEND_HOST=127.0.0.1
   E2E_FRONTEND_PORT=5173
+  E2E_AUTO_PORT_FALLBACK=1
+    - When not reusing servers and preferred ports are occupied, auto-pick free ports.
+      Set to 0 to keep fail-fast behavior.
   E2E_SMOKE=1
     - Run only tests tagged with `@smoke` (fast local loop; do not use for final delivery).
   E2E_SKIP_PLAYWRIGHT_INSTALL=1
@@ -60,9 +63,7 @@ smoke="${E2E_SMOKE:-$smoke}"
 skip_playwright_install="${E2E_SKIP_PLAYWRIGHT_INSTALL:-$skip_playwright_install}"
 skip_doc_audit="${E2E_SKIP_DOC_AUDIT:-$skip_doc_audit}"
 reuse_strict="${E2E_REUSE_STRICT:-$reuse_strict}"
-
-backend_base="http://${backend_host}:${backend_port}"
-frontend_base="http://${frontend_host}:${frontend_port}"
+auto_port_fallback="${E2E_AUTO_PORT_FALLBACK:-1}"
 
 ensure_no_proxy() {
   local extra="$1"
@@ -101,6 +102,76 @@ is_listening() {
   fi
   return 1
 }
+
+pick_free_port() {
+  local host="$1"
+  local preferred="$2"
+  python3 - "$host" "$preferred" <<'PY'
+from __future__ import annotations
+
+import socket
+import sys
+
+host = sys.argv[1]
+preferred = int(sys.argv[2])
+start = max(1, preferred)
+end = min(65535, start + 3000)
+
+def is_free(port: int) -> bool:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, port))
+    except OSError:
+        return False
+    finally:
+        sock.close()
+    return True
+
+for port in range(start, end + 1):
+    if is_free(port):
+        print(port)
+        raise SystemExit(0)
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.bind((host, 0))
+port = int(sock.getsockname()[1])
+sock.close()
+print(port)
+PY
+}
+
+resolve_runtime_port() {
+  local role="$1"
+  local host="$2"
+  local port="$3"
+  if is_listening "$host" "$port"; then
+    if [[ "$reuse_servers" -eq 1 ]]; then
+      printf '%s' "$port"
+      return 0
+    fi
+    if [[ "$auto_port_fallback" != "1" ]]; then
+      echo "ERROR: ${role} port already in use: ${port}" >&2
+      echo "Hint: free it first or enable E2E_AUTO_PORT_FALLBACK=1." >&2
+      exit 2
+    fi
+    local next_port
+    next_port="$(pick_free_port "$host" "$port")"
+    if [[ -z "$next_port" ]]; then
+      echo "ERROR: failed to allocate fallback ${role} port from ${port}" >&2
+      exit 2
+    fi
+    echo "[e2e_acceptance] WARN: ${role} port ${port} is occupied; using free port ${next_port}." >&2
+    printf '%s' "$next_port"
+    return 0
+  fi
+  printf '%s' "$port"
+}
+
+backend_port="$(resolve_runtime_port backend "$backend_host" "$backend_port")"
+frontend_port="$(resolve_runtime_port frontend "$frontend_host" "$frontend_port")"
+backend_base="http://${backend_host}:${backend_port}"
+frontend_base="http://${frontend_host}:${frontend_port}"
 
 reuse_preflight_or_die() {
   if [[ "$reuse_servers" -ne 1 || "$reuse_strict" != "1" ]]; then
@@ -220,10 +291,12 @@ else
     export TRADE_CANVAS_ENABLE_CCXT_BACKFILL="0"
     export TRADE_CANVAS_MARKET_HISTORY_SOURCE=""
     export TRADE_CANVAS_ENABLE_DEBUG_API="1"
+    export TRADE_CANVAS_ENABLE_DEV_API="1"
     export TRADE_CANVAS_FREQTRADE_MOCK="1"
     # Pin ingest flags for deterministic E2E (avoid inheriting dev shell env).
     export TRADE_CANVAS_ENABLE_FACTOR_INGEST="1"
     export TRADE_CANVAS_ENABLE_OVERLAY_INGEST="1"
+    export TRADE_CANVAS_ENABLE_READ_LEDGER_WARMUP="1"
     export TRADE_CANVAS_PIVOT_WINDOW_MAJOR="${TRADE_CANVAS_PIVOT_WINDOW_MAJOR:-50}"
     export TRADE_CANVAS_PIVOT_WINDOW_MINOR="${TRADE_CANVAS_PIVOT_WINDOW_MINOR:-5}"
     export TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES="${TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES:-20000}"

@@ -13,6 +13,7 @@ Base URL（本地默认）：
 - `http://127.0.0.1:8000`
 
 > 说明：本文件是 `docs/scripts/api_docs_audit.py` 的门禁输入之一；章节标题与示例格式必须遵循 `docs/core/api/v1/README.md` 的约定。
+> 开关：`/api/dev/**` 默认关闭；需要 `TRADE_CANVAS_ENABLE_DEV_API=1` 才可访问（否则统一返回 `404 not_found`）。
 
 ## GET /api/dev/worktrees
 
@@ -54,6 +55,7 @@ curl --noproxy '*' -fsS http://127.0.0.1:8000/api/dev/worktrees
 
 - 返回 worktree 列表（来自 `git worktree list --porcelain` + `.worktree-meta/*.json`）。
 - `services.*.running` 通过 PID 存活判断；如果 PID 不存在或已退出，会返回 `running=false`。
+- 当 `TRADE_CANVAS_ENABLE_DEV_API=0` 时，该 endpoint 返回 `404 not_found`。
 
 ## GET /api/dev/worktrees/{worktree_id}
 
@@ -345,5 +347,54 @@ JSON
 ### 语义
 
 - 用于显式修复 draw/world 读链路中的 `ledger_out_of_sync:overlay` 场景。
-- 该 endpoint **默认关闭**，需要 `TRADE_CANVAS_ENABLE_READ_REPAIR_API=1` 才可访问；关闭时返回 `404 not_found`。
+- 该 endpoint **默认关闭**，需要同时满足：
+  - `TRADE_CANVAS_ENABLE_DEV_API=1`
+  - `TRADE_CANVAS_ENABLE_READ_REPAIR_API=1`
+  任一关闭时返回 `404 not_found`。
 - 调用会触发写入 side-effects（刷新 factor/overlay 并重建 overlay 指令），仅用于开发/调试面，不建议常驻业务流量调用。
+
+## POST /api/dev/market/ingest/candles_closed_batch
+
+```bash
+curl --noproxy '*' -fsS -X POST http://127.0.0.1:8000/api/dev/market/ingest/candles_closed_batch \
+  -H "Content-Type: application/json" \
+  -d @- <<'JSON'
+{
+  "series_id": "binance:futures:BTC/USDT:1h",
+  "publish_ws": false,
+  "candles": [
+    { "candle_time": 1770804000, "open": 67000, "high": 67100, "low": 66950, "close": 67080, "volume": 100 },
+    { "candle_time": 1770807600, "open": 67080, "high": 67200, "low": 67020, "close": 67150, "volume": 120 }
+  ]
+}
+JSON
+```
+
+```json
+{
+  "series_id": "binance:futures:BTC/USDT:1h",
+  "publish_ws": false,
+  "candles": [
+    { "candle_time": 1770804000, "open": 67000, "high": 67100, "low": 66950, "close": 67080, "volume": 100 },
+    { "candle_time": 1770807600, "open": 67080, "high": 67200, "low": 67020, "close": 67150, "volume": 120 }
+  ]
+}
+```
+
+```json
+{
+  "ok": true,
+  "series_id": "binance:futures:BTC/USDT:1h",
+  "count": 2,
+  "first_candle_time": 1770804000,
+  "last_candle_time": 1770807600
+}
+```
+
+### 语义
+
+- 用于开发/测试阶段的“批量闭合 K 线写入”，避免大量单条 HTTP 写入导致测试过慢。
+- 请求体 `candles` 必填，至少 1 条（最多 20000 条）；服务端会按 `candle_time` 去重并排序后入库。
+- `publish_ws=false`（默认）时只做存储与 ledger 计算，不向 WS 批量推送；适合离线预热数据。
+- `publish_ws=true` 时会在批量写入后通过 WS 发布对应批次（用于联调订阅链路）。
+- 该 endpoint 受 `TRADE_CANVAS_ENABLE_DEV_API=1` 控制；关闭时返回 `404 not_found`。

@@ -60,15 +60,6 @@ class ReplayOverlayPackageApiTests(unittest.TestCase):
             os.environ.pop(k, None)
 
     def test_replay_overlay_package_build_and_window(self) -> None:
-        resp = self.client.get(
-            "/api/replay/overlay_package/read_only",
-            params={"series_id": self.series_id},
-        )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        payload = resp.json()
-        self.assertEqual(payload["status"], "build_required")
-        job_id = payload["job_id"]
-
         build = self.client.post(
             "/api/replay/overlay_package/build",
             json={"series_id": self.series_id},

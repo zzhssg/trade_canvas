@@ -159,10 +159,10 @@ def annotate_factor_ledger(
         return LedgerAnnotateResult(ok=False, reason=f"missing_columns:{sorted(missing)}", dataframe=dataframe)
 
     db = _resolve_db_path(db_path)
-    store = CandleStore(db_path=db)
-    factor_store = FactorStore(db_path=db)
     base_flags = load_feature_flags()
     runtime_flags = load_runtime_flags(base_flags=base_flags)
+    store = CandleStore(db_path=db)
+    factor_store = FactorStore(db_path=db)
     orchestrator = FactorOrchestrator(
         candle_store=store,
         factor_store=factor_store,

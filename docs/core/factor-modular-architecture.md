@@ -54,7 +54,7 @@ updated: 2026-02-11
 
 读链路语义：
 - 按 `aligned_time` 读，不穿透未来。
-- 默认 strict read（`TRADE_CANVAS_ENABLE_READ_STRICT_MODE=1`），可显式设为 `0` 降级。
+- 读链路固定 strict（只读不写），不提供降级开关。
 - 读接口默认不在请求内执行隐式 repair；账本不一致返回 409，由显式 repair 接口处理。
 
 ### 1.4 与 overlay/world 的耦合边界

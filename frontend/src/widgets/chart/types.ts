@@ -21,7 +21,6 @@ import type {
   ReplayHistoryEventV1 as ApiReplayHistoryEventV1,
   ReplayKlineBarV1 as ApiReplayKlineBarV1,
   ReplayPackageMetadataV1 as ApiReplayPackageMetadataV1,
-  ReplayReadOnlyResponseV1 as ApiReplayReadOnlyResponseV1,
   ReplayStatusResponseV1 as ApiReplayStatusResponseV1,
   ReplayWindowResponseV1 as ApiReplayWindowResponseV1,
   ReplayWindowV1 as ApiReplayWindowV1,
@@ -75,7 +74,6 @@ export type ReplayHistoryDeltaV1 = ApiReplayHistoryDeltaV1;
 export type ReplayHistoryEventV1 = ApiReplayHistoryEventV1;
 export type ReplayKlineBarV1 = ApiReplayKlineBarV1;
 export type ReplayPackageMetadataV1 = ApiReplayPackageMetadataV1;
-export type ReplayReadOnlyResponseV1 = ApiReplayReadOnlyResponseV1;
 export type ReplayStatusResponseV1 = ApiReplayStatusResponseV1;
 export type ReplayWindowResponseV1 = ApiReplayWindowResponseV1;
 export type ReplayWindowV1 = ApiReplayWindowV1;

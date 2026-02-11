@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+from typing import Awaitable, Callable
+
 from fastapi import WebSocket, WebSocketDisconnect
 
-from .market_runtime import MarketRuntime
+from .market_data import MarketDataOrchestrator, WsMessageParser, WsSubscriptionCoordinator
 from .ws_protocol import WS_MSG_SUBSCRIBE, WS_MSG_UNSUBSCRIBE
 
 
-async def handle_market_ws(ws: WebSocket, *, runtime: MarketRuntime) -> None:
+async def handle_market_ws(
+    ws: WebSocket,
+    *,
+    ws_messages: WsMessageParser,
+    ws_subscriptions: WsSubscriptionCoordinator,
+    market_data: MarketDataOrchestrator,
+    derived_initial_backfill: Callable[..., Awaitable[None]],
+    ondemand_enabled: bool,
+    catchup_limit: int,
+) -> None:
     await ws.accept()
-    ws_messages = runtime.ws_messages
-    ws_subscriptions = runtime.ws_subscriptions
-    ondemand_enabled = bool(runtime.flags.enable_ondemand_ingest)
     try:
         while True:
             msg = await ws.receive_json()
@@ -34,9 +42,9 @@ async def handle_market_ws(ws: WebSocket, *, runtime: MarketRuntime) -> None:
                     since=subscribe_cmd.since,
                     supports_batch=subscribe_cmd.supports_batch,
                     ondemand_enabled=ondemand_enabled,
-                    market_data=runtime.market_data,
-                    derived_initial_backfill=runtime.derived_initial_backfill,
-                    catchup_limit=int(runtime.ws_catchup_limit),
+                    market_data=market_data,
+                    derived_initial_backfill=derived_initial_backfill,
+                    catchup_limit=int(catchup_limit),
                 )
                 if err_payload is not None:
                     await ws.send_json(err_payload)

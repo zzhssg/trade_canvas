@@ -6,7 +6,6 @@ from backend.app.flags import load_feature_flags, resolve_env_float, resolve_env
 def test_feature_flags_defaults(monkeypatch) -> None:
     for name in (
         "TRADE_CANVAS_ENABLE_DEBUG_API",
-        "TRADE_CANVAS_ENABLE_READ_STRICT_MODE",
         "TRADE_CANVAS_ENABLE_WHITELIST_INGEST",
         "TRADE_CANVAS_ENABLE_ONDEMAND_INGEST",
         "TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL",
@@ -17,7 +16,6 @@ def test_feature_flags_defaults(monkeypatch) -> None:
 
     flags = load_feature_flags()
     assert flags.enable_debug_api is False
-    assert flags.enable_read_strict_mode is True
     assert flags.enable_whitelist_ingest is False
     assert flags.enable_ondemand_ingest is False
     assert flags.enable_market_auto_tail_backfill is False
@@ -27,7 +25,6 @@ def test_feature_flags_defaults(monkeypatch) -> None:
 
 def test_feature_flags_env_parsing(monkeypatch) -> None:
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_DEBUG_API", "1")
-    monkeypatch.setenv("TRADE_CANVAS_ENABLE_READ_STRICT_MODE", "on")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_WHITELIST_INGEST", "yes")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL", "1")
@@ -36,7 +33,6 @@ def test_feature_flags_env_parsing(monkeypatch) -> None:
 
     flags = load_feature_flags()
     assert flags.enable_debug_api is True
-    assert flags.enable_read_strict_mode is True
     assert flags.enable_whitelist_ingest is True
     assert flags.enable_ondemand_ingest is True
     assert flags.enable_market_auto_tail_backfill is True

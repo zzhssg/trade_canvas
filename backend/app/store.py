@@ -5,6 +5,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from .db_migrations import SqliteMigration, apply_migrations
 from .schemas import CandleClosed
 from .sqlite_util import connect as sqlite_connect
 
@@ -23,15 +24,17 @@ class CandleStore:
         if key not in _schema_inited:
             with _schema_lock:
                 if key not in _schema_inited:
-                    self._ensure_schema(conn)
+                    apply_migrations(
+                        conn,
+                        namespace="candles",
+                        migrations=self._schema_migrations(),
+                    )
                     _schema_inited.add(key)
         return conn
 
-    def ensure_schema(self, conn: sqlite3.Connection) -> None:
-        self._ensure_schema(conn)
-
-    def _ensure_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(
+    @staticmethod
+    def _schema_statements() -> tuple[str, ...]:
+        return (
             """
             CREATE TABLE IF NOT EXISTS candles (
               series_id TEXT NOT NULL,
@@ -43,10 +46,18 @@ class CandleStore:
               volume REAL NOT NULL,
               PRIMARY KEY (series_id, candle_time)
             )
-            """
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_candles_series_time ON candles(series_id, candle_time);",
         )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_candles_series_time ON candles(series_id, candle_time);")
-        conn.commit()
+
+    @classmethod
+    def _schema_migrations(cls) -> tuple[SqliteMigration, ...]:
+        return (
+            SqliteMigration(
+                version=1,
+                statements=cls._schema_statements(),
+            ),
+        )
 
     def upsert_closed_in_conn(self, conn: sqlite3.Connection, series_id: str, candle: CandleClosed) -> None:
         conn.execute(

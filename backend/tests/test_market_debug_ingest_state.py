@@ -23,6 +23,7 @@ class MarketDebugIngestStateTests(unittest.TestCase):
         os.environ.pop("TRADE_CANVAS_DB_PATH", None)
         os.environ.pop("TRADE_CANVAS_WHITELIST_PATH", None)
         os.environ.pop("TRADE_CANVAS_ENABLE_DEBUG_API", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_RUNTIME_METRICS", None)
 
     def test_debug_ingest_state_404_when_disabled(self) -> None:
         client = TestClient(create_app())
@@ -37,6 +38,33 @@ class MarketDebugIngestStateTests(unittest.TestCase):
         payload = resp.json()
         self.assertIn("jobs", payload)
         self.assertIsInstance(payload["jobs"], list)
+
+    def test_debug_metrics_404_when_runtime_metrics_disabled(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
+        client = TestClient(create_app())
+        resp = client.get("/api/market/debug/metrics")
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_debug_metrics_200_when_enabled(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
+        os.environ["TRADE_CANVAS_ENABLE_RUNTIME_METRICS"] = "1"
+        client = TestClient(create_app())
+        ingest = client.post(
+            "/api/market/ingest/candle_closed",
+            json={
+                "series_id": "binance:futures:BTC/USDT:1m",
+                "candle": {"candle_time": 1700000000, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10},
+            },
+        )
+        self.assertEqual(ingest.status_code, 200, ingest.text)
+
+        resp = client.get("/api/market/debug/metrics")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        self.assertTrue(payload.get("enabled"))
+        self.assertIn("counters", payload)
+        self.assertIn("gauges", payload)
+        self.assertIn("timers", payload)
 
     def test_debug_series_health_reports_gap_and_bucket_completeness(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 from typing import Literal
+from typing import cast
 
 BackfillState = Literal["idle", "running", "succeeded", "failed"]
 
@@ -49,9 +53,91 @@ def _calc_progress_pct(*, start_missing_seconds: int, current_missing_seconds: i
 
 
 class MarketBackfillProgressTracker:
-    def __init__(self) -> None:
+    def __init__(self, *, state_path: Path | None = None) -> None:
         self._lock = threading.Lock()
+        self._state_path = state_path
         self._states: dict[str, _MutableBackfillState] = {}
+        self._load_from_disk()
+
+    @staticmethod
+    def _from_payload(payload: dict[str, Any]) -> _MutableBackfillState:
+        state_raw = str(payload.get("state") or "idle")
+        state = state_raw if state_raw in {"idle", "running", "succeeded", "failed"} else "idle"
+        return _MutableBackfillState(
+            state=cast(BackfillState, state),
+            started_at=int(payload["started_at"]) if payload.get("started_at") is not None else None,
+            updated_at=int(payload["updated_at"]) if payload.get("updated_at") is not None else None,
+            start_missing_seconds=max(0, int(payload.get("start_missing_seconds") or 0)),
+            start_missing_candles=max(0, int(payload.get("start_missing_candles") or 0)),
+            current_missing_seconds=max(0, int(payload.get("current_missing_seconds") or 0)),
+            current_missing_candles=max(0, int(payload.get("current_missing_candles") or 0)),
+            reason=None if payload.get("reason") is None else str(payload.get("reason")),
+            note=None if payload.get("note") is None else str(payload.get("note")),
+            error=None if payload.get("error") is None else str(payload.get("error")),
+        )
+
+    def _load_from_disk(self) -> None:
+        path = self._state_path
+        if path is None or not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+        states_payload = payload.get("states")
+        if not isinstance(states_payload, dict):
+            return
+        loaded: dict[str, _MutableBackfillState] = {}
+        for series_id, state_payload in states_payload.items():
+            if not isinstance(series_id, str) or not series_id:
+                continue
+            if not isinstance(state_payload, dict):
+                continue
+            try:
+                loaded[series_id] = self._from_payload(state_payload)
+            except Exception:
+                continue
+        with self._lock:
+            self._states = loaded
+
+    @staticmethod
+    def _state_to_payload(state: _MutableBackfillState) -> dict[str, Any]:
+        return {
+            "state": str(state.state),
+            "started_at": None if state.started_at is None else int(state.started_at),
+            "updated_at": None if state.updated_at is None else int(state.updated_at),
+            "start_missing_seconds": max(0, int(state.start_missing_seconds)),
+            "start_missing_candles": max(0, int(state.start_missing_candles)),
+            "current_missing_seconds": max(0, int(state.current_missing_seconds)),
+            "current_missing_candles": max(0, int(state.current_missing_candles)),
+            "reason": state.reason,
+            "note": state.note,
+            "error": state.error,
+        }
+
+    def _persist_locked(self) -> None:
+        path = self._state_path
+        if path is None:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "version": 1,
+                "states": {
+                    series_id: self._state_to_payload(state)
+                    for series_id, state in sorted(self._states.items(), key=lambda item: str(item[0]))
+                },
+            }
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text(
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            tmp.replace(path)
+        except Exception:
+            return
 
     @staticmethod
     def _now(now_time: int | None) -> int:
@@ -79,6 +165,7 @@ class MarketBackfillProgressTracker:
             state.reason = str(reason)
             state.note = None
             state.error = None
+            self._persist_locked()
 
     def update(
         self,
@@ -101,6 +188,7 @@ class MarketBackfillProgressTracker:
             state.current_missing_candles = max(0, int(current_missing_candles))
             if note:
                 state.note = str(note)
+            self._persist_locked()
 
     def succeed(
         self,
@@ -122,6 +210,7 @@ class MarketBackfillProgressTracker:
             state.current_missing_candles = max(0, int(current_missing_candles))
             state.note = str(note) if note else state.note
             state.error = None
+            self._persist_locked()
 
     def fail(
         self,
@@ -144,6 +233,7 @@ class MarketBackfillProgressTracker:
             state.current_missing_candles = max(0, int(current_missing_candles))
             state.error = str(error)
             state.note = str(note) if note else state.note
+            self._persist_locked()
 
     def snapshot(self, *, series_id: str) -> BackfillProgressSnapshot:
         with self._lock:

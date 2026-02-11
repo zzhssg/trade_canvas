@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from typing import Iterator
 
+from .db_migrations import SqliteMigration, apply_migrations
 from .sqlite_util import connect as sqlite_connect
 
 
@@ -64,21 +65,24 @@ class FactorStore:
         if key not in _schema_inited:
             with _schema_lock:
                 if key not in _schema_inited:
-                    self._ensure_schema(conn)
+                    apply_migrations(
+                        conn,
+                        namespace="factor",
+                        migrations=self._schema_migrations(),
+                    )
                     _schema_inited.add(key)
         return conn
 
-    def _ensure_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(
+    @staticmethod
+    def _schema_statements() -> tuple[str, ...]:
+        return (
             """
             CREATE TABLE IF NOT EXISTS factor_series_state (
               series_id TEXT PRIMARY KEY,
               head_time INTEGER NOT NULL,
               updated_at_ms INTEGER NOT NULL
             )
-            """
-        )
-        conn.execute(
+            """,
             """
             CREATE TABLE IF NOT EXISTS factor_events (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,9 +95,7 @@ class FactorStore:
               created_at_ms INTEGER NOT NULL,
               UNIQUE (series_id, factor_name, event_key)
             )
-            """
-        )
-        conn.execute(
+            """,
             """
             CREATE TABLE IF NOT EXISTS factor_head_snapshots (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,28 +107,28 @@ class FactorStore:
               created_at_ms INTEGER NOT NULL,
               UNIQUE (series_id, factor_name, candle_time, seq)
             )
-            """
-        )
-        conn.execute(
+            """,
             """
             CREATE TABLE IF NOT EXISTS factor_series_fingerprint (
               series_id TEXT PRIMARY KEY,
               fingerprint TEXT NOT NULL,
               updated_at_ms INTEGER NOT NULL
             )
-            """
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_factor_events_series_time ON factor_events(series_id, candle_time);",
+            "CREATE INDEX IF NOT EXISTS idx_factor_events_series_factor_time ON factor_events(series_id, factor_name, candle_time);",
+            "CREATE INDEX IF NOT EXISTS idx_factor_head_series_factor_time ON factor_head_snapshots(series_id, factor_name, candle_time);",
+            "CREATE INDEX IF NOT EXISTS idx_factor_head_series_time ON factor_head_snapshots(series_id, candle_time);",
         )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_factor_events_series_time ON factor_events(series_id, candle_time);"
+
+    @classmethod
+    def _schema_migrations(cls) -> tuple[SqliteMigration, ...]:
+        return (
+            SqliteMigration(
+                version=1,
+                statements=cls._schema_statements(),
+            ),
         )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_factor_events_series_factor_time ON factor_events(series_id, factor_name, candle_time);"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_factor_head_series_factor_time ON factor_head_snapshots(series_id, factor_name, candle_time);"
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_factor_head_series_time ON factor_head_snapshots(series_id, candle_time);")
-        conn.commit()
 
     def upsert_head_time_in_conn(self, conn: sqlite3.Connection, *, series_id: str, head_time: int) -> None:
         conn.execute(

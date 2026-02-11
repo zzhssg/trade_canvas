@@ -55,17 +55,14 @@ def _candle(t: int, price: float = 1.0) -> CandleClosed:
 
 class _PipelineSpy:
     def __init__(self) -> None:
-        self.publish_ws_calls: list[tuple[str, bool]] = []
+        self.publish_ws_calls: list[int] = []
 
     async def publish_ws(
         self,
         *,
         result: IngestPipelineResult,
-        primary_series_id: str,
-        unified_publish_enabled: bool,
     ) -> None:
-        _ = result
-        self.publish_ws_calls.append((str(primary_series_id), bool(unified_publish_enabled)))
+        self.publish_ws_calls.append(len(result.series_batches))
 
 
 def _result_for(series_id: str) -> IngestPipelineResult:
@@ -83,23 +80,21 @@ def _result_for(series_id: str) -> IngestPipelineResult:
     )
 
 
-def test_publish_pipeline_result_from_ws_uses_pipeline_publish_when_flag_enabled() -> None:
+def test_publish_pipeline_result_from_ws_calls_publish_ws() -> None:
     pipeline = _PipelineSpy()
     result = _result_for("binance:futures:BTC/USDT:1m")
 
     asyncio.run(
         _publish_pipeline_result_from_ws(
-            series_id="binance:futures:BTC/USDT:1m",
             ingest_pipeline=pipeline,  # type: ignore[arg-type]
             pipeline_result=result,
-            pipeline_publish_enabled=True,
         )
     )
 
-    assert pipeline.publish_ws_calls == [("binance:futures:BTC/USDT:1m", True)]
+    assert pipeline.publish_ws_calls == [1]
 
 
-def test_publish_pipeline_result_from_ws_passes_legacy_mode_toggle_to_pipeline() -> None:
+def test_publish_pipeline_result_from_ws_handles_empty_batches() -> None:
     pipeline = _PipelineSpy()
     series_id = "binance:futures:BTC/USDT:1m"
     result = IngestPipelineResult(
@@ -111,11 +106,9 @@ def test_publish_pipeline_result_from_ws_passes_legacy_mode_toggle_to_pipeline()
 
     asyncio.run(
         _publish_pipeline_result_from_ws(
-            series_id=series_id,
             ingest_pipeline=pipeline,  # type: ignore[arg-type]
             pipeline_result=result,
-            pipeline_publish_enabled=False,
         )
     )
 
-    assert pipeline.publish_ws_calls == [(series_id, False)]
+    assert pipeline.publish_ws_calls == [0]

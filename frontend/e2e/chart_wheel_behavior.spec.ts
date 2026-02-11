@@ -1,28 +1,37 @@
-import type { APIRequestContext } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+
+import {
+  buildSeriesId,
+  flatCandle,
+  ingestClosedCandlesWithFallback,
+  type CandleSeed,
+  uniqueSymbol,
+} from "./helpers/marketIngest";
+import { buildDefaultUiState, initTradeCanvasStorage } from "./helpers/localStorage";
 
 const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
 const apiBase =
   process.env.E2E_API_BASE_URL ?? process.env.VITE_API_BASE ?? process.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
-async function ingestClosedCandle(request: APIRequestContext, candle_time: number, price: number) {
-  const res = await request.post(`${apiBase}/api/market/ingest/candle_closed`, {
-    data: {
-      series_id: "binance:futures:BTC/USDT:1m",
-      candle: {
-        candle_time,
-        open: price,
-        high: price,
-        low: price,
-        close: price,
-        volume: 10
-      }
-    }
-  });
-  expect(res.ok()).toBeTruthy();
+function seriesId(symbol: string): string {
+  return buildSeriesId(symbol, "1m");
 }
 
-async function ensureScrollable(page: any) {
+async function seedChartCandles(request: APIRequestContext, symbol: string): Promise<void> {
+  const base = 60;
+  const seedCandles: CandleSeed[] = [];
+  for (let i = 0; i < 3; i++) {
+    seedCandles.push(flatCandle(base * (i + 1), i + 1));
+  }
+  await ingestClosedCandlesWithFallback(request, {
+    apiBase,
+    seriesId: seriesId(symbol),
+    candles: seedCandles,
+  });
+}
+
+async function ensureScrollable(page: Page) {
   await page.evaluate(() => {
     const el = document.querySelector('[data-testid="middle-scroll"]') as HTMLElement | null;
     if (!el) throw new Error("missing middle-scroll container");
@@ -35,11 +44,13 @@ async function ensureScrollable(page: any) {
 }
 
 test("wheel over chart zooms horizontally (no middle scroll) @smoke", async ({ page, request }) => {
-  await page.addInitScript(() => localStorage.clear());
-  const base = 60;
-  for (let i = 0; i < 3; i++) {
-    await ingestClosedCandle(request, base * (i + 1), i + 1);
-  }
+  const symbol = uniqueSymbol("TCWHEEL");
+  await initTradeCanvasStorage(page, {
+    clear: true,
+    uiVersion: 2,
+    uiState: buildDefaultUiState({ symbol, timeframe: "1m" }),
+  });
+  await seedChartCandles(request, symbol);
   await page.goto(`${frontendBase}/live`, { waitUntil: "domcontentloaded" });
 
   const middle = page.getByTestId("middle-scroll");
@@ -75,11 +86,13 @@ test("wheel over chart zooms horizontally (no middle scroll) @smoke", async ({ p
 });
 
 test("wheel outside chart scrolls middle (no chart zoom) @smoke", async ({ page, request }) => {
-  await page.addInitScript(() => localStorage.clear());
-  const base = 60;
-  for (let i = 0; i < 3; i++) {
-    await ingestClosedCandle(request, base * (i + 1), i + 1);
-  }
+  const symbol = uniqueSymbol("TCWHEEL");
+  await initTradeCanvasStorage(page, {
+    clear: true,
+    uiVersion: 2,
+    uiState: buildDefaultUiState({ symbol, timeframe: "1m" }),
+  });
+  await seedChartCandles(request, symbol);
   await page.goto(`${frontendBase}/live`, { waitUntil: "domcontentloaded" });
 
   const middle = page.getByTestId("middle-scroll");

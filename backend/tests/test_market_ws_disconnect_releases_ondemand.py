@@ -57,3 +57,23 @@ class MarketWebSocketDisconnectReleasesOndemandTests(unittest.TestCase):
 
         # After websocket disconnect, backend must release the ondemand ingest refcount.
         self.assertEqual(self._refcount(), 0)
+
+    def test_duplicate_subscribe_does_not_double_count_ondemand_refcount(self) -> None:
+        with self.client.websocket_connect("/ws/market") as ws:
+            ws.send_json({"type": "subscribe", "series_id": self.series_id, "since": None})
+            self.assertEqual(self._refcount(), 1)
+
+            ws.send_json({"type": "subscribe", "series_id": self.series_id, "since": None})
+            self.assertEqual(self._refcount(), 1)
+
+            ws.send_json({"type": "unsubscribe", "series_id": self.series_id})
+            self.assertEqual(self._refcount(), 0)
+
+    def test_unsubscribe_unknown_series_keeps_existing_refcount(self) -> None:
+        other_series = "binance:futures:ETH/USDT:1m"
+        with self.client.websocket_connect("/ws/market") as ws:
+            ws.send_json({"type": "subscribe", "series_id": self.series_id, "since": None})
+            self.assertEqual(self._refcount(), 1)
+
+            ws.send_json({"type": "unsubscribe", "series_id": other_series})
+            self.assertEqual(self._refcount(), 1)

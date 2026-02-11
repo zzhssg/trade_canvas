@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .db_migrations import SqliteMigration, apply_migrations
 from .sqlite_util import connect as sqlite_connect
 
 
@@ -35,21 +36,24 @@ class OverlayStore:
         if key not in _schema_inited:
             with _schema_lock:
                 if key not in _schema_inited:
-                    self._ensure_schema(conn)
+                    apply_migrations(
+                        conn,
+                        namespace="overlay",
+                        migrations=self._schema_migrations(),
+                    )
                     _schema_inited.add(key)
         return conn
 
-    def _ensure_schema(self, conn: sqlite3.Connection) -> None:
-        conn.execute(
+    @staticmethod
+    def _schema_statements() -> tuple[str, ...]:
+        return (
             """
             CREATE TABLE IF NOT EXISTS overlay_series_state (
               series_id TEXT PRIMARY KEY,
               head_time INTEGER NOT NULL,
               updated_at_ms INTEGER NOT NULL
             )
-            """
-        )
-        conn.execute(
+            """,
             """
             CREATE TABLE IF NOT EXISTS overlay_instruction_versions (
               version_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,15 +64,19 @@ class OverlayStore:
               def_json TEXT NOT NULL,
               created_at_ms INTEGER NOT NULL
             )
-            """
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_overlay_versions_series_version ON overlay_instruction_versions(series_id, version_id);",
+            "CREATE INDEX IF NOT EXISTS idx_overlay_versions_series_visible ON overlay_instruction_versions(series_id, visible_time);",
         )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_overlay_versions_series_version ON overlay_instruction_versions(series_id, version_id);"
+
+    @classmethod
+    def _schema_migrations(cls) -> tuple[SqliteMigration, ...]:
+        return (
+            SqliteMigration(
+                version=1,
+                statements=cls._schema_statements(),
+            ),
         )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_overlay_versions_series_visible ON overlay_instruction_versions(series_id, visible_time);"
-        )
-        conn.commit()
 
     def upsert_head_time_in_conn(self, conn: sqlite3.Connection, *, series_id: str, head_time: int) -> None:
         conn.execute(

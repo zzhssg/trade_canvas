@@ -2,35 +2,21 @@ import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 
 import type { GetCandlesResponse } from "../src/widgets/chart/types";
+import {
+  ingestClosedCandlePrice,
+  ingestClosedCandlesWithFallback,
+  type CandleSeed,
+  uniqueSymbol,
+} from "./helpers/marketIngest";
+import {
+  buildDefaultUiState,
+  buildFactorsState,
+  initTradeCanvasStorage,
+} from "./helpers/localStorage";
 
 const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
 const apiBase =
   process.env.E2E_API_BASE_URL ?? process.env.VITE_API_BASE ?? process.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
-
-function uniqueSymbol(prefix: string): string {
-  const ts = Date.now().toString(36).toUpperCase();
-  const rand = Math.floor(Math.random() * 1_000_000)
-    .toString(36)
-    .toUpperCase();
-  return `${prefix}${ts}${rand}/USDT`;
-}
-
-async function ingestClosedCandleForSeries(request: APIRequestContext, sid: string, candle_time: number, price: number) {
-  const res = await request.post(`${apiBase}/api/market/ingest/candle_closed`, {
-    data: {
-      series_id: sid,
-      candle: {
-        candle_time,
-        open: price,
-        high: price,
-        low: price,
-        close: price,
-        volume: 10
-      }
-    }
-  });
-  expect(res.ok()).toBeTruthy();
-}
 
 async function ingestFormingCandleForSeries(request: APIRequestContext, sid: string, candle_time: number, price: number) {
   const res = await request.post(`${apiBase}/api/market/ingest/candle_forming`, {
@@ -54,39 +40,16 @@ test("live chart loads catchup and follows WS", async ({ page, request }) => {
   const liveSeriesId = `binance:futures:${liveSymbol}:5m`;
 
   // Ensure persisted UI state doesn't leak between runs, and pin UI to this test's series_id.
-  await page.addInitScript(({ symbol }) => {
-    localStorage.clear();
-    localStorage.setItem(
-      "trade-canvas-ui",
-      JSON.stringify({
-        version: 2,
-        state: {
-          exchange: "binance",
-          market: "futures",
-          symbol,
-          timeframe: "5m",
-          sidebarCollapsed: false,
-          sidebarWidth: 280,
-          bottomCollapsed: false,
-          bottomHeight: 240,
-          activeSidebarTab: "Market",
-          activeBottomTab: "Ledger"
-        }
-      })
-    );
-    localStorage.setItem(
-      "trade-canvas-factors",
-      JSON.stringify({
-        version: 1,
-        state: {
-          visibleFeatures: {
-            "anchor": true,
-            "anchor.switch": true
-          }
-        }
-      })
-    );
-  }, { symbol: liveSymbol });
+  await initTradeCanvasStorage(page, {
+    clear: true,
+    uiVersion: 2,
+    uiState: buildDefaultUiState({ symbol: liveSymbol, timeframe: "5m" }),
+    factorsVersion: 1,
+    factorsState: buildFactorsState({
+      anchor: true,
+      "anchor.switch": true,
+    }),
+  });
 
   // Mock feed → store/API:
   // - default window_major=50
@@ -95,6 +58,7 @@ test("live chart loads catchup and follows WS", async ({ page, request }) => {
   const base = 300;
   const segment = 60;
   const total = segment * 4;
+  const seedCandles: CandleSeed[] = [];
   for (let i = 0; i < total; i++) {
     const v =
       i < segment
@@ -105,8 +69,20 @@ test("live chart loads catchup and follows WS", async ({ page, request }) => {
             ? i - segment * 2 + 1
             : segment - (i - segment * 3);
     const t = base * (i + 1);
-    await ingestClosedCandleForSeries(request, liveSeriesId, t, v);
+    seedCandles.push({
+      candle_time: t,
+      open: v,
+      high: v,
+      low: v,
+      close: v,
+      volume: 10
+    });
   }
+  await ingestClosedCandlesWithFallback(request, {
+    apiBase,
+    seriesId: liveSeriesId,
+    candles: seedCandles,
+  });
 
   // Frontend renders and fetches candles from backend.
   const sidQuery = `series_id=${encodeURIComponent(liveSeriesId)}`;
@@ -169,7 +145,12 @@ test("live chart loads catchup and follows WS", async ({ page, request }) => {
   await page.screenshot({ path: "output/playwright/anchor_switch.png", fullPage: false });
 
   // Then push a closed candle and ensure the frontend receives it via WS.
-  await ingestClosedCandleForSeries(request, liveSeriesId, base * (total + 1), 1);
+  await ingestClosedCandlePrice(request, {
+    apiBase,
+    seriesId: liveSeriesId,
+    candleTime: base * (total + 1),
+    price: 1,
+  });
   const chart = page.locator('[data-testid="chart-view"]');
   await expect(chart).toHaveAttribute("data-last-ws-candle-time", String(base * (total + 1)));
 });
@@ -177,32 +158,30 @@ test("live chart loads catchup and follows WS", async ({ page, request }) => {
 test("@smoke live backfill burst does not hammer delta/slices", async ({ page, request }) => {
   const burstSymbol = uniqueSymbol("TCBURST");
   const burstSeriesId = `binance:futures:${burstSymbol}:15m`;
-  await page.addInitScript(({ symbol }) => {
-    localStorage.clear();
-    localStorage.setItem(
-      "trade-canvas-ui",
-      JSON.stringify({
-        version: 2,
-        state: {
-          exchange: "binance",
-          market: "futures",
-          symbol,
-          timeframe: "15m",
-          sidebarCollapsed: false,
-          sidebarWidth: 280,
-          bottomCollapsed: false,
-          bottomHeight: 240,
-          activeSidebarTab: "Market",
-          activeBottomTab: "Ledger"
-        }
-      })
-    );
-  }, { symbol: burstSymbol });
+  await initTradeCanvasStorage(page, {
+    clear: true,
+    uiVersion: 2,
+    uiState: buildDefaultUiState({ symbol: burstSymbol, timeframe: "15m" }),
+  });
 
   const base = 900;
+  const warmupCandles: CandleSeed[] = [];
   for (let i = 0; i < 20; i++) {
-    await ingestClosedCandleForSeries(request, burstSeriesId, base * (i + 1), i + 1);
+    const price = i + 1;
+    warmupCandles.push({
+      candle_time: base * (i + 1),
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+      volume: 10
+    });
   }
+  await ingestClosedCandlesWithFallback(request, {
+    apiBase,
+    seriesId: burstSeriesId,
+    candles: warmupCandles,
+  });
 
   let deltaGets = 0;
   let slicesGets = 0;
@@ -235,7 +214,14 @@ test("@smoke live backfill burst does not hammer delta/slices", async ({ page, r
   const tasks: Array<Promise<void>> = [];
   for (let i = 0; i < count; i++) {
     const t = base * (start + i + 1);
-    tasks.push(ingestClosedCandleForSeries(request, burstSeriesId, t, 1));
+    tasks.push(
+      ingestClosedCandlePrice(request, {
+        apiBase,
+        seriesId: burstSeriesId,
+        candleTime: t,
+        price: 1,
+      })
+    );
   }
   await Promise.all(tasks);
 
@@ -252,33 +238,24 @@ test("live chart loads history once and forming candle jumps", async ({ page, re
   const formingSymbol = uniqueSymbol("TCFORM");
   const formingSeriesId = `binance:futures:${formingSymbol}:15m`;
 
-  await page.addInitScript(
-    ({ symbol }) => {
-      localStorage.clear();
-      localStorage.setItem(
-        "trade-canvas-ui",
-        JSON.stringify({
-          version: 2,
-          state: {
-            exchange: "binance",
-            market: "futures",
-            symbol,
-            timeframe: "15m",
-            sidebarCollapsed: false,
-            sidebarWidth: 280,
-            bottomCollapsed: false,
-            bottomHeight: 240,
-            activeSidebarTab: "Market",
-            activeBottomTab: "Ledger"
-          }
-        })
-      );
-    },
-    { symbol: formingSymbol }
-  );
+  await initTradeCanvasStorage(page, {
+    clear: true,
+    uiVersion: 2,
+    uiState: buildDefaultUiState({ symbol: formingSymbol, timeframe: "15m" }),
+  });
 
-  await ingestClosedCandleForSeries(request, formingSeriesId, 900, 1);
-  await ingestClosedCandleForSeries(request, formingSeriesId, 1800, 2);
+  await ingestClosedCandlePrice(request, {
+    apiBase,
+    seriesId: formingSeriesId,
+    candleTime: 900,
+    price: 1,
+  });
+  await ingestClosedCandlePrice(request, {
+    apiBase,
+    seriesId: formingSeriesId,
+    candleTime: 1800,
+    price: 2,
+  });
 
   const sent: string[] = [];
   page.on("websocket", (ws) => {
@@ -323,7 +300,12 @@ test("live chart loads history once and forming candle jumps", async ({ page, re
   await expect(chart).toHaveAttribute("data-last-time", "2700");
   await expect(chart).toHaveAttribute("data-last-close", "12");
 
-  await ingestClosedCandleForSeries(request, formingSeriesId, 2700, 13);
+  await ingestClosedCandlePrice(request, {
+    apiBase,
+    seriesId: formingSeriesId,
+    candleTime: 2700,
+    price: 13,
+  });
   await expect(chart).toHaveAttribute("data-last-ws-candle-time", "2700");
   await expect(chart).toHaveAttribute("data-last-close", "13");
 

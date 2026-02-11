@@ -181,6 +181,51 @@ class OverlayRendererPluginTests(unittest.TestCase):
         ids = [row[0] for row in rendered.polyline_defs]
         self.assertIn("anchor.current", ids)
 
+    def test_structure_renderer_prefers_candidate_anchor_when_switch_pointer_is_stale(self) -> None:
+        renderer = StructureOverlayRenderer()
+        candles = [
+            SimpleNamespace(candle_time=120, open=10, high=10.5, low=9.8, close=10.2, volume=1),
+            SimpleNamespace(candle_time=180, open=10.2, high=11.2, low=10.1, close=11.0, volume=1),
+            SimpleNamespace(candle_time=240, open=11.0, high=11.1, low=8.0, close=8.2, volume=1),
+        ]
+        rendered = renderer.render(
+            ctx=OverlayRenderContext(
+                series_id="binance:futures:BTC/USDT:1m",
+                to_time=240,
+                cutoff_time=60,
+                window_candles=2000,
+                candles=candles,
+                buckets={
+                    "pen_confirmed": [
+                        {
+                            "start_time": 120,
+                            "end_time": 180,
+                            "start_price": 10.0,
+                            "end_price": 11.0,
+                            "direction": 1,
+                            "visible_time": 180,
+                        }
+                    ],
+                    "anchor_switches": [
+                        {
+                            "switch_time": 180,
+                            "new_anchor": {"kind": "candidate", "start_time": 120, "end_time": 180, "direction": 1},
+                        }
+                    ],
+                },
+            )
+        )
+        anchor_current = next((row for row in rendered.polyline_defs if row[0] == "anchor.current"), None)
+        self.assertIsNotNone(anchor_current)
+        if anchor_current is None:
+            return
+        points = anchor_current[2].get("points")
+        self.assertIsInstance(points, list)
+        if not isinstance(points, list) or len(points) < 2:
+            self.fail("anchor.current points should include candidate start/end")
+        self.assertEqual(int(points[0]["time"]), 180)
+        self.assertEqual(int(points[1]["time"]), 240)
+
 
 if __name__ == "__main__":
     unittest.main()

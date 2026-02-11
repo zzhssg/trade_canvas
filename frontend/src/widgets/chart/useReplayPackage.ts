@@ -4,7 +4,6 @@ import {
   fetchReplayBuild,
   fetchReplayCoverageStatus,
   fetchReplayEnsureCoverage,
-  fetchReplayReadOnly,
   fetchReplayStatus,
   fetchReplayWindow
 } from "./api";
@@ -17,6 +16,14 @@ const POLL_INTERVAL_MS = 300;
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function extractHttpDetail(err: unknown): string {
+  if (!(err instanceof Error)) return "unknown_error";
+  const message = String(err.message || "").trim();
+  const idx = message.indexOf(":");
+  if (idx <= 0) return message || "unknown_error";
+  return message.slice(idx + 1).trim() || message;
 }
 
 function sortHistoryEvents(events: ReplayHistoryEventV1[]): ReplayHistoryEventV1[] {
@@ -94,11 +101,19 @@ export function useReplayPackage(params: {
 
     async function loadStatus(targetJobId: string) {
       while (!cancelled) {
-        const payload = await fetchReplayStatus({
-          jobId: targetJobId,
-          includePreload: true,
-          includeHistory: true
-        });
+        let payload;
+        try {
+          payload = await fetchReplayStatus({
+            jobId: targetJobId,
+            includePreload: true,
+            includeHistory: true
+          });
+        } catch (err) {
+          if (cancelled) return;
+          setStatus("error");
+          setError(extractHttpDetail(err));
+          return;
+        }
         if (cancelled) return;
         if (payload.status === "done") {
           setMetadata(payload.metadata ?? null);
@@ -110,11 +125,6 @@ export function useReplayPackage(params: {
         if (payload.status === "error") {
           setStatus("error");
           setError(payload.error ?? "build_failed");
-          return;
-        }
-        if (payload.status === "build_required") {
-          setStatus("error");
-          setError("build_required");
           return;
         }
         await sleep(POLL_INTERVAL_MS);
@@ -144,81 +154,69 @@ export function useReplayPackage(params: {
       resetPackage();
       setStatus("checking");
       setError(null);
+      setCoverage(null);
       setCoverageStatus(null);
       setMetadata(null);
       setHistoryEvents([]);
 
-      let read;
+      const buildPayload = {
+        series_id: seriesId,
+        window_candles: windowCandles,
+        window_size: windowSize,
+        snapshot_interval: snapshotInterval
+      };
+
+      let build;
       try {
-        read = await fetchReplayReadOnly({
-          seriesId,
-          windowCandles,
-          windowSize,
-          snapshotInterval
-        });
+        setStatus("building");
+        build = await fetchReplayBuild(buildPayload);
       } catch (err) {
         if (cancelled) return;
-        setStatus("error");
-        setError(err instanceof Error ? err.message : "read_only_failed");
-        return;
-      }
-
-      if (cancelled) return;
-      setCoverage(read.coverage ?? null);
-      setJobInfo(read.job_id, read.cache_key);
-
-      if (read.status === "coverage_missing") {
-        setStatus("coverage");
-        const cov = await ensureCoverage(read.coverage?.to_time ?? undefined);
-        if (cancelled) return;
-        if (!cov || cov.status === "error") {
+        const detail = extractHttpDetail(err);
+        if (detail.includes("coverage_missing")) {
+          setStatus("coverage");
+          const cov = await ensureCoverage(undefined);
+          if (cancelled) return;
+          if (!cov || cov.status === "error") {
+            setStatus("error");
+            setError(cov?.error ?? "coverage_failed");
+            return;
+          }
+          setCoverage({
+            required_candles: cov.required_candles,
+            candles_ready: cov.candles_ready,
+            from_time: null,
+            to_time: cov.head_time ?? null
+          });
+          try {
+            setStatus("building");
+            build = await fetchReplayBuild(buildPayload);
+          } catch (retryErr) {
+            if (cancelled) return;
+            const retryDetail = extractHttpDetail(retryErr);
+            if (retryDetail.includes("ledger_out_of_sync")) {
+              setStatus("out_of_sync");
+              setError(retryDetail);
+              return;
+            }
+            setStatus("error");
+            setError(retryDetail || "build_failed");
+            return;
+          }
+        } else if (detail.includes("ledger_out_of_sync")) {
+          setStatus("out_of_sync");
+          setError(detail);
+          return;
+        } else {
           setStatus("error");
-          setError(cov?.error ?? "coverage_failed");
+          setError(detail || "build_failed");
           return;
         }
-        read = await fetchReplayReadOnly({
-          seriesId,
-          windowCandles,
-          windowSize,
-          snapshotInterval
-        });
-        if (cancelled) return;
-        setCoverage(read.coverage ?? null);
-        setJobInfo(read.job_id, read.cache_key);
-        if (read.status === "coverage_missing") {
-          setStatus("error");
-          setError("coverage_missing");
-          return;
-        }
       }
 
-      if (read.status === "out_of_sync") {
-        setStatus("out_of_sync");
-        setError(read.compute_hint ?? "ledger_out_of_sync");
-        return;
-      }
-
-      if (read.status === "build_required") {
-        setStatus("building");
-        const build = await fetchReplayBuild({
-          series_id: seriesId,
-          to_time: read.coverage?.to_time ?? undefined,
-          window_candles: windowCandles,
-          window_size: windowSize,
-          snapshot_interval: snapshotInterval
-        });
-        setJobInfo(build.job_id, build.cache_key);
-        await loadStatus(build.job_id);
-        return;
-      }
-
-      if (read.status === "done") {
-        await loadStatus(read.job_id);
-        return;
-      }
-
-      setStatus("error");
-      setError(read.compute_hint ?? "unknown_status");
+      if (cancelled || !build) return;
+      setJobInfo(build.job_id, build.cache_key);
+      await loadStatus(build.job_id);
     }
 
     void run();

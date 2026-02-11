@@ -327,30 +327,10 @@ class IngestPipeline:
         self,
         *,
         result: IngestPipelineResult,
-        primary_series_id: str,
-        unified_publish_enabled: bool,
     ) -> None:
         if self._hub is None:
             return
-        if unified_publish_enabled:
-            await self.publish(result=result, best_effort=True)
-            return
-
-        primary_batch: IngestSeriesBatch | None = None
-        for batch in result.series_batches:
-            if str(batch.series_id) == str(primary_series_id):
-                primary_batch = batch
-                break
-
-        if primary_batch is not None:
-            await self._publish_series_batch(batch=primary_batch, best_effort=False)
-
-        for batch in result.series_batches:
-            if primary_batch is not None and batch is primary_batch:
-                continue
-            await self._publish_series_batch(batch=batch, best_effort=True)
-
-        await self.publish_system_rebuilds(result=result, best_effort=True)
+        await self.publish(result=result, best_effort=True)
 
     async def publish_system_rebuilds(self, *, result: IngestPipelineResult, best_effort: bool = False) -> None:
         if self._hub is None:

@@ -4,14 +4,14 @@ import math
 import time
 from dataclasses import dataclass
 from typing import Literal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from .market_backfill_tracker import BackfillProgressSnapshot
 from .series_id import parse_series_id
 from .timeframe import timeframe_to_seconds
 
 if TYPE_CHECKING:
-    from .market_runtime import MarketRuntime
+    from .market_data import FreshnessSnapshot
 
 KlineHealthStatus = Literal["green", "yellow", "red", "gray"]
 
@@ -45,6 +45,14 @@ class MarketHealthSnapshot:
     status: KlineHealthStatus
     status_reason: str
     backfill: BackfillHealthView
+
+
+class _MarketDataLike(Protocol):
+    def freshness(self, *, series_id: str, now_time: int | None = None) -> FreshnessSnapshot: ...
+
+
+class _BackfillProgressLike(Protocol):
+    def snapshot(self, *, series_id: str) -> BackfillProgressSnapshot: ...
 
 
 def _expected_latest_closed_time(*, now_time: int, timeframe_seconds: int) -> int:
@@ -99,7 +107,8 @@ def _build_backfill_view(*, now_time: int, backfill: BackfillProgressSnapshot, r
 
 def build_market_health_snapshot(
     *,
-    runtime: MarketRuntime,
+    market_data: _MarketDataLike,
+    backfill_progress: _BackfillProgressLike,
     series_id: str,
     now_time: int | None = None,
     backfill_recent_seconds: int = 120,
@@ -109,7 +118,7 @@ def build_market_health_snapshot(
     tf_s = int(timeframe_to_seconds(series.timeframe))
     expected_latest_closed_time = _expected_latest_closed_time(now_time=now, timeframe_seconds=tf_s)
 
-    freshness = runtime.market_data.freshness(series_id=series_id, now_time=now)
+    freshness = market_data.freshness(series_id=series_id, now_time=now)
     head_time = freshness.head_time
     lag_seconds = freshness.lag_seconds
     missing_seconds, missing_candles = _missing_to_target(
@@ -118,7 +127,7 @@ def build_market_health_snapshot(
         timeframe_seconds=tf_s,
     )
 
-    backfill_snapshot = runtime.backfill_progress.snapshot(series_id=series_id)
+    backfill_snapshot = backfill_progress.snapshot(series_id=series_id)
     backfill_view = _build_backfill_view(
         now_time=now,
         backfill=backfill_snapshot,

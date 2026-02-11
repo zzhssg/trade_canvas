@@ -50,7 +50,7 @@ class MarketIngestErrorObservabilityTests(unittest.TestCase):
     def test_ingest_pipeline_error_is_mapped_and_debug_event_exposes_compensation(self) -> None:
         app = cast(Any, self.client.app)
         runtime = app.state.container.market_runtime
-        runtime.ingest._ingest_pipeline = _FailingIngestPipeline(series_id=self.series_id)  # type: ignore[attr-defined]
+        runtime.ingest_ctx.ingest._ingest_pipeline = _FailingIngestPipeline(series_id=self.series_id)  # type: ignore[attr-defined]
 
         response = self.client.post(
             "/api/market/ingest/candle_closed",

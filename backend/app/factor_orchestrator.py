@@ -97,6 +97,9 @@ class FactorOrchestrator:
     def enabled(self) -> bool:
         return bool(self._ingest_enabled)
 
+    def head_time(self, series_id: str) -> int | None:
+        return self._factor_store.head_time(series_id)
+
     def _load_settings(self) -> FactorSettings:
         return self._settings
 

@@ -24,6 +24,7 @@ class ReadRepairApiTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MAJOR"] = "2"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MINOR"] = "1"
         os.environ["TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES"] = "5000"
+        os.environ["TRADE_CANVAS_ENABLE_DEV_API"] = "1"
         os.environ["TRADE_CANVAS_ENABLE_READ_REPAIR_API"] = "1"
         self.series_id = "binance:futures:BTC/USDT:1m"
         self.client = TestClient(create_app())
@@ -42,6 +43,7 @@ class ReadRepairApiTests(unittest.TestCase):
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
+            "TRADE_CANVAS_ENABLE_DEV_API",
             "TRADE_CANVAS_ENABLE_READ_REPAIR_API",
         ):
             os.environ.pop(key, None)
@@ -75,6 +77,15 @@ class ReadRepairApiTests(unittest.TestCase):
         return app.state.container.overlay_store
 
     def test_repair_overlay_endpoint_disabled_by_default(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_DEV_API"] = "0"
+        self._recreate_client()
+        res = self.client.post(
+            "/api/dev/repair/overlay",
+            json={"series_id": self.series_id},
+        )
+        self.assertEqual(res.status_code, 404, res.text)
+
+        os.environ["TRADE_CANVAS_ENABLE_DEV_API"] = "1"
         os.environ["TRADE_CANVAS_ENABLE_READ_REPAIR_API"] = "0"
         self._recreate_client()
         res = self.client.post(

@@ -13,8 +13,10 @@ from .market_data import (
     WsMessageParser,
     WsSubscriptionCoordinator,
 )
+from .market_ledger_warmup_service import MarketLedgerWarmupService
 from .market_list import BinanceMarketListService, MinIntervalLimiter
 from .market_ingest_service import MarketIngestService
+from .market_query_service import MarketQueryService
 from .overlay_orchestrator import OverlayOrchestrator
 from .store import CandleStore
 from .whitelist import MarketWhitelist
@@ -25,6 +27,35 @@ if TYPE_CHECKING:
     from .flags import FeatureFlags
     from .pipelines import IngestPipeline
     from .runtime_flags import RuntimeFlags
+    from .runtime_metrics import RuntimeMetrics
+
+
+@dataclass(frozen=True)
+class MarketReadContext:
+    reader: StoreCandleReadService
+    backfill: StoreBackfillService
+    market_data: DefaultMarketDataOrchestrator
+    ledger_warmup: MarketLedgerWarmupService
+    backfill_progress: MarketBackfillProgressTracker
+    whitelist: MarketWhitelist
+    market_list: BinanceMarketListService
+    force_limiter: MinIntervalLimiter
+    query: MarketQueryService
+
+
+@dataclass(frozen=True)
+class MarketIngestContext:
+    supervisor: IngestSupervisor
+    ingest: MarketIngestService
+    ingest_pipeline: IngestPipeline
+
+
+@dataclass(frozen=True)
+class MarketRealtimeContext:
+    ws_subscriptions: WsSubscriptionCoordinator
+    ws_messages: WsMessageParser
+    derived_initial_backfill: Callable[..., Awaitable[None]]
+    ws_catchup_limit: int = 5000
 
 
 @dataclass(frozen=True)
@@ -34,19 +65,9 @@ class MarketRuntime:
     overlay_orchestrator: OverlayOrchestrator
     debug_hub: DebugHub
     hub: CandleHub
-    reader: StoreCandleReadService
-    backfill: StoreBackfillService
-    market_data: DefaultMarketDataOrchestrator
-    whitelist: MarketWhitelist
-    market_list: BinanceMarketListService
-    force_limiter: MinIntervalLimiter
-    supervisor: IngestSupervisor
-    ws_subscriptions: WsSubscriptionCoordinator
-    ws_messages: WsMessageParser
-    derived_initial_backfill: Callable[..., Awaitable[None]]
-    ingest_pipeline: IngestPipeline
     flags: FeatureFlags
     runtime_flags: RuntimeFlags
-    backfill_progress: MarketBackfillProgressTracker
-    ingest: MarketIngestService | None = None
-    ws_catchup_limit: int = 5000
+    runtime_metrics: RuntimeMetrics
+    read_ctx: MarketReadContext
+    ingest_ctx: MarketIngestContext
+    realtime_ctx: MarketRealtimeContext

@@ -23,6 +23,7 @@ class DrawDeltaApiTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MAJOR"] = "2"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MINOR"] = "1"
         os.environ["TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES"] = "5000"
+        os.environ["TRADE_CANVAS_ENABLE_DEV_API"] = "1"
         os.environ["TRADE_CANVAS_ENABLE_READ_REPAIR_API"] = "1"
         self.client = TestClient(create_app())
         self.series_id = "binance:futures:BTC/USDT:1m"
@@ -36,6 +37,7 @@ class DrawDeltaApiTests(unittest.TestCase):
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
+            "TRADE_CANVAS_ENABLE_DEV_API",
             "TRADE_CANVAS_ENABLE_READ_REPAIR_API",
         ):
             os.environ.pop(k, None)

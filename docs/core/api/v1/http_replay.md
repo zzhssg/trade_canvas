@@ -7,12 +7,12 @@ updated: 2026-02-11
 
 # API v1 · Replay（HTTP）
 
-复盘包的读/建流程：`read_only -> ensure_coverage (可选) -> build -> status -> window`。
+复盘包流程（最终口径）：`prepare -> ensure_coverage(可选) -> build -> status -> window`。
 
 约束（硬门禁）：
 - 复盘只对齐 closed candles（`aligned_time`）。
-- `history/head` 分离：history append-only 切片；head 每根 K 单独快照。
-- 读路径只读：read-only 不触发隐式构建或重算。
+- 读路径只读：不提供 read-only 探测兼容接口，不做隐式构建或隐式重算。
+- replay package 与 overlay package 都是显式 build，status/window 只消费已存在 job/cache。
 
 ---
 
@@ -28,10 +28,6 @@ curl --noproxy '*' -sS -X POST \
 ```
 
 ```json
-{"series_id":"binance:futures:BTC/USDT:1m","to_time":1700000005,"window_candles":2000}
-```
-
-```json
 {
   "ok": true,
   "series_id": "binance:futures:BTC/USDT:1m",
@@ -44,258 +40,169 @@ curl --noproxy '*' -sS -X POST \
 }
 ```
 
-### 语义
-
-- 若因子或绘图账本未追到 `aligned_time`，返回 `409 ledger_out_of_sync:*`。
-- 前端应在 `prepare` 成功后再调用 replay package read_only/build/window。
+语义：
+- 若 factor/overlay 未追到 `aligned_time`，返回 `409 ledger_out_of_sync:*`。
 
 ---
 
-## GET /api/replay/read_only
-
-只读探测：检查是否已有可用复盘包（不触发构建）。
-
-```bash
-curl --noproxy '*' -sS   "http://127.0.0.1:8000/api/replay/read_only?series_id=binance:futures:BTC/USDT:1m&window_candles=2000&window_size=500&snapshot_interval=25"
-```
-
-```json
-{
-  "status": "build_required",
-  "job_id": "2d2f9e0fbd1c4a98b0e8c9ab",
-  "cache_key": "2d2f9e0fbd1c4a98b0e8c9ab",
-  "coverage": {
-    "required_candles": 2000,
-    "candles_ready": 1378,
-    "from_time": 1699991720,
-    "to_time": 1700000000
-  },
-  "compute_hint": "build_required: replay package not cached"
-}
-```
-
-### 语义
-
-- `status`：`done | build_required | coverage_missing | out_of_sync`。
-- `coverage`：用于判断是否需要先补齐数据（candles < 2000 则 coverage_missing）。
-- `read_only` 不触发构建或补齐，只给出提示与 cache_key。
-
 ## POST /api/replay/build
 
-```bash
-curl --noproxy '*' -sS   -X POST "http://127.0.0.1:8000/api/replay/build"   -H "content-type: application/json"   -d '{"series_id":"binance:futures:BTC/USDT:1m","window_candles":2000,"window_size":500,"snapshot_interval":25}'
-```
+显式触发 replay package 构建。
 
-```json
-{
-  "series_id": "binance:futures:BTC/USDT:1m",
-  "window_candles": 2000,
-  "window_size": 500,
-  "snapshot_interval": 25
-}
+```bash
+curl --noproxy '*' -sS \
+  -X POST "http://127.0.0.1:8000/api/replay/build" \
+  -H "content-type: application/json" \
+  -d '{"series_id":"binance:futures:BTC/USDT:1m","window_candles":2000,"window_size":500,"snapshot_interval":25}'
 ```
 
 ```json
 {
   "status": "building",
-  "job_id": "2d2f9e0fbd1c4a98b0e8c9ab"
+  "job_id": "2d2f9e0fbd1c4a98b0e8c9ab",
+  "cache_key": "2d2f9e0fbd1c4a98b0e8c9ab"
 }
 ```
 
-### 语义
+语义：
+- 若 candles 覆盖不足，返回 `409 coverage_missing`（先走 `ensure_coverage`）。
+- 若 factor/overlay 未对齐到目标时间，返回 `409 ledger_out_of_sync:replay`。
 
-- 返回 `job_id` 供后续 status/window 查询。
-- 若数据不足，会返回 `status=coverage_missing` 并提示补齐。
+---
 
 ## GET /api/replay/status
 
+查询构建状态（`building | done | error`）。
+
 ```bash
-curl --noproxy '*' -sS   "http://127.0.0.1:8000/api/replay/status?job_id=2d2f9e0fbd1c4a98b0e8c9ab"
+curl --noproxy '*' -sS \
+  "http://127.0.0.1:8000/api/replay/status?job_id=2d2f9e0fbd1c4a98b0e8c9ab&include_preload=1&include_history=1"
 ```
+
+`done` 示例：
 
 ```json
 {
   "status": "done",
   "job_id": "2d2f9e0fbd1c4a98b0e8c9ab",
-  "snapshot_count": 80,
-  "window_size": 500,
-  "latest_window_id": 79
-}
-```
-
-### 语义
-
-- `status=done` 表示复盘包已缓存，可直接 window。
-
-## GET /api/replay/window
-
-```bash
-curl --noproxy '*' -sS   "http://127.0.0.1:8000/api/replay/window?job_id=2d2f9e0fbd1c4a98b0e8c9ab&target_idx=0"
-```
-
-```json
-{
-  "status": "done",
-  "job_id": "2d2f9e0fbd1c4a98b0e8c9ab",
-  "window_id": 0,
-  "window_total": 80,
-  "frame": {
+  "cache_key": "2d2f9e0fbd1c4a98b0e8c9ab",
+  "metadata": {
+    "schema_version": 1,
     "series_id": "binance:futures:BTC/USDT:1m",
-    "time": {
-      "at_time": 1700000000,
-      "aligned_time": 1700000000,
-      "candle_id": "binance:futures:BTC/USDT:1m:1700000000"
-    },
-    "factor_slices": null,
-    "draw_state": null
+    "timeframe_s": 60,
+    "total_candles": 2000,
+    "from_candle_time": 1699880060,
+    "to_candle_time": 1700000000,
+    "window_size": 500,
+    "snapshot_interval": 25,
+    "preload_offset": 0,
+    "idx_to_time": "replay_kline_bars.candle_time"
   }
 }
 ```
 
-### 语义
+语义：
+- `job_id` 不存在且缓存不存在时返回 `404 not_found`。
 
-- `target_idx` 为窗口序号（从 0 开始）。
-- 返回 `frame`（世界状态快照）。
+---
+
+## GET /api/replay/window
+
+读取目标 idx 对应窗口。
+
+```bash
+curl --noproxy '*' -sS \
+  "http://127.0.0.1:8000/api/replay/window?job_id=2d2f9e0fbd1c4a98b0e8c9ab&target_idx=0"
+```
+
+语义：
+- 返回 `window + factor_head_snapshots + history_deltas`。
+- `job_id` 不存在或缓存缺失返回 `404 not_found`。
+
+---
 
 ## POST /api/replay/ensure_coverage
 
 显式补齐历史数据，确保最近 `target_candles` 根 closed K 可用。
 
 ```bash
-curl --noproxy '*' -sS   -X POST "http://127.0.0.1:8000/api/replay/ensure_coverage"   -H "content-type: application/json"   -d '{"series_id":"binance:futures:BTC/USDT:1m","target_candles":2000,"to_time":1700000000}'
-```
-
-```json
-{
-  "series_id": "binance:futures:BTC/USDT:1m",
-  "target_candles": 2000,
-  "to_time": 1700000000
-}
+curl --noproxy '*' -sS \
+  -X POST "http://127.0.0.1:8000/api/replay/ensure_coverage" \
+  -H "content-type: application/json" \
+  -d '{"series_id":"binance:futures:BTC/USDT:1m","target_candles":2000,"to_time":1700000000}'
 ```
 
 ```json
 {
   "status": "building",
-  "job_id": "coverage_2d2f9e0fbd1c4a98b0e8c9ab"
+  "job_id": "coverage_binance:futures:BTC/USDT:1m:1700000000:2000"
 }
 ```
 
-### 语义
-
-- 触发补齐任务（可能使用 freqtrade datadir 或 CCXT backfill）。
-- 任务完成后必须保证因子与绘图写链路推进到相同 `to_time`。
+---
 
 ## GET /api/replay/coverage_status
 
 ```bash
-curl --noproxy '*' -sS   "http://127.0.0.1:8000/api/replay/coverage_status?job_id=coverage_2d2f9e0fbd1c4a98b0e8c9ab"
+curl --noproxy '*' -sS \
+  "http://127.0.0.1:8000/api/replay/coverage_status?job_id=coverage_binance:futures:BTC/USDT:1m:1700000000:2000"
 ```
+
+`done` 示例：
 
 ```json
 {
   "status": "done",
-  "job_id": "coverage_2d2f9e0fbd1c4a98b0e8c9ab",
+  "job_id": "coverage_binance:futures:BTC/USDT:1m:1700000000:2000",
   "candles_ready": 2000,
   "required_candles": 2000,
   "head_time": 1700000000
 }
 ```
 
-### 语义
-
-- `status=done` 表示补齐完成，可继续 build。
-
 ---
-
-## GET /api/replay/overlay_package/read_only
-
-```bash
-curl --noproxy '*' -sS   "http://127.0.0.1:8000/api/replay/overlay_package/read_only?series_id=binance:futures:BTC/USDT:1m"
-```
-
-```json
-{
-  "status": "build_required",
-  "job_id": "f0b2c3d4e5a6b7c8d9e0a1b2",
-  "cache_key": "f0b2c3d4e5a6b7c8d9e0a1b2",
-  "window": {"from_time": 1699991720, "to_time": 1700000000}
-}
-```
-
-### 语义
-
-- overlay 包仅覆盖绘图指令（draw/overlay），不包含 factor_slices。
 
 ## POST /api/replay/overlay_package/build
 
-```bash
-curl --noproxy '*' -sS   -X POST "http://127.0.0.1:8000/api/replay/overlay_package/build"   -H "content-type: application/json"   -d '{"series_id":"binance:futures:BTC/USDT:1m","window_candles":2000,"window_size":500,"snapshot_interval":25}'
-```
+显式构建 overlay-only replay package。
 
-```json
-{
-  "series_id": "binance:futures:BTC/USDT:1m",
-  "window_candles": 2000,
-  "window_size": 500,
-  "snapshot_interval": 25
-}
+```bash
+curl --noproxy '*' -sS \
+  -X POST "http://127.0.0.1:8000/api/replay/overlay_package/build" \
+  -H "content-type: application/json" \
+  -d '{"series_id":"binance:futures:BTC/USDT:1m","window_candles":2000,"window_size":500,"snapshot_interval":25}'
 ```
 
 ```json
 {
   "status": "building",
-  "job_id": "f0b2c3d4e5a6b7c8d9e0a1b2"
+  "job_id": "f0b2c3d4e5a6b7c8d9e0a1b2",
+  "cache_key": "f0b2c3d4e5a6b7c8d9e0a1b2"
 }
 ```
 
-### 语义
-
-- overlay 包构建只读 overlay_store，不改写 factor_store。
+---
 
 ## GET /api/replay/overlay_package/status
 
+查询 overlay package 构建状态（`building | done | error`）。
+
 ```bash
-curl --noproxy '*' -sS   "http://127.0.0.1:8000/api/replay/overlay_package/status?job_id=f0b2c3d4e5a6b7c8d9e0a1b2"
+curl --noproxy '*' -sS \
+  "http://127.0.0.1:8000/api/replay/overlay_package/status?job_id=f0b2c3d4e5a6b7c8d9e0a1b2"
 ```
 
-```json
-{
-  "status": "done",
-  "job_id": "f0b2c3d4e5a6b7c8d9e0a1b2",
-  "snapshot_count": 80,
-  "window_size": 500,
-  "latest_window_id": 79
-}
-```
+语义：
+- `job_id` 不存在且缓存不存在时返回 `404 not_found`。
 
-### 语义
-
-- status `done` 后才可 window。
+---
 
 ## GET /api/replay/overlay_package/window
 
 ```bash
-curl --noproxy '*' -sS   "http://127.0.0.1:8000/api/replay/overlay_package/window?job_id=f0b2c3d4e5a6b7c8d9e0a1b2&target_idx=0"
+curl --noproxy '*' -sS \
+  "http://127.0.0.1:8000/api/replay/overlay_package/window?job_id=f0b2c3d4e5a6b7c8d9e0a1b2&target_idx=0"
 ```
 
-```json
-{
-  "status": "done",
-  "job_id": "f0b2c3d4e5a6b7c8d9e0a1b2",
-  "window_id": 0,
-  "window_total": 80,
-  "draw_delta": {
-    "series_id": "binance:futures:BTC/USDT:1m",
-    "to_candle_id": "binance:futures:BTC/USDT:1m:1700000000",
-    "to_candle_time": 1700000000,
-    "active_ids": [],
-    "instruction_catalog_patch": [],
-    "series_points": {},
-    "next_cursor": {"version_id": 0, "point_time": null}
-  }
-}
-```
-
-### 语义
-
-- 返回 overlay window 的 draw_delta，供前端绘图回放使用。
+语义：
+- 返回 overlay replay window（kline/catalog_base/catalog_patch/checkpoints/diffs）。

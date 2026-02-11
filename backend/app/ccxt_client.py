@@ -12,10 +12,21 @@ def _make_exchange_client(series: SeriesId, *, timeout_ms: int = 10_000):
     timeout = max(1000, int(timeout_ms))
     options = {"enableRateLimit": True, "timeout": timeout}
     if series.market == "spot":
-        return ccxt.binance(options)
-    if series.market == "futures":
-        return ccxt.binanceusdm(options)
-    raise ValueError(f"unsupported market: {series.market!r}")
+        exchange = ccxt.binance(options)
+    elif series.market == "futures":
+        exchange = ccxt.binanceusdm(options)
+    else:
+        raise ValueError(f"unsupported market: {series.market!r}")
+
+    # Keep proxy behavior consistent with plain requests: respect env proxy variables
+    # when present (for example https_proxy in local dev).
+    session = getattr(exchange, "session", None)
+    if session is not None:
+        try:
+            session.trust_env = True
+        except Exception:
+            pass
+    return exchange
 
 
 def ccxt_symbol_for_series(series: SeriesId) -> str:

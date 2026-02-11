@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .anchor_semantics import build_anchor_history_from_switches
+from .anchor_semantics import build_anchor_history_from_switches, normalize_anchor_ref
 from .factor_plugin_contract import FactorPluginSpec
 from .factor_slices import build_pen_head_candidate, build_pen_head_preview
 from .overlay_renderer_contract import OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput
@@ -200,7 +200,7 @@ class StructureOverlayRenderer:
         if history_switches:
             current = history_switches[-1].get("new_anchor")
             if isinstance(current, dict):
-                current_ref = current
+                current_ref = normalize_anchor_ref(current)
         elif last_confirmed is not None:
             current_ref = {
                 "kind": "confirmed",
@@ -208,6 +208,41 @@ class StructureOverlayRenderer:
                 "end_time": int(last_confirmed.get("end_time") or 0),
                 "direction": int(last_confirmed.get("direction") or 0),
             }
+            current_ref = normalize_anchor_ref(current_ref)
+
+        def anchor_ref_strength(ref: dict[str, Any] | None) -> float:
+            if not isinstance(ref, dict):
+                return -1.0
+            start_time = int(ref.get("start_time") or 0)
+            direction = int(ref.get("direction") or 0)
+            if start_time <= 0 or direction not in {-1, 1}:
+                return -1.0
+            match = pen_latest_by_start_dir.get((start_time, direction))
+            if match is None:
+                return -1.0
+            return abs(float(match.get("end_price") or 0.0) - float(match.get("start_price") or 0.0))
+
+        candidate_ref: dict[str, Any] | None = None
+        candidate_strength = -1.0
+        if isinstance(pen_candidate, dict):
+            candidate_ref = normalize_anchor_ref(
+                {
+                    "kind": "candidate",
+                    "start_time": int(pen_candidate.get("start_time") or 0),
+                    "end_time": int(pen_candidate.get("end_time") or 0),
+                    "direction": int(pen_candidate.get("direction") or 0),
+                }
+            )
+            candidate_strength = abs(
+                float(pen_candidate.get("end_price") or 0.0) - float(pen_candidate.get("start_price") or 0.0)
+            )
+
+        if candidate_ref is not None:
+            current_start = int(current_ref.get("start_time") or 0) if isinstance(current_ref, dict) else 0
+            candidate_start = int(candidate_ref.get("start_time") or 0)
+            current_strength = anchor_ref_strength(current_ref)
+            if current_ref is None or candidate_start == current_start or candidate_strength > current_strength:
+                current_ref = dict(candidate_ref)
 
         def resolve_points(ref: dict[str, Any] | None) -> list[dict[str, Any]]:
             if not ref:

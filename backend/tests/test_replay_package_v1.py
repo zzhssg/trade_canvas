@@ -85,7 +85,7 @@ class ReplayPackageApiTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_ENABLE_REPLAY_V1"] = "0"
         client = TestClient(create_app())
         try:
-            res = client.get("/api/replay/read_only", params={"series_id": self.series_id, "window_candles": 10})
+            res = client.post("/api/replay/build", json={"series_id": self.series_id, "window_candles": 10})
             self.assertEqual(res.status_code, 404, res.text)
         finally:
             client.close()
@@ -99,21 +99,6 @@ class ReplayPackageApiTests(unittest.TestCase):
         for t, p in zip(times, prices, strict=True):
             self._ingest(t, float(p))
 
-        res_read = self.client.get(
-            "/api/replay/read_only",
-            params={
-                "series_id": self.series_id,
-                "to_time": times[-1],
-                "window_candles": 100,
-                "window_size": 50,
-                "snapshot_interval": 5,
-            },
-        )
-        self.assertEqual(res_read.status_code, 200, res_read.text)
-        payload_read = res_read.json()
-        self.assertIn(payload_read["status"], ("build_required", "done"))
-        self.assertEqual(payload_read["coverage"]["candles_ready"], 100)
-
         res_build = self.client.post(
             "/api/replay/build",
             json={
@@ -126,6 +111,7 @@ class ReplayPackageApiTests(unittest.TestCase):
         )
         self.assertEqual(res_build.status_code, 200, res_build.text)
         payload_build = res_build.json()
+        self.assertIn(payload_build["status"], ("building", "done"))
         job_id = payload_build["job_id"]
         status_payload = self._wait_for_done(job_id)
 

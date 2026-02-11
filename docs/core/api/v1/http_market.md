@@ -140,6 +140,47 @@ curl --noproxy '*' -sS "http://127.0.0.1:8000/api/market/debug/ingest_state"
 - 仅在 `TRADE_CANVAS_ENABLE_DEBUG_API=1` 时可用，否则返回 404。
 - 返回 ingest supervisor 的调试快照（该结构不承诺稳定；仅用于排障）。
 
+## GET /api/market/debug/metrics
+
+### 示例（curl）
+
+```bash
+curl --noproxy '*' -sS "http://127.0.0.1:8000/api/market/debug/metrics"
+```
+
+### 示例响应（json）
+
+```json
+{
+  "enabled": true,
+  "updated_at_ms": 1700000000000,
+  "counters": {
+    "market_ingest_closed_requests_total{result=ok}": 12.0,
+    "market_ws_subscribe_total{result=ok}": 4.0
+  },
+  "gauges": {
+    "market_query_head_lag_seconds{series_id=binance:futures:BTC/USDT:1m}": 0.0,
+    "market_ws_active_subscriptions": 2.0
+  },
+  "timers": {
+    "market_ingest_closed_duration_ms{result=ok}": {
+      "count": 12.0,
+      "total_ms": 140.0,
+      "max_ms": 20.0,
+      "avg_ms": 11.666666666666666
+    }
+  }
+}
+```
+
+### 语义
+
+- 仅在以下条件同时满足时可用，否则返回 404：
+  - `TRADE_CANVAS_ENABLE_DEBUG_API=1`
+  - `TRADE_CANVAS_ENABLE_RUNTIME_METRICS=1`
+- 返回进程内运行时指标快照（用于开发期排障/回归比对，结构可能随版本演进）。
+- 当前已覆盖 ingest/query/ws 三条主路径（例如 `market_ingest_*`、`market_query_*`、`market_ws_*` 指标族）。
+
 ## GET /api/market/debug/series_health
 
 ### 示例（curl）

@@ -91,7 +91,7 @@ class MarketHealthRouteTests(unittest.TestCase):
         series_id = "binance:futures:BTC/USDT:5m"
         self._ingest_closed(self.client, series_id, candle_time=300)
         app = cast(Any, self.client.app)
-        tracker = app.state.container.market_runtime.backfill_progress
+        tracker = app.state.container.market_runtime.read_ctx.backfill_progress
         tracker.begin(
             series_id=series_id,
             start_missing_seconds=600,

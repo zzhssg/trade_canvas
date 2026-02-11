@@ -33,11 +33,12 @@ updated: 2026-02-11
 - 入口：`backend/app/main.py`
 - 容器：`backend/app/container.py`
 - 市场运行时装配：`backend/app/market_runtime_builder.py`
+- 生命周期编排：`backend/app/app_lifecycle_service.py`
 
 职责：
 - 初始化 `AppContainer`（store、orchestrator、service、runtime）。
 - 注册路由与 websocket 入口。
-- 管理生命周期（白名单 ingest、ondemand reaper、hub/supervisor 关闭）。
+- 通过 `AppLifecycleService` 管理生命周期（白名单 ingest、ondemand reaper、hub/supervisor 关闭）。
 - 可选执行启动巡检补齐（`enable_startup_kline_sync`）。
 
 ### 2.2 配置层（Config/Flags）
@@ -50,6 +51,10 @@ updated: 2026-02-11
 - 统一读取 env。
 - 在启动阶段一次性解析。
 - 通过依赖注入传入 service/orchestrator，避免运行期散读 env。
+- `TRADE_CANVAS_ENABLE_DEV_API`（默认 `0`）统一控制 `/api/dev/**` 调试/运维入口；关闭时返回 `404 not_found`。
+- `TRADE_CANVAS_ENABLE_RUNTIME_METRICS`（默认 `0`）控制运行时指标采集与 `/api/market/debug/metrics` 可见性。
+- SQLite store 统一使用 schema migrations 初始化，无 legacy `CREATE TABLE IF NOT EXISTS` 兼容分支。
+- `TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE`（默认 `0`）控制 backfill 进度状态落盘（单机重启可恢复最近快照）。
 
 ### 2.3 主链路层（Domain Runtime）
 
@@ -60,13 +65,15 @@ updated: 2026-02-11
 - 绘图编排支持 reader/writer 依赖注入（便于测试与替换实现）。
 - 市场实时监督：`backend/app/ingest_supervisor.py`
 - 市场应用服务：`backend/app/market_ingest_service.py`
+- 市场运行时上下文：`MarketReadContext` / `MarketIngestContext` / `MarketRealtimeContext`
 
 职责：
 - 保证写顺序一致。
 - 处理 backfill/ondemand/ws ingest 的统一下游语义。
 - 通过 `TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_OVERLAY_ERROR` 与 `TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES` 提供失败补偿 kill-switch（默认关闭）。
-- `TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH`（默认 `0`）用于灰度切换 Binance WS 发布策略；两种模式都收口在 `IngestPipeline.publish_ws` 单点编排（无 WS 路由侧手工发布分支）。
+- Binance WS 发布统一收口 `IngestPipeline.publish_ws`（best-effort 单路径），无主/次 series 双策略兼容层。
 - 输出可观测事件（debug hub + ws 广播）。
+- `MarketRuntime` 仅作为上下文聚合根，对外优先注入细粒度上下文依赖，避免路由/入口直接消费大对象字段。
 
 ### 2.4 读模型层（Read Models）
 
@@ -76,7 +83,7 @@ updated: 2026-02-11
 
 职责：
 - 按 `aligned_time + candle_id` 对齐输出。
-- factor 读链路默认不触发隐式重算；仅在 `TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE=1` 时允许非 strict 兼容重算。
+- factor 读链路固定 strict：只读不写，不触发隐式重算。
 - 读链路默认不做隐式修复；发现账本不一致直接返回 `409 ledger_out_of_sync*`。
 - world 聚合 factor + draw，保证同一时间面快照一致。
 - 读模型层统一抛 `ServiceError`，由 route 层映射 `HTTPException`，避免读模型与 FastAPI 框架耦合。
@@ -127,7 +134,8 @@ flowchart LR
 - subscribe/unsubscribe 统一走 coordinator。
 - ondemand/whitelist 生命周期统一走 supervisor。
 - derived timeframe 订阅映射到 base timeframe 管理。
-- WS flush 的 candle/system 广播可通过 `TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH=1` 切到 pipeline 统一发布（best-effort）。
+- WS flush 的 candle/system 广播固定走 pipeline 统一发布（best-effort）。
+- 开启 `TRADE_CANVAS_ENABLE_RUNTIME_METRICS=1` 后，WS 订阅链路会额外上报 `market_ws_subscribe_total`、`market_ws_unsubscribe_total`、`market_ws_active_subscriptions` 等进程内指标，可通过 `/api/market/debug/metrics` 观测。
 
 ### 3.3 读链路（factor/draw/world）
 

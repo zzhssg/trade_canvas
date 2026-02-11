@@ -15,10 +15,6 @@ class _FactorStoreLike(Protocol):
     def head_time(self, series_id: str) -> int | None: ...
 
 
-class _FactorOrchestratorLike(Protocol):
-    def ingest_closed(self, *, series_id: str, up_to_candle_time: int): ...
-
-
 class _FactorSlicesServiceLike(Protocol):
     def get_slices_aligned(
         self,
@@ -34,10 +30,8 @@ class _FactorSlicesServiceLike(Protocol):
 class FactorReadService:
     store: _AlignedStoreLike
     factor_store: _FactorStoreLike
-    factor_orchestrator: _FactorOrchestratorLike
     factor_slices_service: _FactorSlicesServiceLike
-    strict_mode: bool = False
-    implicit_recompute_enabled: bool = False
+    strict_mode: bool = True
 
     def resolve_aligned_time(
         self,
@@ -67,14 +61,11 @@ class FactorReadService:
         )
         return read_factor_slices_with_freshness(
             store=self.store,
-            factor_orchestrator=self.factor_orchestrator,
             factor_slices_service=self.factor_slices_service,
             series_id=series_id,
             at_time=int(at_time),
             window_candles=int(window_candles),
             aligned_time=aligned,
             ensure_fresh=bool(ensure_fresh),
-            strict_mode=bool(self.strict_mode),
-            implicit_recompute_enabled=bool(self.implicit_recompute_enabled),
             factor_store=self.factor_store,
         )

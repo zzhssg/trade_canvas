@@ -27,16 +27,6 @@ class ReplayPackageMetadataV1(BaseModel):
     preload_offset: int = Field(0, ge=0)
     idx_to_time: str = "replay_kline_bars.candle_time"
 
-
-class ReplayReadOnlyResponseV1(BaseModel):
-    status: str = Field(..., description="done | build_required | coverage_missing | out_of_sync")
-    job_id: str
-    cache_key: str
-    coverage: ReplayCoverageV1 | None = None
-    metadata: ReplayPackageMetadataV1 | None = None
-    compute_hint: str | None = None
-
-
 class ReplayEnsureCoverageRequestV1(BaseModel):
     series_id: str = Field(..., min_length=1)
     target_candles: int = Field(2000, ge=1, le=5000)
@@ -122,7 +112,7 @@ class ReplayWindowResponseV1(BaseModel):
 
 
 class ReplayStatusResponseV1(BaseModel):
-    status: str = Field(..., description="building | done | error | build_required")
+    status: str = Field(..., description="building | done | error")
     job_id: str
     cache_key: str
     error: str | None = None

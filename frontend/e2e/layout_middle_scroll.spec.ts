@@ -1,10 +1,12 @@
 import { expect, test } from "@playwright/test";
 
+import { initTradeCanvasStorage } from "./helpers/localStorage";
+
 const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
 
 test("middle area scrolls and bottom tabs can be reached @smoke", async ({ page }) => {
   // Ensure persisted UI state doesn't leak between runs.
-  await page.addInitScript(() => localStorage.clear());
+  await initTradeCanvasStorage(page, { clear: true });
 
   await page.goto(`${frontendBase}/live`, { waitUntil: "domcontentloaded" });
 

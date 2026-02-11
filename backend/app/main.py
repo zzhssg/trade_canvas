@@ -11,6 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from .backtest_routes import register_backtest_routes
 from .config import load_settings
 from .container import build_app_container
+from .dependencies import (
+    FeatureFlagsDep,
+    MarketDataDep,
+    MarketDerivedInitialBackfillDep,
+    MarketWsCatchupLimitDep,
+    MarketWsMessagesDep,
+    MarketWsSubscriptionsDep,
+)
 from .debug_routes import handle_debug_ws
 from .dev_routes import register_dev_routes
 from .draw_routes import register_draw_routes
@@ -22,7 +30,6 @@ from .overlay_package_routes import register_overlay_package_routes
 from .repair_routes import register_repair_routes
 from .replay_routes import register_replay_routes
 from .shutdown_cancellation_middleware import ShutdownCancellationMiddleware, ShutdownState
-from .startup_kline_sync import run_startup_kline_sync_for_runtime
 from .world_routes import register_world_routes
 
 _faulthandler_file: TextIO | None = None
@@ -70,28 +77,13 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         shutdown_state.shutting_down = False
-        if bool(container.runtime_flags.enable_startup_kline_sync):
-            await run_startup_kline_sync_for_runtime(
-                runtime=container.market_runtime,
-                enabled=bool(container.runtime_flags.enable_startup_kline_sync),
-                target_candles=int(container.runtime_flags.startup_kline_sync_target_candles),
-            )
-
-        if container.whitelist_ingest_enabled:
-            await container.supervisor.start_whitelist()
-
-        if container.whitelist_ingest_enabled or bool(container.flags.enable_ondemand_ingest):
-            await container.supervisor.start_reaper()
+        await container.lifecycle.startup()
 
         try:
             yield
         finally:
             shutdown_state.shutting_down = True
-            try:
-                await container.hub.close_all()
-            except Exception:
-                pass
-            await container.supervisor.close()
+            await container.lifecycle.shutdown()
 
     app = FastAPI(title="trade_canvas API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -117,8 +109,24 @@ def create_app() -> FastAPI:
     register_market_http_routes(app)
 
     @app.websocket("/ws/market")
-    async def ws_market(ws: WebSocket) -> None:
-        await handle_market_ws(ws, runtime=container.market_runtime)
+    async def ws_market(
+        ws: WebSocket,
+        ws_messages: MarketWsMessagesDep,
+        ws_subscriptions: MarketWsSubscriptionsDep,
+        market_data: MarketDataDep,
+        derived_initial_backfill: MarketDerivedInitialBackfillDep,
+        flags: FeatureFlagsDep,
+        catchup_limit: MarketWsCatchupLimitDep,
+    ) -> None:
+        await handle_market_ws(
+            ws,
+            ws_messages=ws_messages,
+            ws_subscriptions=ws_subscriptions,
+            market_data=market_data,
+            derived_initial_backfill=derived_initial_backfill,
+            ondemand_enabled=bool(flags.enable_ondemand_ingest),
+            catchup_limit=int(catchup_limit),
+        )
 
     @app.websocket("/ws/debug")
     async def ws_debug(ws: WebSocket) -> None:

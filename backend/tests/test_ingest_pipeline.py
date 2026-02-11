@@ -219,73 +219,7 @@ def test_ingest_pipeline_publish_raises_when_best_effort_disabled() -> None:
             asyncio.run(pipeline.publish(result=result, best_effort=False))
 
 
-def test_ingest_pipeline_publish_ws_legacy_mode_keeps_primary_strict_secondary_best_effort() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        store = CandleStore(db_path=Path(td) / "market.db")
-        hub = _HubFailing(
-            fail_closed_series={"s2"},
-            fail_system_series={"s1"},
-        )
-        pipeline = IngestPipeline(
-            store=store,
-            factor_orchestrator=None,
-            overlay_orchestrator=None,
-            hub=hub,
-        )
-        result = pipeline.run_sync(
-            batches={
-                "s1": [_candle(100, 1.0)],
-                "s2": [_candle(100, 2.0)],
-            }
-        )
-        forced_result = result.__class__(
-            series_batches=result.series_batches,
-            rebuilt_series=("s1", "s2"),
-            steps=result.steps,
-            duration_ms=result.duration_ms,
-        )
-
-        asyncio.run(
-            pipeline.publish_ws(
-                result=forced_result,
-                primary_series_id="s1",
-                unified_publish_enabled=False,
-            )
-        )
-
-        assert hub.closed_batches == [("s1", [100])]
-        assert hub.system_events == ["s2"]
-
-
-def test_ingest_pipeline_publish_ws_legacy_mode_raises_when_primary_publish_fails() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        store = CandleStore(db_path=Path(td) / "market.db")
-        hub = _HubFailing(fail_closed_series={"s1"})
-        pipeline = IngestPipeline(
-            store=store,
-            factor_orchestrator=None,
-            overlay_orchestrator=None,
-            hub=hub,
-        )
-        result = pipeline.run_sync(
-            batches={
-                "s1": [_candle(100, 1.0)],
-                "s2": [_candle(100, 2.0)],
-            }
-        )
-
-        with pytest.raises(RuntimeError, match="publish_closed_failed:s1"):
-            asyncio.run(
-                pipeline.publish_ws(
-                    result=result,
-                    primary_series_id="s1",
-                    unified_publish_enabled=False,
-                )
-            )
-        assert hub.closed_batches == []
-
-
-def test_ingest_pipeline_publish_ws_unified_mode_reuses_best_effort_publish() -> None:
+def test_ingest_pipeline_publish_ws_uses_best_effort_for_all_series() -> None:
     with tempfile.TemporaryDirectory() as td:
         store = CandleStore(db_path=Path(td) / "market.db")
         hub = _HubFailing(
@@ -314,13 +248,37 @@ def test_ingest_pipeline_publish_ws_unified_mode_reuses_best_effort_publish() ->
         asyncio.run(
             pipeline.publish_ws(
                 result=forced_result,
-                primary_series_id="s1",
-                unified_publish_enabled=True,
             )
         )
 
         assert hub.closed_batches == [("s2", [100])]
         assert hub.system_events == ["s2"]
+
+
+def test_ingest_pipeline_publish_ws_never_raises_for_publish_errors() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        store = CandleStore(db_path=Path(td) / "market.db")
+        hub = _HubFailing(fail_closed_series={"s1"})
+        pipeline = IngestPipeline(
+            store=store,
+            factor_orchestrator=None,
+            overlay_orchestrator=None,
+            hub=hub,
+        )
+        result = pipeline.run_sync(
+            batches={
+                "s1": [_candle(100, 1.0)],
+                "s2": [_candle(100, 2.0)],
+            }
+        )
+
+        asyncio.run(
+            pipeline.publish_ws(
+                result=result,
+            )
+        )
+
+        assert hub.closed_batches == [("s2", [100])]
 
 
 def test_ingest_pipeline_error_contains_step_and_series_context() -> None:

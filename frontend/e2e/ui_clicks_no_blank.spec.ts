@@ -1,31 +1,20 @@
-import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import type { GetCandlesResponse } from "../src/widgets/chart/types";
+import {
+  buildSeriesId,
+  ingestClosedCandlesWithFallback,
+  type CandleSeed,
+} from "./helpers/marketIngest";
+import { initTradeCanvasStorage } from "./helpers/localStorage";
 
 const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
 const apiBase =
   process.env.E2E_API_BASE_URL ?? process.env.VITE_API_BASE ?? process.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 function seriesId(symbol: string) {
-  return `binance:futures:${symbol}:1m`;
-}
-
-async function ingestClosedCandle(request: APIRequestContext, symbol: string, candle_time: number) {
-  const res = await request.post(`${apiBase}/api/market/ingest/candle_closed`, {
-    data: {
-      series_id: seriesId(symbol),
-      candle: {
-        candle_time,
-        open: 1,
-        high: 2,
-        low: 0.5,
-        close: 1.5,
-        volume: 10
-      }
-    }
-  });
-  expect(res.ok()).toBeTruthy();
+  return buildSeriesId(symbol, "1m");
 }
 
 async function expectChartCanvasVisible(page: Page) {
@@ -35,13 +24,27 @@ async function expectChartCanvasVisible(page: Page) {
 
 test("@smoke clicking tabs / changing symbol does not blank the app", async ({ page, request }) => {
   // Ensure persisted UI state doesn't leak between runs.
-  await page.addInitScript(() => localStorage.clear());
+  await initTradeCanvasStorage(page, { clear: true });
 
   // Seed two series so symbol switching keeps a non-empty chart.
-  await ingestClosedCandle(request, "BTC/USDT", 60);
-  await ingestClosedCandle(request, "BTC/USDT", 120);
-  await ingestClosedCandle(request, "ETH/USDT", 60);
-  await ingestClosedCandle(request, "ETH/USDT", 120);
+  const btcSeed: CandleSeed[] = [
+    { candle_time: 60, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 },
+    { candle_time: 120, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }
+  ];
+  const ethSeed: CandleSeed[] = [
+    { candle_time: 60, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 },
+    { candle_time: 120, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }
+  ];
+  await ingestClosedCandlesWithFallback(request, {
+    apiBase,
+    seriesId: seriesId("BTC/USDT"),
+    candles: btcSeed,
+  });
+  await ingestClosedCandlesWithFallback(request, {
+    apiBase,
+    seriesId: seriesId("ETH/USDT"),
+    candles: ethSeed,
+  });
 
   const pageErrors: string[] = [];
   page.on("pageerror", (err) => pageErrors.push(err.message));

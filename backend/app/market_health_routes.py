@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 
-from .dependencies import MarketRuntimeDep
+from .dependencies import MarketBackfillProgressDep, MarketDataDep, MarketWhitelistDep, RuntimeFlagsDep
 from .market_health_service import build_market_health_snapshot
 from .schemas import MarketBackfillStatusResponse, MarketHealthResponse
 
@@ -10,8 +10,7 @@ router = APIRouter()
 
 
 @router.get("/api/market/whitelist")
-def get_market_whitelist(runtime: MarketRuntimeDep) -> dict[str, list[str]]:
-    whitelist = runtime.whitelist
+def get_market_whitelist(whitelist: MarketWhitelistDep) -> dict[str, list[str]]:
     return {"series_ids": list(whitelist.series_ids)}
 
 
@@ -20,14 +19,16 @@ def get_market_health(
     series_id: str = Query(..., min_length=1),
     now_time: int | None = Query(None, ge=0),
     *,
-    runtime: MarketRuntimeDep,
+    runtime_flags: RuntimeFlagsDep,
+    market_data: MarketDataDep,
+    backfill_progress: MarketBackfillProgressDep,
 ) -> MarketHealthResponse:
-    runtime_flags = runtime.runtime_flags
     if not (bool(runtime_flags.enable_kline_health_v2) or bool(runtime_flags.enable_debug_api)):
         raise HTTPException(status_code=404, detail="not_found")
     try:
         snapshot = build_market_health_snapshot(
-            runtime=runtime,
+            market_data=market_data,
+            backfill_progress=backfill_progress,
             series_id=series_id,
             now_time=now_time,
             backfill_recent_seconds=int(runtime_flags.kline_health_backfill_recent_seconds),

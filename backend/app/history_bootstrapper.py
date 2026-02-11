@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 from .config import load_settings
@@ -107,14 +106,14 @@ def _find_freqtrade_ohlcv_file(series: SeriesId) -> Path | None:
 
 
 def _history_source(value: str | None) -> str:
-    if value is not None and str(value).strip():
-        return str(value).strip().lower()
-    return str((os.environ.get("TRADE_CANVAS_MARKET_HISTORY_SOURCE") or "")).strip().lower()
+    if value is None:
+        return ""
+    return str(value).strip().lower()
 
 
 def _read_freqtrade_feather(path: Path, *, limit: int) -> list[CandleClosed]:
-    import pandas as pd
-    import pyarrow.feather as feather
+    import pandas as pd  # type: ignore[import-untyped]
+    import pyarrow.feather as feather  # type: ignore[import-untyped]
 
     table = feather.read_table(path, columns=["date", "open", "high", "low", "close", "volume"])
     if table.num_rows <= 0:

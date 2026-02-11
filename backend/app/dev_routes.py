@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
-from .dependencies import WorktreeManagerDep
+from .dependencies import MarketIngestServiceDep, RuntimeFlagsDep, WorktreeManagerDep
 from .schemas import (
     DevCreateWorktreeRequest,
     DevCreateWorktreeResponse,
@@ -21,9 +21,18 @@ from .schemas import (
     DevWorktreeInfo,
     DevWorktreeListResponse,
     DevWorktreeMetadata,
+    IngestCandlesClosedBatchRequest,
+    IngestCandlesClosedBatchResponse,
 )
+from .service_errors import ServiceError, to_http_exception
 
-router = APIRouter()
+
+def _require_dev_api_enabled(runtime_flags: RuntimeFlagsDep) -> None:
+    if not bool(runtime_flags.enable_dev_api):
+        raise HTTPException(status_code=404, detail="not_found")
+
+
+router = APIRouter(dependencies=[Depends(_require_dev_api_enabled)])
 logger = logging.getLogger(__name__)
 
 
@@ -194,6 +203,17 @@ def update_worktree_metadata(
     except Exception as e:
         logger.exception("Failed to update metadata")
         return DevUpdateMetadataResponse(ok=False, error=str(e))
+
+
+@router.post("/api/dev/market/ingest/candles_closed_batch", response_model=IngestCandlesClosedBatchResponse)
+async def ingest_candles_closed_batch(
+    req: IngestCandlesClosedBatchRequest,
+    ingest_service: MarketIngestServiceDep,
+) -> IngestCandlesClosedBatchResponse:
+    try:
+        return await ingest_service.ingest_candles_closed_batch(req)
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 def register_dev_routes(app: FastAPI) -> None:

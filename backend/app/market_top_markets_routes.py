@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 
-from .dependencies import MarketRuntimeDep
+from .dependencies import MarketForceLimiterDep, MarketListServiceDep
 from .schemas import TopMarketItem, TopMarketsLimitQuery, TopMarketsResponse
 
 router = APIRouter()
@@ -22,16 +22,17 @@ def get_top_markets(
     limit: TopMarketsLimitQuery = 20,
     force: bool = False,
     *,
-    runtime: MarketRuntimeDep,
+    force_limiter: MarketForceLimiterDep,
+    market_list: MarketListServiceDep,
 ) -> TopMarketsResponse:
     if exchange != "binance":
         raise HTTPException(status_code=400, detail="unsupported exchange")
     if force:
         ip = request.client.host if request.client else "unknown"
-        if not runtime.force_limiter.allow(key=f"{ip}:{market}"):
+        if not force_limiter.allow(key=f"{ip}:{market}"):
             raise HTTPException(status_code=429, detail="rate_limited")
     try:
-        items, cached = runtime.market_list.get_top_markets(
+        items, cached = market_list.get_top_markets(
             market=market,
             quote_asset=quote_asset,
             limit=limit,
@@ -74,7 +75,7 @@ async def stream_top_markets(
     interval_s: float = Query(2.0, ge=0.2, le=30.0),
     max_events: int = Query(0, ge=0, le=1000),
     *,
-    runtime: MarketRuntimeDep,
+    market_list: MarketListServiceDep,
 ) -> StreamingResponse:
     if exchange != "binance":
         raise HTTPException(status_code=400, detail="unsupported exchange")
@@ -84,7 +85,7 @@ async def stream_top_markets(
         import functools
 
         fn = functools.partial(
-            runtime.market_list.get_top_markets,
+            market_list.get_top_markets,
             market=market,
             quote_asset=quote_asset,
             limit=limit,

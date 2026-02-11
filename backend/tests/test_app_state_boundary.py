@@ -35,6 +35,16 @@ def test_main_only_exposes_container_on_app_state() -> None:
     assert assigned == ["container"], f"main.py should only assign app.state.container, got: {assigned}"
 
 
+def test_main_lifecycle_delegates_startup_shutdown_to_service() -> None:
+    main_py = _backend_app_root() / "main.py"
+    text = main_py.read_text(encoding="utf-8")
+    assert "container.lifecycle.startup()" in text
+    assert "container.lifecycle.shutdown()" in text
+    assert "run_startup_kline_sync_for_runtime(" not in text
+    assert "container.supervisor.start_whitelist(" not in text
+    assert "container.supervisor.start_reaper(" not in text
+
+
 def test_route_dependencies_are_not_optional_none() -> None:
     app_root = _backend_app_root()
     target_files = sorted(app_root.glob("*routes.py"))
@@ -47,6 +57,56 @@ def test_route_dependencies_are_not_optional_none() -> None:
             offenders.append(path.name)
 
     assert not offenders, f"route dependencies should be required DI params, found optional None: {offenders}"
+
+
+def test_market_routes_do_not_depend_on_market_runtime_aggregate() -> None:
+    app_root = _backend_app_root()
+    target_files = [
+        app_root / "market_http_routes.py",
+        app_root / "market_debug_routes.py",
+        app_root / "market_health_routes.py",
+        app_root / "market_top_markets_routes.py",
+    ]
+    pattern = re.compile(r"\bMarketRuntimeDep\b")
+
+    offenders: list[str] = []
+    for path in target_files:
+        text = path.read_text(encoding="utf-8")
+        if pattern.search(text):
+            offenders.append(path.name)
+
+    assert not offenders, f"market routes should depend on narrow services, found MarketRuntimeDep in: {offenders}"
+
+
+def test_market_ws_handler_does_not_depend_on_market_runtime_aggregate() -> None:
+    app_root = _backend_app_root()
+    target_file = app_root / "market_ws_routes.py"
+    text = target_file.read_text(encoding="utf-8")
+    assert "MarketRuntime" not in text, "market_ws_routes should not depend on MarketRuntime aggregate directly"
+
+
+def test_dependencies_do_not_export_market_runtime_aggregate_dep() -> None:
+    app_root = _backend_app_root()
+    target_file = app_root / "dependencies.py"
+    text = target_file.read_text(encoding="utf-8")
+    assert "def get_market_runtime(" not in text
+    assert "MarketRuntimeDep =" not in text
+
+
+def test_market_runtime_removes_legacy_passthrough_properties() -> None:
+    app_root = _backend_app_root()
+    target_file = app_root / "market_runtime.py"
+    text = target_file.read_text(encoding="utf-8")
+    legacy_props = [
+        "def query(self)",
+        "def ingest(self)",
+        "def ws_messages(self)",
+        "def ws_subscriptions(self)",
+        "def ingest_pipeline(self)",
+        "def backfill_progress(self)",
+    ]
+    offenders = [name for name in legacy_props if name in text]
+    assert not offenders, f"market_runtime should expose contexts directly, legacy passthrough properties found: {offenders}"
 
 
 def test_read_model_services_do_not_read_env_flags_directly() -> None:
@@ -72,8 +132,10 @@ def test_runtime_services_do_not_read_env_flags_directly() -> None:
     app_root = _backend_app_root()
     target_files = [
         app_root / "market_ingest_service.py",
+        app_root / "market_query_service.py",
         app_root / "ingest_supervisor.py",
         app_root / "ingest_binance_ws.py",
+        app_root / "history_bootstrapper.py",
         app_root / "overlay_orchestrator.py",
         app_root / "replay_package_service_v1.py",
         app_root / "overlay_package_service_v1.py",
@@ -88,6 +150,13 @@ def test_runtime_services_do_not_read_env_flags_directly() -> None:
             offenders.append(path.name)
 
     assert not offenders, f"runtime services should rely on injected config, found env reads in: {offenders}"
+
+
+def test_market_query_service_does_not_trigger_ingest_pipeline_refresh() -> None:
+    app_root = _backend_app_root()
+    target_file = app_root / "market_query_service.py"
+    text = target_file.read_text(encoding="utf-8")
+    assert "refresh_series_sync" not in text
 
 
 def test_services_do_not_raise_http_exception_directly() -> None:
