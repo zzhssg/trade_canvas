@@ -1,8 +1,8 @@
 ---
 title: Replay Package Contract v1（复盘包：SQLite 存储协议）
-status: draft
+status: done
 created: 2026-02-06
-updated: 2026-02-06
+updated: 2026-02-11
 ---
 
 # Replay Package Contract v1（复盘包：SQLite 存储协议）

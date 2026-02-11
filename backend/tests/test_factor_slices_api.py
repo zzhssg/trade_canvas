@@ -46,6 +46,13 @@ class FactorSlicesApiTests(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 200, res.text)
 
+    def _recreate_client(self) -> None:
+        try:
+            self.client.close()
+        except Exception:
+            pass
+        self.client = TestClient(create_app())
+
     def test_factor_slices_empty_before_any_candles(self) -> None:
         res = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": 120})
         self.assertEqual(res.status_code, 200, res.text)
@@ -117,10 +124,12 @@ class FactorSlicesApiTests(unittest.TestCase):
         self.assertIn("zhongshu", before.json()["factors"])
 
         os.environ["TRADE_CANVAS_FACTOR_LOGIC_VERSION"] = "force-rebuild-for-read-path"
+        self._recreate_client()
         after = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
         self.assertEqual(after.status_code, 200, after.text)
         self.assertNotIn("zhongshu", after.json()["factors"])
         os.environ.pop("TRADE_CANVAS_FACTOR_LOGIC_VERSION", None)
+        self._recreate_client()
 
     def test_factor_slices_ignores_stale_zhongshu_head_snapshot(self) -> None:
         base = 60

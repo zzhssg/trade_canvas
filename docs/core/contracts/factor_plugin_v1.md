@@ -1,8 +1,8 @@
 ---
 title: Factor Plugin Contract v1（因子插件契约）
-status: draft
+status: done
 created: 2026-02-10
-updated: 2026-02-10
+updated: 2026-02-11
 ---
 
 # Factor Plugin Contract v1（因子插件契约）

@@ -99,6 +99,32 @@ class CandleStore:
             ],
         )
 
+    def existing_closed_times_in_conn(self, conn: sqlite3.Connection, *, series_id: str, candle_times: list[int]) -> set[int]:
+        times = sorted({int(t) for t in candle_times if int(t) > 0})
+        if not times:
+            return set()
+        placeholders = ",".join("?" for _ in times)
+        rows = conn.execute(
+            f"""
+            SELECT candle_time
+            FROM candles
+            WHERE series_id = ? AND candle_time IN ({placeholders})
+            """,
+            [series_id, *times],
+        ).fetchall()
+        return {int(r["candle_time"]) for r in rows}
+
+    def delete_closed_times_in_conn(self, conn: sqlite3.Connection, *, series_id: str, candle_times: list[int]) -> int:
+        times = sorted({int(t) for t in candle_times if int(t) > 0})
+        if not times:
+            return 0
+        placeholders = ",".join("?" for _ in times)
+        cur = conn.execute(
+            f"DELETE FROM candles WHERE series_id = ? AND candle_time IN ({placeholders})",
+            [series_id, *times],
+        )
+        return int(cur.rowcount or 0)
+
     def upsert_closed(self, series_id: str, candle: CandleClosed) -> None:
         with self.connect() as conn:
             self.upsert_closed_in_conn(conn, series_id, candle)

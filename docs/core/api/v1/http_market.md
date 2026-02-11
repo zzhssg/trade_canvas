@@ -1,8 +1,8 @@
 ---
 title: API v1 · Market（HTTP + SSE）
-status: draft
+status: done
 created: 2026-02-03
-updated: 2026-02-10
+updated: 2026-02-11
 ---
 
 # API v1 · Market（HTTP + SSE）
@@ -61,7 +61,8 @@ curl --noproxy '*' -sS -X POST "http://127.0.0.1:8000/api/market/ingest/candle_c
 
 ### 语义
 
-- 这是 market history 的写入口：写入后会 best-effort 触发 plot/factor/overlay 的 sidecar ingest（不应因 sidecar 失败而破坏写入）。
+- 这是 market 写入口：请求内部统一走 `IngestPipeline`（`store -> factor -> overlay -> publish`）。
+- 若 `factor/overlay` 阶段失败，接口会返回 `500 market.ingest_pipeline_failed`；同请求内已完成的 store 写入不会自动回滚（排障时需结合 debug 事件判断失败 step）。
 - 成功后会向 `/ws/market` 推送 `candle_closed`（订阅该 `series_id` 的连接）。
 
 ## POST /api/market/ingest/candle_forming

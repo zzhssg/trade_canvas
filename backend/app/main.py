@@ -20,6 +20,7 @@ from .market_meta_routes import register_market_meta_routes
 from .market_ws_routes import handle_market_ws
 from .overlay_package_routes import register_overlay_package_routes
 from .replay_routes import register_replay_routes
+from .startup_kline_sync import run_startup_kline_sync_for_runtime
 from .world_routes import register_world_routes
 
 _faulthandler_file: TextIO | None = None
@@ -64,6 +65,13 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        if bool(container.runtime_flags.enable_startup_kline_sync):
+            await run_startup_kline_sync_for_runtime(
+                runtime=container.market_runtime,
+                enabled=bool(container.runtime_flags.enable_startup_kline_sync),
+                target_candles=int(container.runtime_flags.startup_kline_sync_target_candles),
+            )
+
         if container.whitelist_ingest_enabled:
             await container.supervisor.start_whitelist()
 

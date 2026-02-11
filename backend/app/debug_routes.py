@@ -6,14 +6,10 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from .debug_hub import DebugHub
 from .flags import FeatureFlags
-from .flags import resolve_env_bool
 
 
 def _debug_enabled(*, flags: FeatureFlags) -> bool:
-    return resolve_env_bool(
-        "TRADE_CANVAS_ENABLE_DEBUG_API",
-        fallback=bool(flags.enable_debug_api),
-    )
+    return bool(flags.enable_debug_api)
 
 
 async def handle_debug_ws(

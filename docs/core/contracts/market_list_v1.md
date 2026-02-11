@@ -1,13 +1,13 @@
 ---
 title: Market List Contract v1（Top Markets）
-status: draft
+status: done
 created: 2026-02-02
-updated: 2026-02-09
+updated: 2026-02-11
 ---
 
 # Market List Contract v1（Top Markets）
 
-目标：统一“市场币种列表”的数据结构与 HTTP API，使前端只依赖 trade_canvas backend，而不是直连交易所。
+目标：统一市场币种列表的数据结构与 HTTP/SSE 协议，前端只依赖 trade_canvas backend，不直接耦合交易所细节。
 
 与 `docs/core/market-kline-sync.md` 对齐：market list 提供 `exchange/market/symbol` 三元组；K 线链路再补齐 `timeframe` 形成 `series_id`。
 
@@ -18,8 +18,8 @@ updated: 2026-02-09
 - `exchange`：交易所（当前仅 `binance`）
 - `market`：`spot` | `futures`（futures 当前仅 USDT-M perpetual）
 - `symbol`：`BASE/QUOTE`（例如 `BTC/USDT`）
-- `symbol_id`：交易所原始 id（Binance：`BTCUSDT`）
-- `quote_volume`：24h 成交额（单位为 quote 资产；因此默认按 `quote_asset=USDT` 才可比）
+- `symbol_id`：交易所原始 id（例如 `BTCUSDT`）
+- `quote_volume`：24h 成交额（单位为 quote 资产）
 
 ---
 
@@ -34,9 +34,10 @@ Query:
 - `market`：`spot` 或 `futures`（必填）
 - `quote_asset`：默认 `USDT`
 - `limit`：默认 `20`，范围 `1..200`
-- `force`：默认 `false`；为 `true` 时强制绕过缓存（受后端限流保护）
+- `force`：默认 `false`；`true` 时强制绕过缓存（受后端限流保护）
 
 Response:
+
 ```json
 {
   "exchange": "binance",
@@ -63,42 +64,43 @@ Response:
 
 约束：
 - `items` 按 `quote_volume` 倒序。
-- `cached=true` 表示本次命中后端缓存（或上游失败时返回缓存）。
-- `force=true` 可能返回 `429 rate_limited`（避免把后端当压力工具）。
+- `cached=true` 表示命中缓存（或上游失败时回退缓存）。
+- `force=true` 可能返回 `429 rate_limited`。
 
 ---
 
-## 3. 失败语义（最小）
-
-- `400 unsupported exchange`：exchange 不支持
-- `429 rate_limited`：强制刷新过频
-- `502 upstream_error:*`：交易所请求失败且无可用缓存
-
----
-
-## 4. SSE（服务端推送）
-
-当希望“列表更实时且避免轮询”时，使用 SSE：
+## 3. SSE API
 
 `GET /api/market/top_markets/stream`
 
-Query:
-- `exchange/market/quote_asset/limit`：同 2.1
-- `interval_s`：推送检查间隔（默认 2s；服务端可能在数据无变化时不重复推送）
+Query：
+- `exchange/market/quote_asset/limit`：同 HTTP
+- `interval_s`：推送检查间隔（默认 2s）
 
 事件：
-- `event: top_markets`：`data` 为与 2.1 相同结构的 JSON（包含 `items`）
-- `event: error`：上游异常（用于前端提示/回退）
-
-说明：
-- SSE 为单向（server→client），用于"榜单推送"非常合适；需要订阅/交互时再用 WS。
+- `event: top_markets`：data 与 2.1 相同
+- `event: error`：上游异常信息
 
 ---
 
-## 5. 数据源（Binance 公共接口）
+## 4. 失败语义（最小集合）
 
-- Spot：`exchangeInfo`（`baseAsset/quoteAsset/status`）+ `ticker/24hr`（`lastPrice/quoteVolume/priceChangePercent`）
-- Futures（USDT-M）：`exchangeInfo`（过滤 `status=TRADING` 且 `contractType=PERPETUAL`）+ `ticker/24hr`
-- 默认只取 `quoteAsset=="USDT"` 以保证 `quoteVolume` 可比
+- `400 unsupported exchange`
+- `429 rate_limited`
+- `502 upstream_error:*`
 
-踩坑备忘详见：`docs/core/market-symbol-list.md`。
+---
+
+## 5. 数据源与过滤规则
+
+- Spot：`exchangeInfo` + `ticker/24hr`
+- Futures（USDT-M）：`exchangeInfo`（过滤 `PERPETUAL`）+ `ticker/24hr`
+- 默认 `quoteAsset=USDT` 以保证 `quote_volume` 可比
+
+---
+
+## 6. 踩坑约束（仍然有效）
+
+1. `quoteVolume` 不能跨 quote 资产直接比较。
+2. futures 必须过滤 `contractType=PERPETUAL`，避免混入交割合约。
+3. UI 展示用 `BASE/QUOTE`，请求层再用 `symbol_id`。

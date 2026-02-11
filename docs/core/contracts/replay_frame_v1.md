@@ -1,8 +1,8 @@
 ---
 title: Replay Frame Contract v1（回放帧：因子切片 + 绘图指令）
-status: draft
+status: done
 created: 2026-02-02
-updated: 2026-02-09
+updated: 2026-02-11
 ---
 
 # Replay Frame Contract v1（回放帧：因子切片 + 绘图指令）

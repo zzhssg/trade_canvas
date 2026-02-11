@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from fastapi import HTTPException
-
 from ..debug_hub import DebugHub
 from ..schemas import (
     DrawDeltaV1,
@@ -15,6 +13,7 @@ from ..schemas import (
     WorldStateV1,
     WorldTimeV1,
 )
+from ..service_errors import ServiceError
 
 
 class _StoreLike(Protocol):
@@ -100,7 +99,11 @@ class WorldReadService:
     ) -> str:
         candle_id = f"{series_id}:{int(aligned_time)}"
         if factor_slices.candle_id != candle_id or draw_state.to_candle_id != candle_id:
-            raise HTTPException(status_code=409, detail="ledger_out_of_sync")
+            raise ServiceError(
+                status_code=409,
+                detail="ledger_out_of_sync",
+                code="world_read.ledger_out_of_sync",
+            )
         return candle_id
 
     def _emit_frame_debug(
@@ -174,14 +177,14 @@ class WorldReadService:
     ) -> WorldStateV1:
         store_head = self.store.head_time(series_id)
         if store_head is None:
-            raise HTTPException(status_code=404, detail="no_data")
+            raise ServiceError(status_code=404, detail="no_data", code="world_read.no_data")
         overlay_head = self.overlay_store.head_time(series_id)
         if overlay_head is None:
-            raise HTTPException(status_code=404, detail="no_overlay")
+            raise ServiceError(status_code=404, detail="no_overlay", code="world_read.no_overlay")
         aligned_base = min(int(store_head), int(overlay_head))
         aligned_time = self.store.floor_time(series_id, at_time=int(aligned_base))
         if aligned_time is None:
-            raise HTTPException(status_code=404, detail="no_data")
+            raise ServiceError(status_code=404, detail="no_data", code="world_read.no_data")
         return self._build_world_state(
             series_id=series_id,
             at_time=int(store_head),
@@ -199,7 +202,7 @@ class WorldReadService:
     ) -> WorldStateV1:
         aligned_time = self.store.floor_time(series_id, at_time=int(at_time))
         if aligned_time is None:
-            raise HTTPException(status_code=404, detail="no_data")
+            raise ServiceError(status_code=404, detail="no_data", code="world_read.no_data")
         return self._build_world_state(
             series_id=series_id,
             at_time=int(at_time),

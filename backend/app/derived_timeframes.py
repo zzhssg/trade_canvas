@@ -2,11 +2,27 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import Iterable
 
 from .flags import resolve_env_bool, resolve_env_str
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .timeframe import timeframe_to_seconds
+
+
+DEFAULT_DERIVED_TIMEFRAMES: tuple[str, ...] = ("5m", "15m", "1h", "4h", "1d")
+
+
+def normalize_derived_timeframes(values: Iterable[str]) -> tuple[str, ...]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        tf = str(value).strip()
+        if not tf or tf in seen:
+            continue
+        seen.add(tf)
+        out.append(tf)
+    return tuple(out)
 
 
 def derived_enabled() -> bool:
@@ -22,24 +38,44 @@ def derived_timeframes() -> tuple[str, ...]:
     raw = resolve_env_str("TRADE_CANVAS_DERIVED_TIMEFRAMES", fallback="")
     if not raw:
         # Keep aligned with frontend defaults (ChartPanel.tsx) minus base 1m.
-        return ("5m", "15m", "1h", "4h", "1d")
+        return DEFAULT_DERIVED_TIMEFRAMES
     parts = [p.strip() for p in raw.split(",")]
-    return tuple(p for p in parts if p)
+    return normalize_derived_timeframes(parts)
+
+
+def is_derived_series_id_with_config(
+    series_id: str,
+    *,
+    enabled: bool,
+    base_timeframe: str,
+    derived: tuple[str, ...],
+) -> bool:
+    if not bool(enabled):
+        return False
+    s = parse_series_id(series_id)
+    base = str(base_timeframe).strip() or "1m"
+    if s.timeframe == base:
+        return False
+    return s.timeframe in set(normalize_derived_timeframes(derived))
+
+
+def to_base_series_id_with_base(series_id: str, *, base_timeframe: str) -> str:
+    s = parse_series_id(series_id)
+    base = str(base_timeframe).strip() or "1m"
+    return SeriesId(exchange=s.exchange, market=s.market, symbol=s.symbol, timeframe=base).raw
 
 
 def is_derived_series_id(series_id: str) -> bool:
-    if not derived_enabled():
-        return False
-    s = parse_series_id(series_id)
-    base = derived_base_timeframe()
-    if s.timeframe == base:
-        return False
-    return s.timeframe in set(derived_timeframes())
+    return is_derived_series_id_with_config(
+        series_id,
+        enabled=derived_enabled(),
+        base_timeframe=derived_base_timeframe(),
+        derived=derived_timeframes(),
+    )
 
 
 def to_base_series_id(series_id: str) -> str:
-    s = parse_series_id(series_id)
-    return SeriesId(exchange=s.exchange, market=s.market, symbol=s.symbol, timeframe=derived_base_timeframe()).raw
+    return to_base_series_id_with_base(series_id, base_timeframe=derived_base_timeframe())
 
 
 def to_derived_series_id(base_series_id: str, *, timeframe: str) -> str:

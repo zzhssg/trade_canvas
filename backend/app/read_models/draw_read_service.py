@@ -3,11 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from fastapi import HTTPException
-
 from ..overlay_integrity_plugins import evaluate_overlay_integrity
 from ..overlay_store import OverlayInstructionVersionRow
 from ..schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1, OverlayInstructionPatchItemV1
+from ..service_errors import ServiceError
 from ..timeframe import series_id_timeframe, timeframe_to_seconds
 
 
@@ -107,7 +106,11 @@ class DrawReadService:
             if aligned is None:
                 return self._empty_delta(series_id=series_id, cursor_version_id=int(cursor_version_id))
             if overlay_head is None or int(overlay_head) < int(aligned):
-                raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
+                raise ServiceError(
+                    status_code=409,
+                    detail="ledger_out_of_sync:overlay",
+                    code="draw_read.ledger_out_of_sync.overlay",
+                )
             to_time = int(aligned)
         else:
             to_time = store_head if store_head is not None else overlay_head
@@ -115,7 +118,11 @@ class DrawReadService:
 
         if strict_mode and to_time is not None:
             if overlay_head is None or int(overlay_head) < int(to_time):
-                raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
+                raise ServiceError(
+                    status_code=409,
+                    detail="ledger_out_of_sync:overlay",
+                    code="draw_read.ledger_out_of_sync.overlay",
+                )
 
         if to_time is None:
             return self._empty_delta(series_id=series_id, cursor_version_id=int(cursor_version_id))
@@ -123,7 +130,11 @@ class DrawReadService:
         slices_for_overlay = None
         if int(cursor_version_id) == 0:
             if self.factor_read_service is None:
-                raise HTTPException(status_code=500, detail="factor_read_service_not_ready")
+                raise ServiceError(
+                    status_code=500,
+                    detail="factor_read_service_not_ready",
+                    code="draw_read.factor_service_not_ready",
+                )
             slices_for_overlay = self.factor_read_service.read_slices(
                 series_id=series_id,
                 at_time=int(to_time),
@@ -151,7 +162,11 @@ class DrawReadService:
             )
             if should_rebuild_overlay:
                 if strict_mode:
-                    raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
+                    raise ServiceError(
+                        status_code=409,
+                        detail="ledger_out_of_sync:overlay",
+                        code="draw_read.ledger_out_of_sync.overlay",
+                    )
                 self.overlay_orchestrator.reset_series(series_id=series_id)
                 self.overlay_orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_time))
                 latest_defs = self.overlay_store.get_latest_defs_up_to_time(

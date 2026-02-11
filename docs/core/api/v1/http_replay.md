@@ -1,8 +1,8 @@
 ---
 title: API v1 · Replay（HTTP）
-status: in_progress
+status: done
 created: 2026-02-06
-updated: 2026-02-07
+updated: 2026-02-11
 ---
 
 # API v1 · Replay（HTTP）
@@ -13,6 +13,41 @@ updated: 2026-02-07
 - 复盘只对齐 closed candles（`aligned_time`）。
 - `history/head` 分离：history append-only 切片；head 每根 K 单独快照。
 - 读路径只读：read-only 不触发隐式构建或重算。
+
+---
+
+## POST /api/replay/prepare
+
+回放准备：确保 factor/overlay 已计算到请求时间的对齐闭合 K。
+
+```bash
+curl --noproxy '*' -sS -X POST \
+  "http://127.0.0.1:8000/api/replay/prepare" \
+  -H "Content-Type: application/json" \
+  -d '{"series_id":"binance:futures:BTC/USDT:1m","to_time":1700000005,"window_candles":2000}'
+```
+
+```json
+{"series_id":"binance:futures:BTC/USDT:1m","to_time":1700000005,"window_candles":2000}
+```
+
+```json
+{
+  "ok": true,
+  "series_id": "binance:futures:BTC/USDT:1m",
+  "requested_time": 1700000005,
+  "aligned_time": 1700000000,
+  "window_candles": 2000,
+  "factor_head_time": 1700000000,
+  "overlay_head_time": 1700000000,
+  "computed": true
+}
+```
+
+### 语义
+
+- 若因子或绘图账本未追到 `aligned_time`，返回 `409 ledger_out_of_sync:*`。
+- 前端应在 `prepare` 成功后再调用 replay package read_only/build/window。
 
 ---
 

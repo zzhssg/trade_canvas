@@ -11,6 +11,7 @@ from .overlay_replay_protocol_v1 import (
     ReplayOverlayPackageStatusResponseV1,
     ReplayOverlayPackageWindowResponseV1,
 )
+from .service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 
@@ -28,20 +29,23 @@ def replay_overlay_package_read_only(
     overlay_pkg_service: OverlayPackageServiceDep,
 ) -> ReplayOverlayPackageReadOnlyResponseV1:
     service = _overlay_pkg_service_or_404(overlay_pkg_service)
-    status, job_id, cache_key, meta, hint = service.read_only(
-        series_id=req.series_id,
-        to_time=req.to_time,
-        window_candles=req.window_candles,
-        window_size=req.window_size,
-        snapshot_interval=req.snapshot_interval,
-    )
-    return ReplayOverlayPackageReadOnlyResponseV1(
-        status=status,
-        job_id=job_id,
-        cache_key=cache_key,
-        delta_meta=meta,
-        compute_hint=hint,
-    )
+    try:
+        status, job_id, cache_key, meta, hint = service.read_only(
+            series_id=req.series_id,
+            to_time=req.to_time,
+            window_candles=req.window_candles,
+            window_size=req.window_size,
+            snapshot_interval=req.snapshot_interval,
+        )
+        return ReplayOverlayPackageReadOnlyResponseV1(
+            status=status,
+            job_id=job_id,
+            cache_key=cache_key,
+            delta_meta=meta,
+            compute_hint=hint,
+        )
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.post("/api/replay/overlay_package/build", response_model=ReplayOverlayPackageBuildResponseV1)
@@ -50,14 +54,17 @@ def replay_overlay_package_build(
     overlay_pkg_service: OverlayPackageServiceDep,
 ) -> ReplayOverlayPackageBuildResponseV1:
     service = _overlay_pkg_service_or_404(overlay_pkg_service)
-    status, job_id, cache_key = service.build(
-        series_id=req.series_id,
-        to_time=req.to_time,
-        window_candles=req.window_candles,
-        window_size=req.window_size,
-        snapshot_interval=req.snapshot_interval,
-    )
-    return ReplayOverlayPackageBuildResponseV1(status=status, job_id=job_id, cache_key=cache_key)
+    try:
+        status, job_id, cache_key = service.build(
+            series_id=req.series_id,
+            to_time=req.to_time,
+            window_candles=req.window_candles,
+            window_size=req.window_size,
+            snapshot_interval=req.snapshot_interval,
+        )
+        return ReplayOverlayPackageBuildResponseV1(status=status, job_id=job_id, cache_key=cache_key)
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.get("/api/replay/overlay_package/status", response_model=ReplayOverlayPackageStatusResponseV1)
@@ -68,11 +75,14 @@ def replay_overlay_package_status(
     overlay_pkg_service: OverlayPackageServiceDep,
 ) -> ReplayOverlayPackageStatusResponseV1:
     service = _overlay_pkg_service_or_404(overlay_pkg_service)
-    payload = service.status(
-        job_id=job_id,
-        include_delta_package=bool(int(include_delta_package)),
-    )
-    return ReplayOverlayPackageStatusResponseV1.model_validate(payload)
+    try:
+        payload = service.status(
+            job_id=job_id,
+            include_delta_package=bool(int(include_delta_package)),
+        )
+        return ReplayOverlayPackageStatusResponseV1.model_validate(payload)
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.get("/api/replay/overlay_package/window", response_model=ReplayOverlayPackageWindowResponseV1)
@@ -83,8 +93,11 @@ def replay_overlay_package_window(
     overlay_pkg_service: OverlayPackageServiceDep,
 ) -> ReplayOverlayPackageWindowResponseV1:
     service = _overlay_pkg_service_or_404(overlay_pkg_service)
-    window = service.window(job_id=job_id, target_idx=int(target_idx))
-    return ReplayOverlayPackageWindowResponseV1(job_id=str(job_id), window=window)
+    try:
+        window = service.window(job_id=job_id, target_idx=int(target_idx))
+        return ReplayOverlayPackageWindowResponseV1(job_id=str(job_id), window=window)
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 def register_overlay_package_routes(app: FastAPI) -> None:

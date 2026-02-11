@@ -8,7 +8,6 @@ from .debug_hub import DebugHub
 from .factor_graph import FactorGraph, FactorSpec
 from .factor_plugin_registry import FactorPluginRegistry
 from .factor_store import FactorStore
-from .flags import resolve_env_bool, resolve_env_int
 from .overlay_store import OverlayStore
 from .overlay_renderer_plugins import (
     OverlayRenderContext,
@@ -24,6 +23,7 @@ from .timeframe import series_id_timeframe, timeframe_to_seconds
 
 @dataclass(frozen=True)
 class OverlaySettings:
+    ingest_enabled: bool = True
     window_candles: int = 2000
 
 
@@ -46,7 +46,11 @@ class OverlayOrchestrator:
         self._candle_store = candle_store
         self._factor_store = factor_store
         self._overlay_store = overlay_store
-        self._settings = settings or OverlaySettings()
+        cfg = settings or OverlaySettings()
+        self._settings = OverlaySettings(
+            ingest_enabled=bool(cfg.ingest_enabled),
+            window_candles=max(100, int(cfg.window_candles)),
+        )
         self._debug_hub: DebugHub | None = None
         self._renderer_registry = FactorPluginRegistry(list(build_default_overlay_render_plugins()))
         self._renderer_graph = FactorGraph(
@@ -64,7 +68,7 @@ class OverlayOrchestrator:
         self._debug_hub = hub
 
     def enabled(self) -> bool:
-        return resolve_env_bool("TRADE_CANVAS_ENABLE_OVERLAY_INGEST", fallback=True)
+        return bool(self._settings.ingest_enabled)
 
     def reset_series(self, *, series_id: str) -> None:
         with self._overlay_store.connect() as conn:
@@ -72,11 +76,7 @@ class OverlayOrchestrator:
             conn.commit()
 
     def _load_window_candles(self) -> int:
-        return resolve_env_int(
-            "TRADE_CANVAS_OVERLAY_WINDOW_CANDLES",
-            fallback=self._settings.window_candles,
-            minimum=100,
-        )
+        return int(self._settings.window_candles)
 
     def _run_render_plugins(self, *, ctx: OverlayRenderContext) -> OverlayRenderOutput:
         merged = OverlayRenderOutput()

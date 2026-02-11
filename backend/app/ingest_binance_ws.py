@@ -5,14 +5,13 @@ import json
 import logging
 import time
 
-from .flags import resolve_env_float, resolve_env_int, resolve_env_str
 from .pipelines import IngestPipeline
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .store import CandleStore
 from .ws_hub import CandleHub
 from .ingest_settings import WhitelistIngestSettings
-from .derived_timeframes import DerivedTimeframeFanout, derived_enabled, derived_base_timeframe, derived_timeframes
+from .derived_timeframes import DerivedTimeframeFanout
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +102,13 @@ async def run_binance_ws_ingest_loop(
     ingest_pipeline: IngestPipeline | None = None,
     settings: WhitelistIngestSettings,
     stop: asyncio.Event,
+    market_history_source: str = "",
+    derived_enabled: bool = False,
+    derived_base_timeframe: str = "1m",
+    derived_timeframes: tuple[str, ...] = (),
+    batch_max: int = 200,
+    flush_s: float = 0.5,
+    forming_min_interval_ms: int = 250,
 ) -> None:
     series = parse_series_id(series_id)
 
@@ -112,42 +118,46 @@ async def run_binance_ws_ingest_loop(
     if ingest_pipeline is None:
         raise RuntimeError("ingest_pipeline_not_configured")
 
-    history_source = resolve_env_str("TRADE_CANVAS_MARKET_HISTORY_SOURCE", fallback="").lower()
+    history_source = str(market_history_source).strip().lower()
     if store.head_time(series_id) is None and history_source == "freqtrade":
         try:
             from .history_bootstrapper import maybe_bootstrap_from_freqtrade
 
             limit = int(getattr(settings, "bootstrap_backfill_count", 2000) or 2000)
-            maybe_bootstrap_from_freqtrade(store, series_id=series_id, limit=limit)
+            maybe_bootstrap_from_freqtrade(
+                store,
+                series_id=series_id,
+                limit=limit,
+                market_history_source=history_source,
+            )
         except Exception:
             pass
 
     url = build_binance_kline_ws_url(series)
 
-    batch_max = resolve_env_int("TRADE_CANVAS_BINANCE_WS_BATCH_MAX", fallback=200, minimum=1)
-    flush_s = resolve_env_float("TRADE_CANVAS_BINANCE_WS_FLUSH_S", fallback=0.5, minimum=0.05)
+    batch_max = max(1, int(batch_max))
+    flush_s = max(0.05, float(flush_s))
 
     last_emitted_time = store.head_time(series_id) or 0
     buf: list[CandleClosed] = []
     last_flush_at = time.time()
 
-    forming_min_interval_ms = resolve_env_int(
-        "TRADE_CANVAS_MARKET_FORMING_MIN_INTERVAL_MS",
-        fallback=250,
-        minimum=0,
-    )
+    forming_min_interval_ms = max(0, int(forming_min_interval_ms))
     forming_min_interval_s = forming_min_interval_ms / 1000.0
     last_forming_emit_at = 0.0
     last_forming_candle_time: int | None = None
 
+    use_derived = bool(derived_enabled)
+    base_timeframe = str(derived_base_timeframe).strip() or "1m"
+    derived_targets = tuple(str(tf).strip() for tf in (derived_timeframes or ()) if str(tf).strip())
+
     fanout: DerivedTimeframeFanout | None = None
-    if derived_enabled():
+    if use_derived:
         try:
-            base_tf = derived_base_timeframe()
-            if str(series.timeframe).strip() == str(base_tf).strip():
+            if str(series.timeframe).strip() == str(base_timeframe).strip():
                 fanout = DerivedTimeframeFanout(
-                    base_timeframe=base_tf,
-                    derived=derived_timeframes(),
+                    base_timeframe=base_timeframe,
+                    derived=derived_targets,
                     forming_min_interval_ms=int(forming_min_interval_ms),
                 )
         except Exception:

@@ -2,13 +2,10 @@ from __future__ import annotations
 
 from ..blocking import run_blocking
 from ..derived_timeframes import (
-    derived_base_timeframe,
-    derived_enabled,
-    is_derived_series_id,
+    is_derived_series_id_with_config,
     rollup_closed_candles,
-    to_base_series_id,
+    to_base_series_id_with_base,
 )
-from ..market_flags import derived_backfill_base_candles
 from ..series_id import parse_series_id
 from ..store import CandleStore
 
@@ -18,9 +15,23 @@ def build_derived_initial_backfill_handler(
     store: CandleStore,
     factor_orchestrator,
     overlay_orchestrator,
+    derived_enabled: bool,
+    derived_base_timeframe: str,
+    derived_timeframes: tuple[str, ...],
+    derived_backfill_base_candles: int,
 ):
+    enabled = bool(derived_enabled)
+    base_tf = str(derived_base_timeframe).strip() or "1m"
+    derived = tuple(str(tf).strip() for tf in (derived_timeframes or ()) if str(tf).strip())
+    base_limit = max(100, int(derived_backfill_base_candles))
+
     async def _handler(*, series_id: str) -> None:
-        if not derived_enabled() or not is_derived_series_id(series_id):
+        if not is_derived_series_id_with_config(
+            series_id,
+            enabled=enabled,
+            base_timeframe=base_tf,
+            derived=derived,
+        ):
             return
         try:
             await run_blocking(_backfill_once, series_id)
@@ -30,15 +41,14 @@ def build_derived_initial_backfill_handler(
     def _backfill_once(series_id: str) -> None:
         if store.head_time(series_id) is not None:
             return
-        base_series_id = to_base_series_id(series_id)
-        base_limit = derived_backfill_base_candles()
+        base_series_id = to_base_series_id_with_base(series_id, base_timeframe=base_tf)
 
         base_candles = store.get_closed(base_series_id, since=None, limit=int(base_limit))
         if not base_candles:
             return
         derived_tf = parse_series_id(series_id).timeframe
         derived_closed = rollup_closed_candles(
-            base_timeframe=derived_base_timeframe(),
+            base_timeframe=base_tf,
             derived_timeframe=derived_tf,
             base_candles=base_candles,
         )

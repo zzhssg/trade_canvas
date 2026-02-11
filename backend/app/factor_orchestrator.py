@@ -14,12 +14,10 @@ from .factor_manifest import build_default_factor_manifest
 from .factor_processors import AnchorProcessor
 from .factor_registry import FactorRegistry
 from .factor_rebuild_loader import FactorBootstrapState, FactorRebuildStateLoader, RebuildEventBuckets
+from .factor_tick_executor import FactorTickExecutionResult, FactorTickExecutor, FactorTickState
 from .factor_runtime_contract import FactorRuntimeContext
 from .factor_runtime_config import (
     FactorSettings,
-    factor_fingerprint_rebuild_enabled,
-    factor_ingest_enabled,
-    load_factor_settings,
 )
 from .factor_store import FactorEventWrite, FactorStore
 from .pen import PivotMajorPoint
@@ -31,28 +29,6 @@ from .timeframe import series_id_timeframe, timeframe_to_seconds
 class FactorIngestResult:
     rebuilt: bool = False
     fingerprint: str | None = None
-
-
-@dataclass
-class _FactorTickState:
-    visible_time: int
-    tf_s: int
-    settings: FactorSettings
-    candles: list[Any]
-    time_to_idx: dict[int, int]
-    events: list[FactorEventWrite]
-    effective_pivots: list[PivotMajorPoint]
-    confirmed_pens: list[dict[str, Any]]
-    zhongshu_state: dict[str, Any]
-    anchor_current_ref: dict[str, Any] | None
-    anchor_strength: float | None
-    last_major_idx: int | None
-    major_candidates: list[PivotMajorPoint]
-    new_confirmed_pen_payloads: list[dict[str, Any]]
-    formed_entries: list[dict[str, Any]]
-    best_strong_pen_ref: dict[str, int | str] | None
-    best_strong_pen_strength: float | None
-    baseline_anchor_strength: float | None
 
 
 @dataclass
@@ -77,10 +53,24 @@ class FactorOrchestrator:
       - Anchor.switch (append-only; strong_pen + zhongshu_entry)
     """
 
-    def __init__(self, *, candle_store: CandleStore, factor_store: FactorStore, settings: FactorSettings | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        candle_store: CandleStore,
+        factor_store: FactorStore,
+        settings: FactorSettings | None = None,
+        ingest_enabled: bool = True,
+        fingerprint_rebuild_enabled: bool = True,
+        factor_rebuild_keep_candles: int = 2000,
+        logic_version_override: str = "",
+    ) -> None:
         self._candle_store = candle_store
         self._factor_store = factor_store
         self._settings = settings or FactorSettings()
+        self._ingest_enabled = bool(ingest_enabled)
+        self._fingerprint_rebuild_enabled_flag = bool(fingerprint_rebuild_enabled)
+        self._factor_rebuild_keep_candles = max(100, int(factor_rebuild_keep_candles))
+        self._logic_version_override = str(logic_version_override or "")
         self._debug_hub: DebugHub | None = None
         manifest = build_default_factor_manifest()
         self._registry = FactorRegistry(list(manifest.processors))
@@ -92,7 +82,7 @@ class FactorOrchestrator:
         self._debug_hub = hub
 
     def _fingerprint_rebuild_enabled(self) -> bool:
-        return factor_fingerprint_rebuild_enabled()
+        return bool(self._fingerprint_rebuild_enabled_flag)
 
     def _build_series_fingerprint(self, *, series_id: str, settings: FactorSettings) -> str:
         return build_series_fingerprint(
@@ -101,21 +91,57 @@ class FactorOrchestrator:
             graph=self._graph,
             registry=self._registry,
             orchestrator_file=Path(__file__),
+            logic_version_override=self._logic_version_override,
         )
 
     def enabled(self) -> bool:
-        return factor_ingest_enabled()
+        return bool(self._ingest_enabled)
 
     def _load_settings(self) -> FactorSettings:
-        return load_factor_settings(defaults=self._settings)
+        return self._settings
 
-    def _run_tick_steps(self, *, series_id: str, state: _FactorTickState) -> None:
-        for factor_name in self._graph.topo_order:
-            plugin = self._registry.require(str(factor_name))
-            run_tick = getattr(plugin, "run_tick", None)
-            if not callable(run_tick):
-                raise RuntimeError(f"factor_missing_run_tick:{factor_name}")
-            run_tick(series_id=series_id, state=state, runtime=self._tick_runtime)
+    def _tick_executor(self) -> FactorTickExecutor:
+        return FactorTickExecutor(
+            graph=self._graph,
+            registry=self._registry,
+            runtime=self._tick_runtime,
+        )
+
+    def _run_tick_steps(self, *, series_id: str, state: FactorTickState) -> None:
+        self._tick_executor().run_tick_steps(series_id=series_id, state=state)
+
+    def _run_ticks(
+        self,
+        *,
+        series_id: str,
+        process_times: list[int],
+        tf_s: int,
+        settings: FactorSettings,
+        candles: list[Any],
+        time_to_idx: dict[int, int],
+        effective_pivots: list[PivotMajorPoint],
+        confirmed_pens: list[dict[str, Any]],
+        zhongshu_state: dict[str, Any],
+        anchor_current_ref: dict[str, Any] | None,
+        anchor_strength: float | None,
+        last_major_idx: int | None,
+        events: list[FactorEventWrite],
+    ) -> FactorTickExecutionResult:
+        return self._tick_executor().run_incremental(
+            series_id=series_id,
+            process_times=process_times,
+            tf_s=int(tf_s),
+            settings=settings,
+            candles=candles,
+            time_to_idx=time_to_idx,
+            effective_pivots=effective_pivots,
+            confirmed_pens=confirmed_pens,
+            zhongshu_state=zhongshu_state,
+            anchor_current_ref=anchor_current_ref,
+            anchor_strength=anchor_strength,
+            last_major_idx=last_major_idx,
+            events=events,
+        )
 
     def _rebuild_loader(self) -> FactorRebuildStateLoader:
         return FactorRebuildStateLoader(
@@ -131,6 +157,7 @@ class FactorOrchestrator:
             candle_store=self._candle_store,
             factor_store=self._factor_store,
             debug_hub=self._debug_hub,
+            keep_candles=self._factor_rebuild_keep_candles,
         )
 
     def _ingest_window_planner(self) -> FactorIngestWindowPlanner:
@@ -307,31 +334,28 @@ class FactorOrchestrator:
         anchor_strength = bootstrap_state.anchor_strength
         events: list[FactorEventWrite] = []
 
-        for visible_time in process_times:
-            tick_state = _FactorTickState(
-                visible_time=int(visible_time),
-                tf_s=int(tf_s),
-                settings=s,
-                candles=candles,
-                time_to_idx=time_to_idx,
-                events=events,
-                effective_pivots=effective_pivots,
-                confirmed_pens=confirmed_pens,
-                zhongshu_state=zhongshu_state,
-                anchor_current_ref=anchor_current_ref,
-                anchor_strength=anchor_strength,
-                last_major_idx=last_major_idx,
-                major_candidates=[],
-                new_confirmed_pen_payloads=[],
-                formed_entries=[],
-                best_strong_pen_ref=None,
-                best_strong_pen_strength=None,
-                baseline_anchor_strength=float(anchor_strength) if anchor_strength is not None else None,
-            )
-            self._run_tick_steps(series_id=series_id, state=tick_state)
-            anchor_current_ref = tick_state.anchor_current_ref
-            anchor_strength = tick_state.anchor_strength
-            last_major_idx = tick_state.last_major_idx
+        tick_result = self._run_ticks(
+            series_id=series_id,
+            process_times=process_times,
+            tf_s=int(tf_s),
+            settings=s,
+            candles=candles,
+            time_to_idx=time_to_idx,
+            effective_pivots=effective_pivots,
+            confirmed_pens=confirmed_pens,
+            zhongshu_state=zhongshu_state,
+            anchor_current_ref=anchor_current_ref,
+            anchor_strength=anchor_strength,
+            last_major_idx=last_major_idx,
+            events=events,
+        )
+        effective_pivots = tick_result.effective_pivots
+        confirmed_pens = tick_result.confirmed_pens
+        zhongshu_state = tick_result.zhongshu_state
+        anchor_current_ref = tick_result.anchor_current_ref
+        anchor_strength = tick_result.anchor_strength
+        last_major_idx = tick_result.last_major_idx
+        events = tick_result.events
 
         head_snapshots = self._build_head_snapshots(
             series_id=series_id,

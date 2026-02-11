@@ -1,8 +1,8 @@
 ---
 title: World Delta Contract v1（统一世界增量差分）
-status: draft
+status: done
 created: 2026-02-03
-updated: 2026-02-07
+updated: 2026-02-11
 ---
 
 # World Delta Contract v1（统一世界增量差分）

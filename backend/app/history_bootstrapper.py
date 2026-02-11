@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from .config import load_settings
-from .market_flags import market_history_source
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .store import CandleStore
@@ -106,6 +106,12 @@ def _find_freqtrade_ohlcv_file(series: SeriesId) -> Path | None:
     return None
 
 
+def _history_source(value: str | None) -> str:
+    if value is not None and str(value).strip():
+        return str(value).strip().lower()
+    return str((os.environ.get("TRADE_CANVAS_MARKET_HISTORY_SOURCE") or "")).strip().lower()
+
+
 def _read_freqtrade_feather(path: Path, *, limit: int) -> list[CandleClosed]:
     import pandas as pd
     import pyarrow.feather as feather
@@ -166,12 +172,18 @@ def _read_freqtrade_feather(path: Path, *, limit: int) -> list[CandleClosed]:
     return out
 
 
-def maybe_bootstrap_from_freqtrade(store: CandleStore, *, series_id: str, limit: int) -> int:
+def maybe_bootstrap_from_freqtrade(
+    store: CandleStore,
+    *,
+    series_id: str,
+    limit: int,
+    market_history_source: str | None = None,
+) -> int:
     """
     Best-effort import (tail) OHLCV from freqtrade datadir into CandleStore.
     Returns the number of candles written (0 if skipped / not found).
     """
-    if market_history_source() != "freqtrade":
+    if _history_source(market_history_source) != "freqtrade":
         return 0
 
     try:
@@ -200,13 +212,19 @@ def maybe_bootstrap_from_freqtrade(store: CandleStore, *, series_id: str, limit:
     return len(candles)
 
 
-def backfill_tail_from_freqtrade(store: CandleStore, *, series_id: str, limit: int) -> int:
+def backfill_tail_from_freqtrade(
+    store: CandleStore,
+    *,
+    series_id: str,
+    limit: int,
+    market_history_source: str | None = None,
+) -> int:
     """
     Best-effort tail backfill (append/update) from freqtrade datadir.
     Unlike maybe_bootstrap_from_freqtrade, this runs even if the store already has data.
     Returns the number of candles written (0 if skipped / not found).
     """
-    if market_history_source() != "freqtrade":
+    if _history_source(market_history_source) != "freqtrade":
         return 0
 
     try:

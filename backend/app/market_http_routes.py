@@ -13,6 +13,7 @@ from .schemas import (
     LimitQuery,
     SinceQuery,
 )
+from .service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 
@@ -62,7 +63,10 @@ async def ingest_candle_closed(
     req: IngestCandleClosedRequest,
     runtime: MarketRuntimeDep,
 ) -> IngestCandleClosedResponse:
-    return await runtime.ingest.ingest_candle_closed(req)
+    try:
+        return await runtime.ingest.ingest_candle_closed(req)
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.post("/api/market/ingest/candle_forming", response_model=IngestCandleFormingResponse)
@@ -72,7 +76,10 @@ async def ingest_candle_forming(
 ) -> IngestCandleFormingResponse:
     if not bool(runtime.runtime_flags.enable_debug_api):
         raise HTTPException(status_code=404, detail="not_found")
-    return await runtime.ingest.ingest_candle_forming(req)
+    try:
+        return await runtime.ingest.ingest_candle_forming(req)
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 def register_market_http_routes(app: FastAPI) -> None:

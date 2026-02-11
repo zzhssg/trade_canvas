@@ -11,6 +11,9 @@ from .factor_plugin_registry import FactorPluginRegistry
 from .factor_store import FactorStore
 from .freqtrade_signal_plugin_contract import FreqtradeSignalContext, FreqtradeSignalPlugin
 from .freqtrade_signal_plugins import build_default_freqtrade_signal_plugins
+from .flags import load_feature_flags
+from .runtime_flags import load_runtime_flags
+from .factor_runtime_config import FactorSettings
 from .schemas import CandleClosed
 from .store import CandleStore
 
@@ -158,7 +161,22 @@ def annotate_factor_ledger(
     db = _resolve_db_path(db_path)
     store = CandleStore(db_path=db)
     factor_store = FactorStore(db_path=db)
-    orchestrator = FactorOrchestrator(candle_store=store, factor_store=factor_store)
+    base_flags = load_feature_flags()
+    runtime_flags = load_runtime_flags(base_flags=base_flags)
+    orchestrator = FactorOrchestrator(
+        candle_store=store,
+        factor_store=factor_store,
+        settings=FactorSettings(
+            pivot_window_major=int(runtime_flags.factor_pivot_window_major),
+            pivot_window_minor=int(runtime_flags.factor_pivot_window_minor),
+            lookback_candles=int(runtime_flags.factor_lookback_candles),
+            state_rebuild_event_limit=int(runtime_flags.factor_state_rebuild_event_limit),
+        ),
+        ingest_enabled=bool(runtime_flags.enable_factor_ingest),
+        fingerprint_rebuild_enabled=bool(runtime_flags.enable_factor_fingerprint_rebuild),
+        factor_rebuild_keep_candles=int(runtime_flags.factor_rebuild_keep_candles),
+        logic_version_override=str(runtime_flags.factor_logic_version_override or ""),
+    )
 
     times = df["date"].map(_to_unix_seconds)
     order = times.sort_values().index

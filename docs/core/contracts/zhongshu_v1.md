@@ -1,8 +1,8 @@
 ---
 title: Zhongshu Contract v1（中枢：dead + alive）
-status: draft
+status: done
 created: 2026-02-02
-updated: 2026-02-09
+updated: 2026-02-11
 ---
 
 # Zhongshu Contract v1（中枢：dead + alive）

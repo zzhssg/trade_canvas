@@ -10,7 +10,10 @@ from .pipelines import IngestPipeline
 from .series_id import parse_series_id
 from .store import CandleStore
 from .ws_hub import CandleHub
-from .derived_timeframes import is_derived_series_id, to_base_series_id
+from .derived_timeframes import (
+    is_derived_series_id_with_config,
+    to_base_series_id_with_base,
+)
 
 
 @dataclass
@@ -38,6 +41,13 @@ class IngestSupervisor:
         ondemand_max_jobs: int = 0,
         whitelist_ingest_enabled: bool = False,
         ingest_pipeline: IngestPipeline | None = None,
+        market_history_source: str = "",
+        derived_enabled: bool = False,
+        derived_base_timeframe: str = "1m",
+        derived_timeframes: tuple[str, ...] = (),
+        binance_ws_batch_max: int = 200,
+        binance_ws_flush_s: float = 0.5,
+        forming_min_interval_ms: int = 250,
     ) -> None:
         self._store = store
         self._hub = hub
@@ -47,6 +57,13 @@ class IngestSupervisor:
         self._idle_ttl_s = ondemand_idle_ttl_s
         self._ondemand_max_jobs = max(0, int(ondemand_max_jobs))
         self._ingest_pipeline = ingest_pipeline
+        self._market_history_source = str(market_history_source or "").strip().lower()
+        self._derived_enabled = bool(derived_enabled)
+        self._derived_base_timeframe = str(derived_base_timeframe).strip() or "1m"
+        self._derived_timeframes = tuple(str(tf).strip() for tf in (derived_timeframes or ()) if str(tf).strip())
+        self._binance_ws_batch_max = max(1, int(binance_ws_batch_max))
+        self._binance_ws_flush_s = max(0.05, float(binance_ws_flush_s))
+        self._forming_min_interval_ms = max(0, int(forming_min_interval_ms))
         self._lock = asyncio.Lock()
         self._jobs: dict[str, _Job] = {}
         self._reaper_stop = asyncio.Event()
@@ -68,8 +85,7 @@ class IngestSupervisor:
                 self._jobs[series_id] = job
 
     async def subscribe(self, series_id: str) -> bool:
-        if is_derived_series_id(series_id):
-            series_id = to_base_series_id(series_id)
+        series_id = self._normalize_series_id(series_id)
         if self._is_pinned_whitelist(series_id):
             return True
 
@@ -113,8 +129,7 @@ class IngestSupervisor:
         return True
 
     async def unsubscribe(self, series_id: str) -> None:
-        if is_derived_series_id(series_id):
-            series_id = to_base_series_id(series_id)
+        series_id = self._normalize_series_id(series_id)
         if self._is_pinned_whitelist(series_id):
             return
         async with self._lock:
@@ -182,6 +197,13 @@ class IngestSupervisor:
                     ingest_pipeline=self._ingest_pipeline,
                     settings=self._settings,
                     stop=stop,
+                    market_history_source=self._market_history_source,
+                    derived_enabled=self._derived_enabled,
+                    derived_base_timeframe=self._derived_base_timeframe,
+                    derived_timeframes=self._derived_timeframes,
+                    batch_max=self._binance_ws_batch_max,
+                    flush_s=self._binance_ws_flush_s,
+                    forming_min_interval_ms=self._forming_min_interval_ms,
                 )
             except asyncio.CancelledError:
                 raise
@@ -228,3 +250,13 @@ class IngestSupervisor:
 
     def _is_pinned_whitelist(self, series_id: str) -> bool:
         return self._whitelist_ingest_enabled and series_id in self._whitelist
+
+    def _normalize_series_id(self, series_id: str) -> str:
+        if not is_derived_series_id_with_config(
+            series_id,
+            enabled=self._derived_enabled,
+            base_timeframe=self._derived_base_timeframe,
+            derived=self._derived_timeframes,
+        ):
+            return series_id
+        return to_base_series_id_with_base(series_id, base_timeframe=self._derived_base_timeframe)

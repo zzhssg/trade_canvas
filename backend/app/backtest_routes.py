@@ -4,6 +4,7 @@ from fastapi import APIRouter, FastAPI, Query
 
 from .dependencies import BacktestServiceDep
 from .schemas import BacktestPairTimeframesResponse, BacktestRunRequest, BacktestRunResponse, StrategyListResponse
+from .service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 
@@ -14,7 +15,10 @@ async def get_backtest_strategies(
     *,
     service: BacktestServiceDep,
 ) -> StrategyListResponse:
-    return await service.get_strategies(recursive=recursive)
+    try:
+        return await service.get_strategies(recursive=recursive)
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.get("/api/backtest/pair_timeframes", response_model=BacktestPairTimeframesResponse)
@@ -23,7 +27,10 @@ async def get_backtest_pair_timeframes(
     *,
     service: BacktestServiceDep,
 ) -> BacktestPairTimeframesResponse:
-    return await service.get_pair_timeframes(pair=pair)
+    try:
+        return await service.get_pair_timeframes(pair=pair)
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.post("/api/backtest/run", response_model=BacktestRunResponse)
@@ -32,7 +39,10 @@ async def run_backtest_job(
     *,
     service: BacktestServiceDep,
 ) -> BacktestRunResponse:
-    return await service.run(payload=payload)
+    try:
+        return await service.run(payload=payload)
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 def register_backtest_routes(app: FastAPI) -> None:

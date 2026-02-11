@@ -4,14 +4,12 @@ import hashlib
 import json
 import threading
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
-
 from .artifacts import resolve_artifacts_root
-from .flags import resolve_env_bool
+from .build_job_manager import BuildJobManager
+from .overlay_package_reader_v1 import OverlayPackageReaderV1
 from .overlay_package_builder_v1 import OverlayReplayBuildParamsV1, build_overlay_replay_package_v1, stable_json_dumps
 from .overlay_replay_protocol_v1 import (
     OverlayReplayDeltaMetaV1,
@@ -25,16 +23,6 @@ from .timeframe import series_id_timeframe, timeframe_to_seconds
 
 def _overlay_pkg_root() -> Path:
     return resolve_artifacts_root() / "overlay_replay_package_v1"
-
-
-@dataclass
-class _Job:
-    job_id: str
-    cache_key: str
-    status: str  # building|done|error
-    started_at_ms: int
-    finished_at_ms: int | None = None
-    error: str | None = None
 
 
 class OverlayReplayPackageServiceV1:
@@ -55,39 +43,32 @@ class OverlayReplayPackageServiceV1:
         window_candles: int = 2000,
         window_size: int = 500,
         snapshot_interval: int = 25,
+        replay_package_enabled: bool = False,
     ) -> None:
         self._candle_store = candle_store
         self._overlay_store = overlay_store
+        self._replay_package_enabled = bool(replay_package_enabled)
         self._defaults = {
             "window_candles": int(window_candles),
             "window_size": int(window_size),
             "snapshot_interval": int(snapshot_interval),
             "preload_offset": 0,
         }
-        self._lock = threading.Lock()
-        self._jobs: dict[str, _Job] = {}
+        self._reader = OverlayPackageReaderV1(
+            candle_store=self._candle_store,
+            overlay_store=self._overlay_store,
+            root_dir=_overlay_pkg_root(),
+        )
+        self._build_jobs = BuildJobManager()
 
     def enabled(self) -> bool:
-        return resolve_env_bool("TRADE_CANVAS_ENABLE_REPLAY_PACKAGE", fallback=False)
+        return bool(self._replay_package_enabled)
 
     def _resolve_to_time(self, series_id: str, to_time: int | None) -> int:
-        store_head = self._candle_store.head_time(series_id)
-        if store_head is None:
-            raise HTTPException(status_code=404, detail="no_data")
-        requested = int(to_time) if to_time is not None else int(store_head)
-        aligned = self._candle_store.floor_time(series_id, at_time=int(requested))
-        if aligned is None:
-            raise HTTPException(status_code=404, detail="no_data")
-        return int(aligned)
+        return self._reader.resolve_to_time(series_id, to_time)
 
     def _preflight_fail_safe(self, series_id: str, *, to_time: int) -> None:
-        """
-        Fail-safe alignment guardrail: we must not claim overlay is aligned to to_time
-        if overlay store has not been built up to that time.
-        """
-        overlay_head = self._overlay_store.head_time(series_id)
-        if overlay_head is None or int(overlay_head) < int(to_time):
-            raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
+        self._reader.ensure_overlay_aligned(series_id, to_time=to_time)
 
     def _compute_cache_key(self, series_id: str, *, to_time: int, window_candles: int, window_size: int, snapshot_interval: int) -> str:
         overlay_last_version_id = int(self._overlay_store.last_version_id(series_id))
@@ -106,29 +87,40 @@ class OverlayReplayPackageServiceV1:
         return h[:24]
 
     def _cache_dir(self, cache_key: str) -> Path:
-        return _overlay_pkg_root() / cache_key
+        return self._reader.cache_dir(cache_key)
 
     def _manifest_path(self, cache_key: str) -> Path:
-        return self._cache_dir(cache_key) / "manifest.json"
+        return self._reader.manifest_path(cache_key)
 
     def _meta_path(self, cache_key: str) -> Path:
-        return self._cache_dir(cache_key) / "delta_meta.json"
+        return self._reader.meta_path(cache_key)
 
     def _pkg_path(self, cache_key: str) -> Path:
-        return self._cache_dir(cache_key) / "delta_package_full.json"
+        return self._reader.package_path(cache_key)
 
     def cache_exists(self, cache_key: str) -> bool:
-        return self._manifest_path(cache_key).exists() and self._pkg_path(cache_key).exists() and self._meta_path(cache_key).exists()
+        return self._reader.cache_exists(cache_key)
 
     def read_meta(self, cache_key: str) -> OverlayReplayDeltaMetaV1:
-        path = self._meta_path(cache_key)
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return OverlayReplayDeltaMetaV1.model_validate(data)
+        return self._reader.read_meta(cache_key)
 
     def read_full_package(self, cache_key: str) -> OverlayReplayDeltaPackageV1:
-        path = self._pkg_path(cache_key)
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return OverlayReplayDeltaPackageV1.model_validate(data)
+        return self._reader.read_full_package(cache_key)
+
+    def _normalize_window_params(
+        self,
+        *,
+        window_candles: int | None,
+        window_size: int | None,
+        snapshot_interval: int | None,
+    ) -> tuple[int, int, int]:
+        wc = int(window_candles or self._defaults["window_candles"])
+        ws = int(window_size or self._defaults["window_size"])
+        si = int(snapshot_interval or self._defaults["snapshot_interval"])
+        wc = min(2000, max(100, wc))
+        ws = min(2000, max(50, ws))
+        si = min(200, max(5, si))
+        return (wc, ws, si)
 
     def read_only(
         self,
@@ -149,12 +141,11 @@ class OverlayReplayPackageServiceV1:
         to_candle_time = self._resolve_to_time(series_id, to_time)
         self._preflight_fail_safe(series_id, to_time=to_candle_time)
 
-        wc = int(window_candles or self._defaults["window_candles"])
-        ws = int(window_size or self._defaults["window_size"])
-        si = int(snapshot_interval or self._defaults["snapshot_interval"])
-        wc = min(2000, max(100, wc))
-        ws = min(2000, max(50, ws))
-        si = min(200, max(5, si))
+        wc, ws, si = self._normalize_window_params(
+            window_candles=window_candles,
+            window_size=window_size,
+            snapshot_interval=snapshot_interval,
+        )
 
         cache_key = self._compute_cache_key(series_id, to_time=to_candle_time, window_candles=wc, window_size=ws, snapshot_interval=si)
         job_id = cache_key
@@ -181,24 +172,20 @@ class OverlayReplayPackageServiceV1:
         to_candle_time = self._resolve_to_time(series_id, to_time)
         self._preflight_fail_safe(series_id, to_time=to_candle_time)
 
-        wc = int(window_candles or self._defaults["window_candles"])
-        ws = int(window_size or self._defaults["window_size"])
-        si = int(snapshot_interval or self._defaults["snapshot_interval"])
-        wc = min(2000, max(100, wc))
-        ws = min(2000, max(50, ws))
-        si = min(200, max(5, si))
+        wc, ws, si = self._normalize_window_params(
+            window_candles=window_candles,
+            window_size=window_size,
+            snapshot_interval=snapshot_interval,
+        )
 
         cache_key = self._compute_cache_key(series_id, to_time=to_candle_time, window_candles=wc, window_size=ws, snapshot_interval=si)
         job_id = cache_key
         if self.cache_exists(cache_key):
             return ("done", job_id, cache_key)
 
-        with self._lock:
-            existing = self._jobs.get(job_id)
-            if existing is not None:
-                return (existing.status, existing.job_id, existing.cache_key)
-            job = _Job(job_id=job_id, cache_key=cache_key, status="building", started_at_ms=int(time.time() * 1000))
-            self._jobs[job_id] = job
+        existing, created = self._build_jobs.ensure(job_id=job_id, cache_key=cache_key)
+        if not created:
+            return (existing.status, existing.job_id, existing.cache_key)
 
         def runner() -> None:
             try:
@@ -243,18 +230,9 @@ class OverlayReplayPackageServiceV1:
                     encoding="utf-8",
                 )
 
-                with self._lock:
-                    j = self._jobs.get(job_id)
-                    if j is not None:
-                        j.status = "done"
-                        j.finished_at_ms = int(time.time() * 1000)
+                self._build_jobs.mark_done(job_id=job_id)
             except Exception as e:
-                with self._lock:
-                    j = self._jobs.get(job_id)
-                    if j is not None:
-                        j.status = "error"
-                        j.error = str(e)
-                        j.finished_at_ms = int(time.time() * 1000)
+                self._build_jobs.mark_error(job_id=job_id, error=str(e))
 
         t = threading.Thread(target=runner, name=f"tc-overlay-replay-{job_id}", daemon=True)
         t.start()
@@ -262,9 +240,7 @@ class OverlayReplayPackageServiceV1:
 
     def status(self, *, job_id: str, include_delta_package: bool) -> dict[str, Any]:
         job_id = str(job_id)
-        with self._lock:
-            j = self._jobs.get(job_id)
-
+        j = self._build_jobs.get(job_id)
         cache_key = job_id
         if j is None:
             # Process may have restarted; if cache exists treat as done, else build_required.
@@ -304,20 +280,4 @@ class OverlayReplayPackageServiceV1:
         return {"status": "building", "job_id": job_id, "cache_key": cache_key}
 
     def window(self, *, job_id: str, target_idx: int) -> OverlayReplayWindowV1:
-        cache_key = str(job_id)
-        if not self.cache_exists(cache_key):
-            raise HTTPException(status_code=404, detail="not_found")
-        pkg = self.read_full_package(cache_key)
-        if not pkg.windows:
-            raise HTTPException(status_code=404, detail="not_found")
-
-        idx = int(target_idx)
-        if idx < 0 or idx >= int(pkg.delta_meta.total_candles):
-            raise HTTPException(status_code=422, detail="target_idx_out_of_range")
-
-        window_size = int(pkg.delta_meta.window_size)
-        window_index = idx // window_size
-        if window_index < 0 or window_index >= len(pkg.windows):
-            raise HTTPException(status_code=422, detail="window_index_out_of_range")
-        w = pkg.windows[window_index]
-        return w
+        return self._reader.read_window(cache_key=str(job_id), target_idx=int(target_idx))

@@ -1,24 +1,41 @@
-# Source of Truth（真源）
+---
+title: Source of Truth（真源总表）
+status: done
+created: 2026-02-02
+updated: 2026-02-11
+---
 
-本文件用于明确“唯一权威位置”，避免同一事实在多处漂移。
+# Source of Truth（真源总表）
 
-## 约定
-- 如果某个 schema/契约/关键常量存在唯一权威位置：在这里登记，并在其它文档中引用它。
-- 若权威位置发生迁移：必须同时更新这里和相关引用文档。
+本表用于明确“唯一权威位置”，避免同一事实在多处漂移。
 
-## 真源清单（待补全）
+维护规则：
+1. 真源迁移时，必须同轮更新本表。
+2. 非真源文档只能引用，不复制关键规则。
+3. 核心链路变更后必须跑 `bash docs/scripts/doc_audit.sh`。
 
-| 主题 | 真源位置（代码/文档） | 说明 |
+## 真源清单
+
+| 主题 | 真源位置 | 说明 |
 |---|---|---|
-| CandleClosed / candle_id / series_id | `docs/core/market-kline-sync.md` | 市场 K 线同步的稳定主键与字段最小集合（闭合 K 为权威输入） |
-| 市场 K 线同步协议（HTTP + WS） | `docs/core/market-kline-sync.md` | Whitelist 实时 + 非白名单按需补齐的最小 v1 设计 |
-| Whitelist（series_id 列表） | `backend/config/market_whitelist.json` | 白名单内币种需要保证实时性；可作为 ingest 常驻的输入 |
-| backtest（freqtrade bridge） | `docs/core/backtest.md` | 策略列表、回测运行、stdout/stderr 输出与最小配置口径 |
-| Agent 工作流 / 门禁 / 验收 SOP | `docs/core/agent-workflow.md` | 从 agent 入口到 E2E/文档/验收脚本的一致流程与证据口径 |
-| 因子数据外壳（history/head/meta） | `docs/core/contracts/factor_v1.md` | 因子输出的统一外壳 + 冷热语义与不变量 |
-| 因子拓扑（depends_on）与调度 | `docs/core/contracts/factor_graph_v1.md` | 拓扑闭包、稳定拓扑序、deps_snapshot 只读约束 |
-| 因子开发 SDK（实现规范） | `docs/core/contracts/factor_sdk_v1.md` | 因子运行时接口 + 事件/快照落地语义 |
-| 因子真源账本（冷热） | `docs/core/contracts/factor_ledger_v1.md` | 冷事件流定点切片 + 热快照定点查询 + 幂等/可复现门禁 |
-| 二级增量账本（delta） | `docs/core/contracts/delta_ledger_v1.md` | live/replay 共用的增量数据源（避免各处重算漂移） |
-| Overlay / chart 指令 | `docs/core/contracts/overlay_v1.md` | 绘图增量（points + overlay_events + cursor） |
-| Adapter 边界契约 | `docs/core/contracts/strategy_v1.md` | 策略消费快照与 fail-safe（candle_id 对齐门禁） |
+| 后端架构总览 | `docs/core/architecture.md` | 系统分层、职责边界、扩展策略 |
+| 后端链路拆解 | `docs/core/backend-chain-breakdown.md` | 启动/写入/读取/回放的代码级路径 |
+| 市场 K 线同步 | `docs/core/market-kline-sync.md` | closed/forming 语义、WS/回补/derived 策略 |
+| 因子模块化 | `docs/core/factor-modular-architecture.md` | factor 写读链路、插件接入面 |
+| Backtest 链路 | `docs/core/backtest.md` | backtest 分层、开关、失败语义 |
+| API v1 总入口 | `docs/core/api/v1/README.md` | 所有 HTTP/WS 文档索引与门禁格式 |
+| 契约总入口 | `docs/core/contracts/README.md` | 契约索引与版本化文档入口 |
+| factor 外壳契约 | `docs/core/contracts/factor_v1.md` | history/head/meta 统一外壳 |
+| factor ledger 契约 | `docs/core/contracts/factor_ledger_v1.md` | 冷热账本与切片读取约束 |
+| draw delta 契约 | `docs/core/contracts/draw_delta_v1.md` | 图形增量协议（cursor + patch） |
+| world state/delta 契约 | `docs/core/contracts/world_state_v1.md` / `docs/core/contracts/world_delta_v1.md` | 世界态聚合与增量轮询语义 |
+| replay package 契约 | `docs/core/contracts/replay_package_v1.md` | replay 打包接口与窗口语义 |
+| 市场榜单契约 | `docs/core/contracts/market_list_v1.md` | top markets HTTP/SSE 契约 |
+| 配置真源（代码） | `backend/app/flags.py` / `backend/app/runtime_flags.py` | FeatureFlags 与 RuntimeFlags 唯一实现 |
+| DI 装配真源（代码） | `backend/app/container.py` | 所有核心依赖的启动装配入口 |
+| 写链路真源（代码） | `backend/app/pipelines/ingest_pipeline.py` | candles->factor->overlay 单路径编排 |
+
+## 非真源文档处理
+
+- 历史说明、迁移日志、踩坑记录应放在 `docs/经验/` 或 `docs/复盘/`。
+- 若保留在 `docs/core/`，必须明确标注 `status: deprecated` 且给出替代入口。

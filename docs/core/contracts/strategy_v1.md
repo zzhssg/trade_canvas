@@ -1,8 +1,8 @@
 ---
 title: Strategy Contract v1（策略类数据结构）
-status: draft
+status: done
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-11
 ---
 
 # Strategy Contract v1（策略类数据结构）

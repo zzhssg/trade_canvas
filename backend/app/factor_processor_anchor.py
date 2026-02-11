@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 from .anchor_semantics import should_append_switch
+from .factor_pen_contract import (
+    anchor_pen_ref_key,
+    build_anchor_pen_ref,
+    pen_strength as calc_pen_strength,
+)
 from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
 from .factor_registry import ProcessorSpec
 from .factor_runtime_contract import FactorRuntimeContext
@@ -132,11 +137,8 @@ class AnchorProcessor:
         return {"current_anchor_ref": state.anchor_current_ref}
 
     @staticmethod
-    def pen_strength(pen: dict[str, Any]) -> float:
-        try:
-            return abs(float(pen.get("end_price") or 0.0) - float(pen.get("start_price") or 0.0))
-        except Exception:
-            return -1.0
+    def pen_strength(pen: Mapping[str, Any]) -> float:
+        return float(calc_pen_strength(pen))
 
     @staticmethod
     def beats_anchor_strength(*, candidate_strength: float, baseline_anchor_strength: float | None) -> bool:
@@ -145,28 +147,24 @@ class AnchorProcessor:
         return float(candidate_strength) > float(baseline_anchor_strength)
 
     @staticmethod
-    def pen_ref_from_pen(pen: dict[str, Any], *, kind: str) -> dict[str, int | str]:
+    def pen_ref_from_pen(pen: Mapping[str, Any], *, kind: str) -> dict[str, int | str]:
+        ref = build_anchor_pen_ref(pen, kind=kind)
         return {
-            "kind": str(kind),
-            "start_time": int(pen.get("start_time") or 0),
-            "end_time": int(pen.get("end_time") or 0),
-            "direction": int(pen.get("direction") or 0),
+            "kind": str(ref["kind"]),
+            "start_time": int(ref["start_time"]),
+            "end_time": int(ref["end_time"]),
+            "direction": int(ref["direction"]),
         }
 
     @staticmethod
-    def _pen_ref_key_from_ref(ref: dict[str, Any]) -> tuple[int, int, int] | None:
-        try:
-            start_time = int(ref.get("start_time") or 0)
-            end_time = int(ref.get("end_time") or 0)
-            direction = int(ref.get("direction") or 0)
-        except Exception:
-            return None
-        if start_time <= 0 or end_time <= 0 or direction not in {-1, 1}:
-            return None
-        return (int(start_time), int(end_time), int(direction))
+    def _pen_ref_key_from_ref(ref: Mapping[str, Any]) -> tuple[int, int, int] | None:
+        return anchor_pen_ref_key(ref)
 
     @classmethod
-    def _build_confirmed_pen_ref_index(cls, confirmed_pens: list[dict[str, Any]]) -> dict[tuple[int, int, int], dict[str, Any]]:
+    def _build_confirmed_pen_ref_index(
+        cls,
+        confirmed_pens: list[dict[str, Any]],
+    ) -> dict[tuple[int, int, int], dict[str, Any]]:
         out: dict[tuple[int, int, int], dict[str, Any]] = {}
         for pen in confirmed_pens:
             key = cls._pen_ref_key_from_ref(pen)
@@ -192,7 +190,7 @@ class AnchorProcessor:
     def maybe_pick_stronger_pen(
         self,
         *,
-        candidate_pen: dict[str, Any],
+        candidate_pen: Mapping[str, Any],
         kind: str,
         baseline_anchor_strength: float | None,
         current_best_ref: dict[str, int | str] | None,
@@ -223,7 +221,7 @@ class AnchorProcessor:
             last_switch = anchor_switches[-1]
             cur = last_switch.get("new_anchor")
             if isinstance(cur, dict):
-                anchor_current_ref = dict(cur)
+                anchor_current_ref = self.pen_ref_from_pen(cur, kind=str(cur.get("kind") or ""))
                 kind = str(cur.get("kind") or "")
                 if kind == "confirmed":
                     if confirmed_pen_ref_index is None:

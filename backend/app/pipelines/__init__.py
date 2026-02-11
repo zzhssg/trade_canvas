@@ -1,5 +1,6 @@
 from .ingest_pipeline import (
     IngestPipeline,
+    IngestPipelineError,
     IngestPipelineResult,
     IngestSeriesBatch,
     IngestStepResult,
@@ -7,6 +8,7 @@ from .ingest_pipeline import (
 
 __all__ = [
     "IngestPipeline",
+    "IngestPipelineError",
     "IngestPipelineResult",
     "IngestSeriesBatch",
     "IngestStepResult",

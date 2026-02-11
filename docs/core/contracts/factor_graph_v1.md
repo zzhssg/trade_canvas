@@ -1,8 +1,8 @@
 ---
 title: Factor Graph Contract v1（因子拓扑与调度）
-status: draft
+status: done
 created: 2026-02-02
-updated: 2026-02-10
+updated: 2026-02-11
 ---
 
 # Factor Graph Contract v1（因子拓扑与调度）

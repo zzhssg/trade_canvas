@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import tempfile
 import time
 import unittest
@@ -20,13 +19,8 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.tmpdir.cleanup()
-        os.environ.pop("TRADE_CANVAS_ONDEMAND_MAX_JOBS", None)
-        os.environ.pop("TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES", None)
-        os.environ.pop("TRADE_CANVAS_DERIVED_BASE_TIMEFRAME", None)
-        os.environ.pop("TRADE_CANVAS_DERIVED_TIMEFRAMES", None)
 
     def test_capacity_denies_when_full_and_no_idle(self) -> None:
-        os.environ["TRADE_CANVAS_ONDEMAND_MAX_JOBS"] = "1"
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
         sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), ondemand_max_jobs=1)
@@ -59,7 +53,6 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
         asyncio.run(run())
 
     def test_capacity_evicts_idle_job(self) -> None:
-        os.environ["TRADE_CANVAS_ONDEMAND_MAX_JOBS"] = "1"
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
         sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), ondemand_max_jobs=1)
@@ -96,13 +89,16 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
         asyncio.run(run())
 
     def test_derived_subscription_maps_to_base_job(self) -> None:
-        os.environ["TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES"] = "1"
-        os.environ["TRADE_CANVAS_DERIVED_BASE_TIMEFRAME"] = "1m"
-        os.environ["TRADE_CANVAS_DERIVED_TIMEFRAMES"] = "5m"
-
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
-        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=())
+        sup = IngestSupervisor(
+            store=store,
+            hub=hub,
+            whitelist_series_ids=(),
+            derived_enabled=True,
+            derived_base_timeframe="1m",
+            derived_timeframes=("5m",),
+        )
         started: list[str] = []
 
         def _fake_start_job(self, series_id: str, *, refcount: int) -> _Job:  # noqa: ANN001

@@ -1,8 +1,8 @@
 ---
 title: Factor Ledger Contract v1（冷热真源账本）
-status: draft
+status: done
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-11
 ---
 
 # Factor Ledger Contract v1（冷热真源账本）

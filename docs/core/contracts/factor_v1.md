@@ -1,8 +1,8 @@
 ---
 title: Factor Contract v1（因子类数据结构）
-status: draft
+status: done
 created: 2026-02-02
-updated: 2026-02-02
+updated: 2026-02-11
 ---
 
 # Factor Contract v1（因子类数据结构）

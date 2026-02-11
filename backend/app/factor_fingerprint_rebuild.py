@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .debug_hub import DebugHub
-from .factor_runtime_config import factor_rebuild_keep_candles
 from .factor_store import FactorStore
 from .store import CandleStore
 
@@ -22,10 +21,12 @@ class FactorFingerprintRebuildCoordinator:
         candle_store: CandleStore,
         factor_store: FactorStore,
         debug_hub: DebugHub | None = None,
+        keep_candles: int = 2000,
     ) -> None:
         self._candle_store = candle_store
         self._factor_store = factor_store
         self._debug_hub = debug_hub
+        self._keep_candles = max(100, int(keep_candles))
 
     def _emit_rebuild_event(
         self,
@@ -64,7 +65,7 @@ class FactorFingerprintRebuildCoordinator:
         if current is not None and str(current.fingerprint) == str(current_fingerprint):
             return FactorFingerprintRebuildOutcome(forced=False)
 
-        keep_candles = factor_rebuild_keep_candles()
+        keep_candles = int(self._keep_candles)
         trimmed_rows = 0
         with self._candle_store.connect() as conn:
             trimmed_rows = self._candle_store.trim_series_to_latest_n_in_conn(

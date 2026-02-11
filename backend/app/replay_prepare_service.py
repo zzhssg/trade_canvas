@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fastapi import HTTPException
-
 from .debug_hub import DebugHub
 from .factor_store import FactorStore
 from .overlay_store import OverlayStore
 from .pipelines import IngestPipeline
 from .schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
+from .service_errors import ServiceError
 from .store import CandleStore
 
 
@@ -24,11 +23,11 @@ class ReplayPrepareService:
     def _require_aligned_time(self, *, series_id: str, to_time: int | None) -> tuple[int, int]:
         store_head = self.store.head_time(series_id)
         if store_head is None:
-            raise HTTPException(status_code=404, detail="no_data")
+            raise ServiceError(status_code=404, detail="no_data", code="replay_prepare.no_data")
         requested_time = int(to_time) if to_time is not None else int(store_head)
         aligned = self.store.floor_time(series_id, at_time=int(requested_time))
         if aligned is None:
-            raise HTTPException(status_code=404, detail="no_data")
+            raise ServiceError(status_code=404, detail="no_data", code="replay_prepare.no_data")
         return int(requested_time), int(aligned)
 
     @staticmethod
@@ -58,9 +57,17 @@ class ReplayPrepareService:
         factor_head = self.factor_store.head_time(series_id)
         overlay_head = self.overlay_store.head_time(series_id)
         if factor_head is None or int(factor_head) < int(aligned):
-            raise HTTPException(status_code=409, detail="ledger_out_of_sync:factor")
+            raise ServiceError(
+                status_code=409,
+                detail="ledger_out_of_sync:factor",
+                code="replay_prepare.ledger_out_of_sync.factor",
+            )
         if overlay_head is None or int(overlay_head) < int(aligned):
-            raise HTTPException(status_code=409, detail="ledger_out_of_sync:overlay")
+            raise ServiceError(
+                status_code=409,
+                detail="ledger_out_of_sync:overlay",
+                code="replay_prepare.ledger_out_of_sync.overlay",
+            )
 
         if bool(self.debug_api_enabled):
             self.debug_hub.emit(

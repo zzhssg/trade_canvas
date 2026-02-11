@@ -1,399 +1,235 @@
 ---
-title: 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
-status: draft
+title: 市场 K 线同步（当前实现）
+status: done
 created: 2026-02-02
-updated: 2026-02-10
+updated: 2026-02-11
 ---
 
-# 市场 K 线同步（Whitelist 实时 + 非白名单按需补齐）
+# 市场 K 线同步（当前实现）
 
-目标：让 **因子引擎（策略）** 与 **前端图表** 消费同一套 `CandleClosed` 真源，并在资源可控的前提下实现：
+本文只描述 **当前可运行实现**，不再保留阶段迁移日志。
 
-1) **白名单内币种**：后台持续 ingest，保证实时性（闭合后尽快可用）。  
-2) **白名单外币种**：只有当用户在前端查看时，才触发“历史增量补齐 + WS 实时跟随”。
-
-本设计“批判性继承”自 `trade_system` 的核心口径（只继承契约/术语/不变量，不继承实现细节）：
-- `closed` 为权威输入，`forming` 仅用于显示。
-- 使用稳定坐标 `candle_time`（Unix seconds）作为跨窗口/跨 seek 的主键；`idx` 仅允许作为局部窗口编号（如需要）。
-- append-only 事件流优先，避免全量重算与语义漂移。
-
-参考来源（仅供对齐术语/不变量）：  
-`../trade_system/user_data/doc/Core/核心架构.md`、`../trade_system/user_data/doc/Core/术语与坐标系（idx-time-offset）.md`
+目标：让 market 数据链路在“同输入同输出”前提下，同时满足：
+- closed 数据可持续落库并驱动下游；
+- forming 数据可用于 UI 实时展示；
+- 白名单常驻 + 非白名单按需都能稳定工作。
 
 ---
 
-## 0. 关键术语（必须一致）
+## 1. 核心术语与不变量
 
-### 0.1 CandleSeries（K 线序列）
+### 1.1 序列标识
 
-一条序列由下列维度唯一确定：
-- `exchange`（例如 `binance`）
-- `market`（例如 `spot` / `futures`，可选）
-- `symbol`（例如 `BTC/USDT`）
-- `timeframe`（例如 `1m` / `5m`）
+- `series_id = {exchange}:{market}:{symbol}:{timeframe}`
+- `candle_id = {series_id}:{candle_time}`
 
-建议派生一个稳定标识：
-- `series_id = "{exchange}:{market}:{symbol}:{timeframe}"`（或等价确定性表示）
+### 1.2 数据语义
 
-### 0.2 CandleClosed（闭合 K）
+- `closed`：权威输入，允许落库并驱动 factor/overlay。
+- `forming`：展示输入，仅广播，不落库，不参与因子/策略。
 
-闭合 K 的权威字段（最小集合）：
-- `candle_time`：K 线开盘时间（Unix seconds，整齐对齐 timeframe 边界）
-- `open/high/low/close/volume`
+### 1.3 写链路顺序
 
-稳定主键（用于所有下游对齐与去重）：
-- `candle_id = "{series_id}:{candle_time}"`
+固定顺序：`candles -> factor -> overlay -> publish`
 
-> 说明：这里把 trade_canvas 的 `candle_id={symbol}:{timeframe}:{open_time}` 扩展成带 `exchange/market` 的 `series_id`，避免多交易所/多市场冲突。
-
-### 0.3 Forming（未闭合 K）
-
-`forming` 仅用于图表“当前 K 的动态更新”，必须满足：
-- 不进入因子引擎与策略信号
-- 不落库为权威历史
+统一执行器：`backend/app/pipelines/ingest_pipeline.py`
 
 ---
 
-## 1. 总体架构（同源双轨）
+## 2. 模块职责
 
-同一条 `CandleClosed` 事件流，分叉出两条消费：
-- **策略/因子**：增量更新产出 `ledger`（策略读取的最新指标/信号）
-- **图表**：增量更新产出 `overlay`（绘图指令）
+### 2.1 市场运行时装配
 
-市场 K 线同步本身只负责：**把 `CandleClosed` 稳定、可补齐、可订阅地提供给上述两条链路**。
+- `backend/app/market_runtime_builder.py`
+- `backend/app/market_runtime.py`
 
-### 1.1 模块收口目标（Phase A，契约先行）
+职责：
+- 组装 reader/backfill/ws/coordinator/supervisor。
+- 绑定 `FeatureFlags + RuntimeFlags`。
+- 输出 `MarketRuntime` 给 HTTP/WS 路由复用。
 
-为降低当前 K 线逻辑分散在 `main.py` / `ws_hub.py` / 各类 backfill 脚本的治理成本，v1 先在
-`backend/app/market_data/contracts.py` 统一定义领域能力契约，不改线上行为：
+### 2.2 市场数据子模块
 
-- `CandleReadService`：一次性读取 / 增量读取 / 区间读取（只读 closed）。
-- `BackfillService`：gap 回补与 tail 覆盖（best-effort）。
-- `FreshnessService`：序列新鲜度判定（missing/fresh/stale/degraded）。
-- `WsDeliveryService`：WS 订阅阶段 catchup 与 gap 修复策略。
-- `MarketDataOrchestrator`：面向 API/WS 的总编排入口。
+目录：`backend/app/market_data/`
 
-后续 Phase B/C 仅允许在该契约边界内迁移实现，避免继续在路由层和 hub 层散落同类逻辑。
+- `read_services.py`：读取、freshness、backfill 服务
+- `orchestrator.py`：market_data 聚合编排
+- `ws_services.py`：ws 消息解析与订阅协同
+- `derived_services.py`：derived 首次回填处理
 
-### 1.2 收口进度（Phase B，读链路先迁）
+### 2.3 路由层
 
-当前已完成第一步行为保持型迁移（不改 HTTP/WS 对外契约）：
-- `GET /api/market/candles` 的读取入口改为经 `MarketDataOrchestrator.read_candles(...)`。
-- WS 订阅 catchup 的读取与 gap-heal 调度改为经 `MarketDataOrchestrator`。
-- `FreshnessService` 负责提供 `head_time/lag/state` 快照，路由层不再直接拼装新鲜度口径。
+- HTTP：`backend/app/market_http_routes.py`、`backend/app/market_meta_routes.py`
+- WS：`backend/app/market_ws_routes.py`
 
-### 1.3 收口进度（Phase C，gap 回补集中化）
-
-当前已把 `gap -> best-effort backfill -> 区间回读` 从路由内联逻辑迁移到 `market_data`：
-- `StoreBackfillService.backfill_gap(...)` 统一承接 gap 回补（含 kill-switch）。
-- `StoreBackfillService.ensure_tail_coverage(...)` 支持按 `to_time` + `target_candles` 评估覆盖窗口。
-- `build_gap_backfill_handler(...)` 统一封装 WS gap 回补处理器并注入 `CandleHub`。
-- `main.py` 不再内联 gap 回补细节，仅负责装配 `reader/backfill/orchestrator`。
-
-### 1.4 收口进度（Phase D，derived 首次回填集中化）
-
-当前已把“订阅 derived 序列时的首次历史回填（best-effort）”从 `main.py` 内联逻辑迁移到 `market_data`：
-- `build_derived_initial_backfill_handler(...)` 统一封装 derived 首次回填流程（开关判定 + rollup + sidecar）。
-- `main.py` 在 WS subscribe 前仅调用 handler，不再直接处理 derived 的回填细节。
-- 回填后仍保持既有行为：按 `rebuilt` 决定是否 reset overlay，再 ingest overlay。
-
-### 1.5 收口进度（Phase E，WS catchup 协调集中化）
-
-当前已把 WS subscribe 中 `since / last_sent / catchup / gap-heal` 的协调逻辑集中到 `market_data`：
-- `MarketDataOrchestrator.build_ws_catchup(...)` 统一处理 catchup 过滤与 gap-heal。
-- 为保持并发语义，路由层仍先 read、后取 `last_sent`，再把 read 结果交给 orchestrator 汇总。
-- 路由层只保留 WS 协议编解码与发包，不再拼装 catchup 过滤细节。
-
-### 1.6 收口进度（Phase F，WS catchup 发包策略集中化）
-
-当前已把 WS catchup 的发包策略（`gap + candles_batch/candle_closed`）集中到 `market_data`：
-- `MarketDataOrchestrator.build_ws_emit(...)` 统一构造 WS payload 队列与 `last_sent_time`。
-- 路由层只做 `send_json` 循环与 `hub.set_last_sent(...)` 一次性更新。
-- 批量/逐条两条路径的消息结构保持不变（兼容现有客户端）。
-
-### 1.7 收口进度（Phase G，订阅协同集中化）
-
-当前已把 WS subscribe 中“ondemand 容量判定 + hub 订阅/退订协同”抽到 `market_data`：
-- `WsSubscriptionCoordinator.subscribe(...)` 统一处理：容量判定失败时返回标准 `capacity` 错误 payload；成功时执行 hub 订阅。
-- `WsSubscriptionCoordinator.unsubscribe(...)` 统一处理 ondemand/hub 退订协同。
-- 路由层不再直接拼装 `capacity` 错误结构，减少协议漂移点。
-
-### 1.8 收口进度（Phase H，断线清理协同集中化）
-
-当前已把 WS 断线后的清理逻辑（`hub.pop_ws + ondemand refcount release`）从路由层抽到 `market_data`：
-- `WsSubscriptionCoordinator.cleanup_disconnect(...)` 统一处理断线后订阅集合合并与 ondemand 退订。
-- 路由层 finally 仅调用一次 cleanup，不再内联循环释放逻辑。
-- 断线清理异常对主链路保持 best-effort（逐条保护，避免放大故障）。
-
-### 1.9 收口进度（Phase I，订阅状态本地化到 Coordinator）
-
-当前已把 WS 路由里的 `subscribed_series` 本地状态管理下沉到 `WsSubscriptionCoordinator`：
-- coordinator 内部维护 ws→series 集合，并在 subscribe/unsubscribe 时增删。
-- `cleanup_disconnect(...)` 使用“coordinator 本地集合 ∪ hub.pop_ws”统一释放，不再依赖路由传参。
-- 路由层进一步收敛为协议编解码与单点调用。
-
-### 1.10 收口进度（Phase J，订阅主流程统一入口）
-
-当前已把 WS subscribe 的“回填 + 订阅 + catchup + 发包准备”串联到 coordinator：
-- `WsSubscriptionCoordinator.handle_subscribe(...)` 统一执行：derived 初次回填（best-effort）→ 容量判定/订阅 → read/catchup → emit payload 构造 → `last_sent` 更新。
-- 路由层只保留协议校验与 `send_json`，不再内联拼接 catchup/emit 的流程细节。
-- 保持原有并发语义：仍然“先 read，再读取 last_sent，再做 catchup 过滤”，避免 race 条件下重复推送。
-
-### 1.11 收口进度（Phase K，WS 消息校验集中化）
-
-当前已把 `/ws/market` 中 subscribe/unsubscribe 的参数校验从路由层收口到 `market_data`：
-- `WsMessageParser.parse_subscribe(...)` 统一处理 `series_id/since/supports_batch` 校验并输出标准 bad_request payload。
-- `WsMessageParser.parse_unsubscribe_series_id(...)` 统一处理 unsubscribe 的 series_id 提取（保持“无效值静默忽略”的兼容行为）。
-- 路由层继续只做协议分发与发包，减少协议字段校验逻辑在 `main.py` 的散落。
-
-### 1.12 收口进度（Phase L，WS 消息入口解析统一化）
-
-当前已把 `/ws/market` 的消息入口校验也并入 parser：
-- `WsMessageParser.parse_message_type(...)` 统一处理“非对象消息体 / 缺失 type”的 bad_request 返回，避免路由对 `msg.get(...)` 的隐式假设。
-- `WsMessageParser.unknown_message_type(...)` 统一未知消息类型错误结构，减少路由硬编码。
-- 路由层改为“接收消息 -> parser 解析 -> coordinator 执行”，WS 主链路的协议处理更集中、可测。
-
-### 1.13 收口进度（Phase M，WS 错误 payload 统一构造）
-
-当前已把 market WS 链路中的错误 payload 构造集中为统一函数：
-- `build_ws_error_payload(...)` 统一生产 `error` 消息（`bad_request/capacity` 等），避免 parser 与 coordinator 各自拼字典。
-- `WsMessageParser.bad_request(...)` 与 `WsSubscriptionCoordinator.subscribe(...)` 复用同一构造器，保证字段形态一致（含可选 `series_id`）。
-- 路由层继续只消费“已构造好的错误 payload”，减少协议细节泄漏。
-
-### 1.14 收口进度（Phase N，P0 治理项合并落地）
-
-当前已完成一轮 P0 收口，把协议常量、路由职责、观测口径和关键参数统一到可治理形态：
-- 新增 `backend/app/ws_protocol.py`，集中维护 WS 主消息类型与错误码/错误文案常量（避免字符串散落）。
-- `/ws/market` 在 `main.py` 仅保留 endpoint 声明，实际处理下沉到 `market_ws_routes.handle_market_ws(...)`，实现“主文件薄路由”。
-- `WsSubscriptionCoordinator.handle_subscribe(...)` 增加结构化日志（读量/catchup 量/payload 量/gap 标记/耗时），便于线上排障与容量评估。
-- `WsMessageParser.parse_subscribe(...)` 改为强类型返回 `WsSubscribeCommand`（非法参数走异常），移除成功分支的 Optional 语义。
-- 把 `catchup_limit`、gap 回读上限、fresh/stale 窗口收口到配置：
-  - `TRADE_CANVAS_MARKET_WS_CATCHUP_LIMIT`
-  - `TRADE_CANVAS_MARKET_GAP_BACKFILL_READ_LIMIT`
-  - `TRADE_CANVAS_MARKET_FRESH_WINDOW_CANDLES`
-  - `TRADE_CANVAS_MARKET_STALE_WINDOW_CANDLES`
-
-### 1.15 收口进度（Phase O，Market Runtime 单路径）
-
-当前已把 market 链路收口为单路径实现（不再保留 runtime v2 灰度分支）：
-- `market_http_routes.py` 承接 `GET /api/market/candles` 与 ingest 相关 endpoint；`main.py` 不再内联实现 market HTTP 逻辑。
-- `market_meta_routes.py` 承接白名单、ingest_state、top_markets（含 SSE）等 market 辅助读接口。
-- `MarketRuntime` typed container（`app.state.market_runtime`）作为 market 依赖真源，HTTP/WS 统一从该对象取依赖，不再散落读取 `app.state` 字段。
-- `market_ws_routes.handle_market_ws(...)` 与 market HTTP 路由共享同一运行时依赖集合，保证行为一致与可测试性。
-- `draw_routes.py` 承接 `/api/draw/delta` 与 `app.state.read_draw_delta` 读函数注册，避免 world/frame 路由与 draw 逻辑散落在入口文件。
-- `debug_routes.py` 承接 `/ws/debug` 处理逻辑；`main.py` 仅保留 websocket 入口声明并委托 handler。
-
-### 1.16 收口进度（Phase P，市场数据子模块再拆分 + 配置口径统一）
-
-在 Phase O 的单路径基础上，进一步消除 `market_data/services.py` 单文件过载问题：
-- `market_data/read_services.py`：承接 `StoreCandleReadService` / `StoreBackfillService` / `StoreFreshnessService`。
-- `market_data/orchestrator.py`：承接 `DefaultMarketDataOrchestrator` / `HubWsDeliveryService` / `build_gap_backfill_handler`。
-- `market_data/ws_services.py`：承接 `WsMessageParser` / `WsSubscriptionCoordinator` / `build_ws_error_payload`。
-- `market_data/derived_services.py`：承接 `build_derived_initial_backfill_handler`。
-- 删除 `market_data/services.py` 旧兼容入口，统一只保留 `read_services / orchestrator / ws_services / derived_services` 四个新模块作为唯一实现。
-
-同时统一市场链路环境变量读取入口：
-- 新增 `market_flags.py`，集中解析 debug / auto-tail-backfill / gap-backfill / ccxt-backfill / ondemand / derived-backfill 等开关与阈值。
-- `market_http_routes.py`、`market_ws_routes.py`、`market_meta_routes.py`、`ingest_supervisor.py`、`market_backfill.py`、`history_bootstrapper.py`、`main.py` 均改为复用该入口，减少重复 parse 与口径漂移。
-
-### 1.17 收口进度（Phase Q，ingest 应用服务下沉 + 装配继续瘦身）
-
-进一步处理剩余 P1 技术债：
-- 新增 `market_ingest_service.py`，将 `ingest_candle_closed` 的 `store -> factor -> overlay -> hub` 编排从 `market_http_routes.py` 下沉到应用服务层。
-- `market_http_routes.py` 仅保留参数/权限门禁与 `runtime.ingest` 调用，路由层不再承载写链路编排细节。
-- 新增 `market_runtime_builder.py`，将 market runtime 相关装配从 `main.py` 拆出；`main.py` 只保留 app 级装配与生命周期管理。
-- `history_bootstrapper.py` 的 datadir 读取不再直接访问 `TRADE_CANVAS_FREQTRADE_DATADIR`，改为复用 `config.Settings.freqtrade_datadir`，配置入口更统一。
-
-### 1.18 收口进度（Phase R，Live K 线健康灯口径统一）
-
-针对 Live 模式三色灯（绿/黄/红）新增统一健康口径与可观测字段：
-- 新增 `GET /api/market/health`（受 `TRADE_CANVAS_ENABLE_KLINE_HEALTH_V2` 控制，默认关闭）。
-- 后端新增 `MarketBackfillProgressTracker`，在 `ensure_tail_coverage` 过程中跟踪回补状态与估算进度。
-- 返回 `missing_seconds / missing_candles`（DB 相对最新闭合 K 的缺失）与 `backfill.progress_pct`（黄灯进度展示）。
-- 前端通过 `VITE_ENABLE_KLINE_HEALTH_LAMP_V2` 控制是否展示 mode:live 左侧灯状态，便于灰度和回滚。
+职责：
+- 做协议输入输出与参数校验。
+- 调用 runtime service，不承载复杂业务分支。
 
 ---
 
-## 2. Part A：白名单内币种（保证实时性）
+## 3. HTTP 链路
 
-### 2.1 行为目标
+### 3.1 读 candles
 
-对白名单内的 `(series_id)`：
-- 后台持续 ingest（无需前端有人查看）
-- 保证闭合 K 线在“可接受延迟”内进入本地真源（store），并可通过 API/WS 消费
+接口：`GET /api/market/candles`
 
-> “实时性”在这里的工程定义：`candle_close_time + grace_window` 之后，`CandleClosed(candle_time)` 必须可被查询到。`grace_window` 由实现配置（例如 3~10 秒，取决于交易所与网络）。
+行为：
+1. 可选自动 tail coverage（按开关触发）。
+2. 调 `market_data.read_candles(...)` 返回 closed 列表。
+3. 附带 `server_head_time` 供前端判断 catchup 是否追平。
 
-### 2.2 数据链路（建议）
+### 3.2 写 closed/forming
 
-1) **启动/重启补洞**：对每个白名单 `series_id`，从 store 的 `last_candle_time` 开始向上游补齐缺口（REST fetch），直到接近当前时间。
-2) **持续 ingest**：订阅交易所 websocket/stream（或轮询）获取闭合 K 线；写入 store（幂等 upsert）。
-3) **对外广播**：写入成功后向 WS 广播 `candle_closed`（保证顺序以 `candle_time` 为准）。
+- `POST /api/market/ingest/candle_closed`
+  - 调 `MarketIngestService.ingest_candle_closed()`。
+  - 最终进入 `IngestPipeline`。
+- `POST /api/market/ingest/candle_forming`
+  - debug-only（受 `enable_debug_api` 控制）。
+  - 只广播 forming，不落库。
 
-### 2.3 幂等与顺序不变量
+### 3.3 辅助接口
 
-- 幂等：同一 `candle_id` 重复写入必须安全（写入层去重/覆盖同版本）。
-- 顺序：对外输出（API/WS）按 `candle_time` 单调递增；发现 gap 必须显式告知（见 4.3）。
-
-### 2.4 Whitelist 真源（v1 先用文件）
-
-Whitelist（白名单 `series_id` 列表）的真源位置：
-- `backend/config/market_whitelist.json`
-
-服务端可通过 `GET /api/market/whitelist` 暴露当前白名单（用于前端/运维自检）。
-
-白名单常驻 ingest 通过环境变量启用：
-- `TRADE_CANVAS_ENABLE_WHITELIST_INGEST=1`
-- 当 `TRADE_CANVAS_ENABLE_WHITELIST_INGEST=0` 时，白名单币种在“被订阅”后会自动走 ondemand ingest（避免默认 BTC/USDT 出现“已订阅但不更新”）。
+- `/api/market/whitelist`
+- `/api/market/top_markets`
+- `/api/market/top_markets/stream`
+- `/api/market/debug/ingest_state`（debug-only）
+- `/api/market/debug/series_health`（debug-only）
+- `/api/market/health`（受健康灯开关控制）
 
 ---
 
-## 3. Part B：按需补齐 + WS 跟随（含白名单回退场景）
+## 4. WS 链路
 
-### 3.1 目标与边界
+```mermaid
+sequenceDiagram
+  participant Client as 前端
+  participant Route as /ws/market
+  participant Parser as WsMessageParser
+  participant Coord as WsSubscriptionCoordinator
+  participant Sup as IngestSupervisor
+  participant Loop as Binance ingest loop
+  participant Pipe as IngestPipeline
+  participant Hub as CandleHub
 
-对“按需模式”中的 `(series_id)`（非白名单，或白名单但常驻 ingest 关闭）：
-- **不承诺后台持续实时 ingest**
-- 当且仅当“前端有人查看/订阅”时，触发补齐与短期实时跟随
-- 无人订阅时允许停更（节省资源）
-
-### 3.2 前端同步流程（推荐）
-
-1) **HTTP 拉取（增量补齐）**
-   - 前端首次加载默认拉取最近 **2000** 根：`GET /api/market/candles?series_id=...&limit=2000`（不带 `since`）
-   - 增量补齐：`GET /api/market/candles?series_id=...&since=<last_candle_time>&limit=...`
-   - 服务端从 store 返回按 `candle_time` 排序的 `CandleClosed[]` 与 `server_head_time`（当前已知最新闭合 time）。
-   - 前端循环请求直到 `last_received_time >= server_head_time`（增量补齐完成）。
-   - 若开启自动 tail 回填（见下方开关），服务端会在读路径先尝试补齐目标窗口，再返回数据，避免“新币种/新周期初次打开只有 1 根 K”。
-
-2) **建立 WS 并订阅（实时跟随）**
-   - WS 连接后发送：`subscribe { series_id, since=last_received_time }`
-   - 服务端从 `since`（不含/含由协议定义）开始推送后续 `candle_closed`。
-
-3) **服务端按需 ingest（仅订阅期）**
-   - 当检测到某 `series_id` 第一次有人订阅：启动该序列的 ingest worker（先补洞到 head，再跟随实时）。
-   - 当订阅数归零并超过 `idle_ttl`：停止该序列 ingest（释放资源）。
-
-v1 实现建议（后端开关）：
-- `TRADE_CANVAS_ENABLE_ONDEMAND_INGEST=1`
-- `TRADE_CANVAS_ONDEMAND_IDLE_TTL_S=<seconds>`（默认 60）
-- `TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL=1`：读取 `/api/market/candles` 前先触发 tail 回填（默认目标 `limit` 根）。
-- `TRADE_CANVAS_MARKET_AUTO_TAIL_BACKFILL_MAX_CANDLES=2000`：读路径自动回填上限。
-- `TRADE_CANVAS_MARKET_HISTORY_SOURCE=freqtrade`：优先从本地 freqtrade datadir 回填。
-- `TRADE_CANVAS_ENABLE_CCXT_BACKFILL=1`：freqtrade 不足时允许回退到交易所 CCXT 补齐窗口（覆盖“所有币种”场景）。
-
-### 3.3 单一上游实时源 + 多周期派生（Derived Timeframes）
-
-动机：上游实时源（例如 Binance WS）通常以 `1m` 的频率最稳定；为了避免“每个 timeframe 各起一条 ingest job”，引入 **从 base(1m) 派生多周期** 的能力：
-
-- 仅连接 `...:1m` 的上游 WS（单一上游连接）
-- 在服务端对 `5m/15m/1h/4h/1d` 做二次加工
-- **forming 仅用于展示**：只走 `WS /ws/market`，不落库、不进入因子/策略
-- **closed 为权威输入**：派生周期的 `CandleClosed` 落库（独立 `series_id`），并触发因子/overlay 的增量计算
-
-开关（默认关闭，便于回滚）：
-- `TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES=1`：启用派生
-- `TRADE_CANVAS_DERIVED_BASE_TIMEFRAME=1m`：基准周期（v1 固定 1m）
-- `TRADE_CANVAS_DERIVED_TIMEFRAMES=5m,15m,1h,4h,1d`：派生周期集合（缺省值与前端默认集合对齐，且排除 base）
-
-订阅行为（重要）：
-- 当客户端订阅派生 `series_id`（例如 `...:5m`）且派生能力启用：
-  - supervisor 会把订阅映射到 base `...:1m` 管理 refcount / job 生命周期（避免再起一条 5m 的上游 ingest）
-  - 派生 `forming/closed` 由服务端从 base 1m 流中 fanout 得到，并按派生 `series_id` 推送给客户端
-
-首次订阅回填（best-effort）：
-- 若客户端首次订阅派生 `series_id`，且本地 store 中该派生序列尚无历史：
-  - 服务端可从本地 base(1m) tail 派生一段派生 closed 回填（只要 base 有足够闭合分钟）
-  - 目的：让图表能“立即渲染”并尽快进入实时跟随
-- 缺口/断线：派生周期的闭合要求“桶内分钟齐全”；若 base 丢分钟导致派生桶无法闭合，应通过 `gap` 显式暴露并回退到 HTTP 增量补齐。
-
----
-
-## 4. API / WS 协议（最小 v1）
-
-### 4.1 HTTP：增量读取（建议接口）
-
-`GET /api/market/candles`
-
-Query:
-- `series_id`（必填）
-- `since`：起始 `candle_time`（可选；缺省为“从最早可用处/或按 limit 向前”）
-- `limit`：分页大小（必填，服务端可上限）
-
-Response（示例）：
-```json
-{
-  "series_id": "binance:futures:BTC/USDT:1m",
-  "server_head_time": 1700000000,
-  "candles": [
-    {"candle_time": 1699999940, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100}
-  ]
-}
+  Client->>Route: subscribe(series_id, since)
+  Route->>Parser: parse_subscribe
+  Parser->>Coord: subscribe command
+  Coord->>Sup: subscribe(refcount++)
+  Sup->>Loop: ensure ingest job
+  Loop->>Pipe: flush closed batch
+  Pipe->>Hub: publish closed/forming/system
+  Hub-->>Client: ws payload
 ```
 
-约束：
-- `candles` 按 `candle_time` 升序
-- `server_head_time` 表示“服务端当前已落库/已知的最新闭合 candle_time”
-
-### 4.2 WS：订阅与推送（建议消息）
-
-Client → Server：
-- `hello { client, version }`（可选）
-- `subscribe { series_id, since, supports_batch? }`
-- `unsubscribe { series_id }`
-
-Server → Client：
-- `candle_closed { series_id, candle }`
-- `candles_batch { series_id, candles[] }`（可选：当 client 声明 `supports_batch=true` 时，用于 catchup/回填批量下发）
-- `gap { series_id, expected_next_time, actual_time }`（发现缺口/乱序时）
-- `error { code, message }`
-
-补充约束：
-- `supports_batch` 缺省为 `false`（服务端对旧客户端保持逐条 `candle_closed` 兼容）
-- `candles_batch.candles` 必须按 `candle_time` 升序；客户端应去重后合并到本地序列（以 `candle_time` 为主键）
-
-### 4.3 Gap 处理（必须有明确策略）
-
-当服务端发现：
-- `actual_time > expected_next_time`（缺口）
-- 或客户端订阅时 `since` 落后太多导致丢包风险
-
-服务端应发送 `gap`，客户端必须回退到 HTTP 增量补齐再继续订阅。
-
-可选增强（默认关闭，便于回滚）：
-- `TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL=1`：在 WS 订阅 catchup 发现 gap 时，服务端先做 best-effort 补齐，再决定是否发送 `gap`。
-- 与 `TRADE_CANVAS_ENABLE_CCXT_BACKFILL=1` 组合时，服务端会在本地/freqtrade 补齐不足时尝试 CCXT 回补缺口区间。
+关键点：
+- parser 统一 bad_request/unknown type 错误语义。
+- coordinator 统一 catchup + subscribe/unsubscribe + disconnect cleanup。
+- supervisor 统一管理 whitelist/ondemand 生命周期。
 
 ---
 
-## 5. 资源与限流（建议）
+## 5. 白名单与按需模式
 
-为防止“非白名单被刷爆”：
-- 限制同时活跃的非白名单 ingest worker 数量（例如按 LRU 淘汰）
-- 限制单连接可订阅的 series 数量
-- `limit` 上限与分页速率限制
+### 5.1 白名单模式
+
+开关：`FeatureFlags.enable_whitelist_ingest`
+
+- 启动时常驻 ingest 白名单序列。
+- 无需前端订阅即可持续推进。
+
+### 5.2 按需模式
+
+开关：`FeatureFlags.enable_ondemand_ingest`
+
+- 首个订阅触发启动任务。
+- refcount 归零后按 `ondemand_idle_ttl_s` 回收。
+- `RuntimeFlags.ondemand_max_jobs` 可限制并发作业数。
+
+### 5.3 启动巡检补齐（可选）
+
+开关：`RuntimeFlags.enable_startup_kline_sync`
+
+- 启动时可对 whitelist 序列做一次“到最新闭合时间”的巡检补齐。
+- 每个序列会先跑 `ensure_tail_coverage(..., to_time=expected_latest_closed_time)`。
+- 补齐后会触发一次 `ingest_pipeline.refresh_series_sync`，确保 factor/overlay 与 candle 同步推进。
+- 目标窗口由 `RuntimeFlags.startup_kline_sync_target_candles` 控制。
 
 ---
 
-## 6. MVP 验收（可验证）
+## 6. Derived Timeframe 语义
 
-### 6.1 白名单实时性（最小）
+开关：`RuntimeFlags.enable_derived_timeframes`
 
-- 给定一个白名单 `series_id`，持续运行 10 分钟：
-  - `server_head_time` 单调递增
-  - WS `candle_closed` 的 `candle_time` 不乱序、不重复（允许幂等重复但客户端去重后应严格单调）
+- base timeframe：`derived_base_timeframe`（默认 `1m`）
+- derived 集合：`derived_timeframes`
+- 首次回填窗口：`derived_backfill_base_candles`
 
-### 6.2 非白名单按需补齐（最小）
-
-- 前端首次打开非白名单 `series_id`：
-  - 先通过 HTTP 把历史补齐到 `server_head_time`
-  - 再通过 WS 继续收到后续 `candle_closed`
-- 关闭页面（unsubscribe）超过 `idle_ttl` 后：
-  - 后台停止该 `series_id` 的实时 ingest（可通过日志/指标验证）
+语义：
+- 订阅 derived 序列时，生命周期管理映射到 base job。
+- derived forming/closed 从 base 流派生。
+- derived closed 可落库并驱动 factor/overlay。
 
 ---
 
-## 附：前端图表对接注意事项（轻量图表库）
+## 7. 配置真源（当前口径）
 
-- `lightweight-charts@5` 中 series **没有** `setMarkers`，markers 需要使用 `createSeriesMarkers(series)` 返回的 plugin API（`setMarkers([...])`）。
-- 图表尺寸变化（例如拖动底部高度）应通过 `chart.applyOptions({ width, height })` 更新；不要在 resize 时频繁 `createChart/remove`，否则更容易出现“数据已在 state，但新 chart 尚未 setData”的空图体验。
+### 7.1 FeatureFlags（`flags.py`）
+
+- `enable_debug_api`
+- `enable_read_strict_mode`
+- `enable_whitelist_ingest`
+- `enable_ondemand_ingest`
+- `enable_market_auto_tail_backfill`
+- `market_auto_tail_backfill_max_candles`
+- `ondemand_idle_ttl_s`
+
+### 7.2 RuntimeFlags（`runtime_flags.py`）
+
+- 回补与历史源：
+  - `enable_market_gap_backfill`
+  - `market_gap_backfill_freqtrade_limit`
+  - `enable_startup_kline_sync`
+  - `startup_kline_sync_target_candles`
+  - `enable_ccxt_backfill`
+  - `enable_ccxt_backfill_on_read`
+  - `market_history_source`
+- derived：
+  - `enable_derived_timeframes`
+  - `derived_base_timeframe`
+  - `derived_timeframes`
+  - `derived_backfill_base_candles`
+- ws 批处理：
+  - `binance_ws_batch_max`
+  - `binance_ws_flush_s`
+  - `market_forming_min_interval_ms`
+- 健康灯：
+  - `enable_kline_health_v2`
+  - `kline_health_backfill_recent_seconds`
+
+---
+
+## 8. 失败语义与排障入口
+
+### 8.1 常见失败语义
+
+- 订阅参数非法：`bad_request`
+- on-demand 容量不足：`capacity`
+- 链路不同步：`ledger_out_of_sync:*`
+
+### 8.2 排障入口
+
+1. `backend/app/market_ws_routes.py`
+2. `backend/app/market_data/ws_services.py`
+3. `backend/app/ingest_supervisor.py`
+4. `backend/app/ingest_binance_ws.py`
+5. `backend/app/pipelines/ingest_pipeline.py`
+6. `backend/app/runtime_flags.py`
+
+---
+
+## 9. 已废弃认知
+
+- 不再使用 `market_flags.py` 作为配置入口。
+- 不再在 `main.py` 内联市场业务逻辑。
+- 不再维护“阶段迁移日志式”文档作为实现真源。

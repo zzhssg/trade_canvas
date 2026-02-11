@@ -1,8 +1,8 @@
 ---
 title: Anchor Contract v1（锚：current + historical anchors + switches）
-status: draft
+status: done
 created: 2026-02-02
-updated: 2026-02-09
+updated: 2026-02-11
 ---
 
 # Anchor Contract v1（锚：current + historical anchors + switches）

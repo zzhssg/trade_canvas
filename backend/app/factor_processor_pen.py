@@ -3,11 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .factor_head_builder import build_pen_head_snapshot
+from .factor_pen_contract import (
+    build_confirmed_pen_payload,
+    normalize_confirmed_pen_payload,
+)
 from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
 from .factor_registry import ProcessorSpec
 from .factor_runtime_contract import FactorRuntimeContext
 from .factor_semantics import is_more_extreme_pivot
-from .factor_slices import build_pen_head_preview
 from .factor_store import FactorEventWrite
 from .pen import ConfirmedPen, PivotMajorPoint
 
@@ -56,8 +60,8 @@ class PenProcessor:
         for pivot in state.major_candidates:
             confirmed = self.append_pivot_and_confirm(state.effective_pivots, pivot)
             for pen in confirmed:
-                pen_event = self.build_confirmed_event(series_id=series_id, pen=pen)
-                pen_payload = dict(pen_event.payload)
+                pen_payload = dict(build_confirmed_pen_payload(pen))
+                pen_event = self.build_confirmed_event(series_id=series_id, pen=pen, payload=pen_payload)
                 state.events.append(pen_event)
                 state.confirmed_pens.append(pen_payload)
                 state.new_confirmed_pen_payloads.append(pen_payload)
@@ -82,33 +86,22 @@ class PenProcessor:
     def bootstrap_from_history(self, *, series_id: str, state: _PenBootstrapState, runtime: FactorRuntimeContext) -> None:
         _ = series_id
         _ = runtime
-        state.confirmed_pens = list(state.rebuild_events.get(self.spec.factor_name) or [])
+        raw_items = list(state.rebuild_events.get(self.spec.factor_name) or [])
+        normalized: list[dict[str, Any]] = []
+        for item in raw_items:
+            if isinstance(item, dict):
+                normalized.append(dict(normalize_confirmed_pen_payload(item)))
+        state.confirmed_pens = normalized
 
     def build_head_snapshot(self, *, series_id: str, state: _PenHeadState, runtime: FactorRuntimeContext) -> dict[str, Any] | None:
         _ = series_id
         _ = runtime
-        if not state.confirmed_pens:
-            return None
-        major_for_head = [
-            {
-                "pivot_time": int(p.pivot_time),
-                "pivot_price": float(p.pivot_price),
-                "direction": str(p.direction),
-                "visible_time": int(p.visible_time),
-            }
-            for p in state.effective_pivots
-        ]
-        preview = build_pen_head_preview(
+        return build_pen_head_snapshot(
+            confirmed_pens=state.confirmed_pens,
+            effective_pivots=state.effective_pivots,
             candles=state.candles,
-            major_pivots=major_for_head,
             aligned_time=int(state.up_to),
         )
-        pen_head: dict[str, Any] = {}
-        for key in ("extending", "candidate"):
-            value = preview.get(key)
-            if isinstance(value, dict):
-                pen_head[key] = value
-        return pen_head
 
     def append_pivot_and_confirm(self, effective: list[PivotMajorPoint], new_pivot: PivotMajorPoint) -> list[ConfirmedPen]:
         if not effective:
@@ -142,22 +135,23 @@ class PenProcessor:
             )
         ]
 
-    def build_confirmed_event(self, *, series_id: str, pen: ConfirmedPen) -> FactorEventWrite:
-        key = f"confirmed:{int(pen.start_time)}:{int(pen.end_time)}:{int(pen.direction)}"
+    def build_confirmed_event(
+        self,
+        *,
+        series_id: str,
+        pen: ConfirmedPen,
+        payload: dict[str, Any] | None = None,
+    ) -> FactorEventWrite:
+        pen_payload = payload if payload is not None else dict(build_confirmed_pen_payload(pen))
+        key = (
+            f"confirmed:{int(pen_payload['start_time'])}:"
+            f"{int(pen_payload['end_time'])}:{int(pen_payload['direction'])}"
+        )
         return FactorEventWrite(
             series_id=series_id,
             factor_name="pen",
             candle_time=int(pen.visible_time),
             kind="pen.confirmed",
             event_key=key,
-            payload={
-                "start_time": int(pen.start_time),
-                "end_time": int(pen.end_time),
-                "start_price": float(pen.start_price),
-                "end_price": float(pen.end_price),
-                "direction": int(pen.direction),
-                "visible_time": int(pen.visible_time),
-                "start_idx": pen.start_idx,
-                "end_idx": pen.end_idx,
-            },
+            payload=pen_payload,
         )

@@ -3,7 +3,7 @@ title: backend architecture hardening v2
 status: 待验收
 owner:
 created: 2026-02-10
-updated: 2026-02-10
+updated: 2026-02-11
 ---
 
 ## 背景
@@ -133,3 +133,6 @@ updated: 2026-02-10
 - 2026-02-10: 创建（草稿）
 - 2026-02-10: 状态更新为开发中，确定 M0-M3 一次性执行方案
 - 2026-02-10: 完成 M0-M3 代码实现与门禁，状态推进为待验收
+- 2026-02-11: 继续硬化（runtime 配置单真源、service error 分层、ingest overlay 失败补偿开关）
+- 2026-02-11: 继续硬化（factor/draw/world 读模型改为 ServiceError，route 统一映射 HTTP）
+- 2026-02-11: 继续硬化（ingest 新增“新写入 candle 回滚补偿”开关，减少写链路失败后的残留状态）

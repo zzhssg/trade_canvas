@@ -34,10 +34,13 @@ def _import_backend() -> dict[str, Any]:
     sys.path.insert(0, str(root / "backend"))
 
     from backend.app.config import load_settings  # noqa: WPS433
+    from backend.app.flags import load_feature_flags  # noqa: WPS433
     from backend.app.factor_orchestrator import FactorOrchestrator  # noqa: WPS433
+    from backend.app.factor_runtime_config import FactorSettings  # noqa: WPS433
     from backend.app.factor_store import FactorStore  # noqa: WPS433
-    from backend.app.overlay_orchestrator import OverlayOrchestrator  # noqa: WPS433
+    from backend.app.overlay_orchestrator import OverlayOrchestrator, OverlaySettings  # noqa: WPS433
     from backend.app.overlay_store import OverlayStore  # noqa: WPS433
+    from backend.app.runtime_flags import load_runtime_flags  # noqa: WPS433
     from backend.app.series_id import parse_series_id  # noqa: WPS433
     from backend.app.schemas import CandleClosed  # noqa: WPS433
     from backend.app.sqlite_util import connect as sqlite_connect  # noqa: WPS433
@@ -46,9 +49,13 @@ def _import_backend() -> dict[str, Any]:
 
     return {
         "load_settings": load_settings,
+        "load_feature_flags": load_feature_flags,
+        "load_runtime_flags": load_runtime_flags,
         "FactorOrchestrator": FactorOrchestrator,
+        "FactorSettings": FactorSettings,
         "FactorStore": FactorStore,
         "OverlayOrchestrator": OverlayOrchestrator,
+        "OverlaySettings": OverlaySettings,
         "OverlayStore": OverlayStore,
         "CandleStore": CandleStore,
         "CandleClosed": CandleClosed,
@@ -336,7 +343,14 @@ def main(argv: list[str]) -> int:
     FactorStore = backend["FactorStore"]
     OverlayStore = backend["OverlayStore"]
     FactorOrchestrator = backend["FactorOrchestrator"]
+    FactorSettings = backend["FactorSettings"]
     OverlayOrchestrator = backend["OverlayOrchestrator"]
+    OverlaySettings = backend["OverlaySettings"]
+    load_feature_flags = backend["load_feature_flags"]
+    load_runtime_flags = backend["load_runtime_flags"]
+
+    base_flags = load_feature_flags()
+    runtime_flags = load_runtime_flags(base_flags=base_flags)
 
     try:
         with sqlite_connect(db_path) as conn:
@@ -366,11 +380,28 @@ def main(argv: list[str]) -> int:
             factor_store = FactorStore(db_path=db_path)
             overlay_store = OverlayStore(db_path=db_path)
 
-            factor_orchestrator = FactorOrchestrator(candle_store=candle_store, factor_store=factor_store)
+            factor_orchestrator = FactorOrchestrator(
+                candle_store=candle_store,
+                factor_store=factor_store,
+                settings=FactorSettings(
+                    pivot_window_major=int(runtime_flags.factor_pivot_window_major),
+                    pivot_window_minor=int(runtime_flags.factor_pivot_window_minor),
+                    lookback_candles=int(runtime_flags.factor_lookback_candles),
+                    state_rebuild_event_limit=int(runtime_flags.factor_state_rebuild_event_limit),
+                ),
+                ingest_enabled=bool(runtime_flags.enable_factor_ingest),
+                fingerprint_rebuild_enabled=bool(runtime_flags.enable_factor_fingerprint_rebuild),
+                factor_rebuild_keep_candles=int(runtime_flags.factor_rebuild_keep_candles),
+                logic_version_override=str(runtime_flags.factor_logic_version_override or ""),
+            )
             overlay_orchestrator = OverlayOrchestrator(
                 candle_store=candle_store,
                 factor_store=factor_store,
                 overlay_store=overlay_store,
+                settings=OverlaySettings(
+                    ingest_enabled=bool(runtime_flags.enable_overlay_ingest),
+                    window_candles=int(runtime_flags.overlay_window_candles),
+                ),
             )
 
             up_to = int(result.head_time)

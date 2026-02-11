@@ -35,15 +35,46 @@ class FactorOrchestratorSettingsTests(unittest.TestCase):
         ):
             os.environ.pop(key, None)
 
-    def test_load_settings_reads_state_rebuild_event_limit(self) -> None:
-        os.environ["TRADE_CANVAS_FACTOR_STATE_REBUILD_EVENT_LIMIT"] = "3200"
+    def _rebuild_orchestrator(
+        self,
+        *,
+        settings: FactorSettings | None = None,
+        ingest_enabled: bool = True,
+        logic_version_override: str = "",
+        fingerprint_rebuild_enabled: bool = True,
+        factor_rebuild_keep_candles: int = 2000,
+    ) -> None:
+        self.orchestrator = FactorOrchestrator(
+            candle_store=CandleStore(self.db_path),
+            factor_store=FactorStore(self.db_path),
+            settings=settings,
+            ingest_enabled=ingest_enabled,
+            logic_version_override=logic_version_override,
+            fingerprint_rebuild_enabled=fingerprint_rebuild_enabled,
+            factor_rebuild_keep_candles=factor_rebuild_keep_candles,
+        )
+
+    def test_load_settings_uses_constructor_settings(self) -> None:
+        self._rebuild_orchestrator(
+            settings=FactorSettings(
+                pivot_window_major=3,
+                pivot_window_minor=2,
+                lookback_candles=1234,
+                state_rebuild_event_limit=3200,
+            )
+        )
         settings = self.orchestrator._load_settings()
+        self.assertEqual(settings.pivot_window_major, 3)
+        self.assertEqual(settings.pivot_window_minor, 2)
+        self.assertEqual(settings.lookback_candles, 1234)
         self.assertEqual(settings.state_rebuild_event_limit, 3200)
 
-    def test_load_settings_clamps_state_rebuild_event_limit(self) -> None:
-        os.environ["TRADE_CANVAS_FACTOR_STATE_REBUILD_EVENT_LIMIT"] = "9"
-        settings = self.orchestrator._load_settings()
-        self.assertEqual(settings.state_rebuild_event_limit, 1000)
+    def test_enabled_uses_constructor_flag(self) -> None:
+        self._rebuild_orchestrator(ingest_enabled=False)
+        self.assertFalse(self.orchestrator.enabled())
+
+        self._rebuild_orchestrator(ingest_enabled=True)
+        self.assertTrue(self.orchestrator.enabled())
 
     def test_fingerprint_includes_state_rebuild_event_limit(self) -> None:
         s1 = FactorSettings(state_rebuild_event_limit=50000)
@@ -52,12 +83,28 @@ class FactorOrchestratorSettingsTests(unittest.TestCase):
         fp2 = self.orchestrator._build_series_fingerprint(series_id="binance:futures:BTC/USDT:1m", settings=s2)
         self.assertNotEqual(fp1, fp2)
 
+    def test_fingerprint_includes_logic_version_override(self) -> None:
+        self._rebuild_orchestrator(logic_version_override="v1")
+        fp1 = self.orchestrator._build_series_fingerprint(
+            series_id="binance:futures:BTC/USDT:1m",
+            settings=FactorSettings(),
+        )
+        self._rebuild_orchestrator(logic_version_override="v2")
+        fp2 = self.orchestrator._build_series_fingerprint(
+            series_id="binance:futures:BTC/USDT:1m",
+            settings=FactorSettings(),
+        )
+        self.assertNotEqual(fp1, fp2)
+
     def test_state_rebuild_uses_paged_scan_after_limit_hit(self) -> None:
-        os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "1"
-        os.environ["TRADE_CANVAS_PIVOT_WINDOW_MAJOR"] = "1"
-        os.environ["TRADE_CANVAS_PIVOT_WINDOW_MINOR"] = "1"
-        os.environ["TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES"] = "100"
-        os.environ["TRADE_CANVAS_FACTOR_STATE_REBUILD_EVENT_LIMIT"] = "1000"
+        self._rebuild_orchestrator(
+            settings=FactorSettings(
+                pivot_window_major=1,
+                pivot_window_minor=1,
+                lookback_candles=100,
+                state_rebuild_event_limit=1000,
+            )
+        )
         series_id = "binance:futures:BTC/USDT:1m"
 
         self.orchestrator._candle_store.upsert_closed(

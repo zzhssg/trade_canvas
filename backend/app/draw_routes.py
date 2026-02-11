@@ -4,6 +4,7 @@ from fastapi import APIRouter, FastAPI, Query
 
 from .dependencies import DrawReadServiceDep
 from .schemas import DrawDeltaV1, LimitQuery
+from .service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 
@@ -17,12 +18,15 @@ def get_draw_delta(
     *,
     draw_read_service: DrawReadServiceDep,
 ) -> DrawDeltaV1:
-    return draw_read_service.read_delta(
-        series_id=series_id,
-        cursor_version_id=int(cursor_version_id),
-        window_candles=int(window_candles),
-        at_time=None if at_time is None else int(at_time),
-    )
+    try:
+        return draw_read_service.read_delta(
+            series_id=series_id,
+            cursor_version_id=int(cursor_version_id),
+            window_candles=int(window_candles),
+            at_time=None if at_time is None else int(at_time),
+        )
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 def register_draw_routes(app: FastAPI) -> None:

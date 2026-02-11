@@ -3,10 +3,9 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from fastapi import HTTPException
-
 from backend.app.replay_prepare_service import ReplayPrepareService
 from backend.app.schemas import ReplayPrepareRequestV1
+from backend.app.service_errors import ServiceError
 
 
 class _StoreStub:
@@ -62,7 +61,7 @@ class ReplayPrepareServiceTests(unittest.TestCase):
             debug_hub=_DebugHubStub(),
             debug_api_enabled=False,
         )
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ServiceError) as ctx:
             service.prepare(
                 ReplayPrepareRequestV1(series_id="binance:futures:BTC/USDT:1m", to_time=1_700_000_000, window_candles=2000)
             )
@@ -111,7 +110,7 @@ class ReplayPrepareServiceTests(unittest.TestCase):
             debug_hub=_DebugHubStub(),
             debug_api_enabled=False,
         )
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ServiceError) as ctx:
             service.prepare(
                 ReplayPrepareRequestV1(
                     series_id="binance:futures:BTC/USDT:1m",

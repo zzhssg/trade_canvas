@@ -1,8 +1,8 @@
 ---
 title: API v1 · Debug WS
-status: draft
+status: done
 created: 2026-02-04
-updated: 2026-02-04
+updated: 2026-02-11
 ---
 
 # API v1 · Debug WS

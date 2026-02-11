@@ -4,11 +4,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from .anchor_semantics import build_anchor_history_from_switches, normalize_anchor_ref
+from .factor_head_builder import build_pen_head_snapshot, build_zhongshu_alive_head
 from .factor_plugin_contract import FactorPluginSpec
 from .factor_slice_plugin_contract import FactorSliceBuildContext, FactorSlicePlugin, SliceBucketSpec
-from .factor_slices import build_pen_head_preview
 from .schemas import FactorMetaV1, FactorSliceV1
-from .zhongshu import build_alive_zhongshu_from_confirmed_pens
 
 _PIVOT_BUCKET_SPECS: tuple[SliceBucketSpec, ...] = (
     SliceBucketSpec(
@@ -130,24 +129,23 @@ class PenSlicePlugin:
             pen_head = dict(pen_head_row.head or {})
         else:
             try:
-                candles = ctx.candle_store.get_closed(
+                candles = ctx.candle_store.get_closed_between_times(
                     ctx.series_id,
-                    since=int(ctx.start_time),
+                    start_time=int(ctx.start_time),
+                    end_time=int(ctx.aligned_time),
                     limit=int(ctx.window_candles) + 5,
                 )
-                candles = [c for c in candles if int(c.candle_time) <= int(ctx.aligned_time)]
             except Exception:
                 candles = []
 
-            preview = build_pen_head_preview(
+            built = build_pen_head_snapshot(
+                confirmed_pens=pen_confirmed,
                 candles=candles,
-                major_pivots=list(ctx.buckets.get("piv_major") or []),
+                effective_pivots=list(ctx.buckets.get("piv_major") or []),
                 aligned_time=int(ctx.aligned_time),
             )
-            for key in ("extending", "candidate"):
-                value = preview.get(key)
-                if isinstance(value, dict):
-                    pen_head[key] = value
+            if isinstance(built, dict):
+                pen_head = built
 
         return FactorSliceV1(
             history={"confirmed": pen_confirmed},
@@ -168,7 +166,6 @@ class ZhongshuSlicePlugin:
 
         zhongshu_head: dict[str, Any] = {}
         if pen_confirmed:
-            zhongshu_head["alive"] = []
             try:
                 candles_for_zs = ctx.candle_store.get_closed_between_times(
                     ctx.series_id,
@@ -176,33 +173,21 @@ class ZhongshuSlicePlugin:
                     end_time=int(ctx.aligned_time),
                     limit=int(ctx.window_candles) + 10,
                 )
-                alive = build_alive_zhongshu_from_confirmed_pens(
-                    pen_confirmed,
-                    up_to_visible_time=int(ctx.aligned_time),
+                zhongshu_head = build_zhongshu_alive_head(
+                    zhongshu_state={},
+                    confirmed_pens=pen_confirmed,
                     candles=candles_for_zs,
+                    aligned_time=int(ctx.aligned_time),
                 )
             except Exception:
-                alive = None
-
-            if alive is not None and int(alive.visible_time) == int(ctx.aligned_time):
-                zhongshu_head["alive"] = [
-                    {
-                        "start_time": int(alive.start_time),
-                        "end_time": int(alive.end_time),
-                        "zg": float(alive.zg),
-                        "zd": float(alive.zd),
-                        "entry_direction": int(alive.entry_direction),
-                        "formed_time": int(alive.formed_time),
-                        "formed_reason": str(alive.formed_reason),
-                        "death_time": None,
-                        "visible_time": int(alive.visible_time),
-                    }
-                ]
+                zhongshu_head = {"alive": []}
         elif zhongshu_head_row is not None and int(zhongshu_head_row.candle_time) == int(ctx.aligned_time):
-            head = dict(zhongshu_head_row.head or {})
-            alive = head.get("alive")
-            if isinstance(alive, list):
-                zhongshu_head["alive"] = alive
+            zhongshu_head = build_zhongshu_alive_head(
+                zhongshu_state=dict(zhongshu_head_row.head or {}),
+                confirmed_pens=[],
+                candles=[],
+                aligned_time=int(ctx.aligned_time),
+            )
 
         if not zhongshu_dead and not zhongshu_head.get("alive"):
             return None

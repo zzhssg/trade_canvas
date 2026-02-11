@@ -1,317 +1,208 @@
-# 项目架构图
+---
+title: trade_canvas 架构总览
+status: done
+created: 2026-02-02
+updated: 2026-02-11
+---
 
-> status: draft | 2026-02-10
+# trade_canvas 架构总览
 
-## 1. 系统总览
+本文是当前代码实现口径下的后端架构总览，强调三件事：
+- 职责边界是否清晰；
+- 主链路是否单路径、可追踪；
+- 扩展是否靠插件与契约，而不是散落改动。
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Trade Canvas                                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────────────────────┐    ┌─────────────────────────────────┐ │
-│  │         Frontend (React)        │    │       Backend (FastAPI)         │ │
-│  │                                 │    │                                 │ │
-│  │  ┌───────────┐ ┌─────────────┐  │    │  ┌───────────┐ ┌─────────────┐  │ │
-│  │  │  Pages    │ │   Widgets   │  │    │  │  REST API │ │  WebSocket  │  │ │
-│  │  │  /live    │ │  ChartView  │  │◄──►│  │  /api/*   │ │  /ws/*      │  │ │
-│  │  │  /replay  │ │  FactorPanel│  │    │  └───────────┘ └─────────────┘  │ │
-│  │  │  /backtest│ └─────────────┘  │    │         │             │         │ │
-│  │  └───────────┘        ▲         │    │         ▼             ▼         │ │
-│  │        │              │         │    │  ┌─────────────────────────┐    │ │
-│  │        ▼              │         │    │  │    Orchestrators        │    │ │
-│  │  ┌─────────────────────────┐    │    │  │    Factor │ Overlay     │    │ │
-│  │  │   State (Zustand)       │    │    │  └─────────────────────────┘    │ │
-│  │  │  uiStore │ factorStore  │    │    │         │             │         │ │
-│  │  └─────────────────────────┘    │    │         ▼             ▼         │ │
-│  │                                 │    │  ┌─────────────────────────┐    │ │
-│  └─────────────────────────────────┘    │  │   SQLite Stores         │    │ │
-│                                         │  │  Candle│Factor│Overlay  │    │ │
-│                                         │  └─────────────────────────┘    │ │
-│                                         │         ▲                       │ │
-│                                         │         │                       │ │
-│                                         │  ┌─────────────────────────┐    │ │
-│                                         │  │   Ingest Supervisor     │    │ │
-│                                         │  │     (Binance WS)        │    │ │
-│                                         │  └───────────┬─────────────┘    │ │
-│                                         │              │                  │ │
-│                                         └──────────────┼──────────────────┘ │
-│                                                        │                    │
-└────────────────────────────────────────────────────────┼────────────────────┘
-                                                         │
-                                                         ▼
-                                              ┌─────────────────────┐
-                                              │   Exchange (Binance)│
-                                              │   via Binance WS    │
-                                              └─────────────────────┘
-```
+补充阅读：`docs/core/backend-chain-breakdown.md`
 
-## 1.1 2026-02-10 后端硬化增量（M0-M3）
+---
 
-- 新增 `backend/app/container.py`：集中装配 runtime、orchestrator、store、hub，`main.py` 只保留入口与路由挂载。
-- 新增 `backend/app/flags.py`：集中主链路开关（含 `TRADE_CANVAS_ENABLE_READ_STRICT_MODE` 等）。
-- 新增 `backend/app/dependencies.py`：统一 FastAPI 依赖注入入口，路由不再直接访问 `app.state`。
-- 新增 `backend/app/pipelines/ingest_pipeline.py`：统一 closed 写链路（store/factor/overlay/publish）。
-- 新增 `backend/app/read_models/factor_read_service.py`：统一 factor 读模型；strict 模式仅读不写，落后即 `409`。
-- `MarketRuntime` 显式注入 `flags + ingest_pipeline`，WS 入口改为显式注入 runtime/debug 依赖。
+## 1. 设计原则（当前版本）
 
-## 2. 目录结构
+1. `closed candle` 是唯一权威输入，驱动 factor/overlay/strategy。
+2. `forming candle` 只用于图表展示，不落库、不进因子、不进策略。
+3. 写链路单路径：`candles -> factor -> overlay`，统一由 `IngestPipeline` 执行。
+4. 读链路读写分离：HTTP/WS 路由只做协议与参数，业务在 service/orchestrator。
+5. 运行时配置单真源：`FeatureFlags + RuntimeFlags`，由容器启动时注入。
 
-```
-trade_canvas/
-├── frontend/                    # React + TypeScript 前端
-│   └── src/
-│       ├── pages/              # 页面: Live, Replay, Backtest, Settings
-│       ├── layout/             # 布局: AppShell
-│       ├── parts/              # UI组件: TopBar, Sidebar, BottomTabs
-│       ├── widgets/            # 图表组件: ChartView
-│       ├── state/              # Zustand 状态: uiStore, factorStore
-│       ├── services/           # 业务逻辑: factorCatalog
-│       ├── contracts/          # API 类型定义 (OpenAPI 生成)
-│       └── lib/                # 工具函数
-│
-├── backend/                     # Python FastAPI 后端
-│   └── app/
-│       ├── main.py             # FastAPI 入口 + 所有 API 端点
-│       ├── schemas.py          # Pydantic 数据模型
-│       ├── store.py            # CandleStore (SQLite)
-│       ├── factor_*.py         # 因子模块: orchestrator, store
-│       ├── overlay_*.py        # 覆盖层模块: orchestrator, store
-│       ├── read_models/        # 读模型: factor/draw read service
-│       ├── ingest_*.py         # 数据摄入: supervisor, binance_ws
-│       ├── ws_hub.py           # WebSocket 连接管理
-│       ├── pivot.py            # 枢纽计算
-│       ├── pen.py              # 笔段计算
-│       └── zhongshu.py         # 中枢计算
-│
-├── docs/                        # 文档
-│   └── core/                   # 核心文档 + 契约
-│
-├── Strategy/                    # Freqtrade 策略
-└── scripts/                     # 脚本工具
-```
+---
 
-## 3. 技术栈
+## 2. 系统分层
 
-| 层级 | 技术 |
-|------|------|
-| **前端框架** | React 18 + TypeScript |
-| **状态管理** | Zustand (持久化) |
-| **图表库** | Lightweight Charts |
-| **样式** | Tailwind CSS |
-| **构建** | Vite |
-| **后端框架** | FastAPI (Python) |
-| **数据库** | SQLite |
-| **交易所接口** | Binance WebSocket |
-| **回测** | Freqtrade |
+### 2.1 应用装配层（Bootstrap）
 
-## 4. 数据流
+- 入口：`backend/app/main.py`
+- 容器：`backend/app/container.py`
+- 市场运行时装配：`backend/app/market_runtime_builder.py`
 
-### 4.1 实时模式 (Live)
+职责：
+- 初始化 `AppContainer`（store、orchestrator、service、runtime）。
+- 注册路由与 websocket 入口。
+- 管理生命周期（白名单 ingest、ondemand reaper、hub/supervisor 关闭）。
+- 可选执行启动巡检补齐（`enable_startup_kline_sync`）。
 
-```
-┌──────────┐    subscribe     ┌──────────┐    start_ingest    ┌──────────┐
-│ Frontend │ ───────────────► │  WsHub   │ ─────────────────► │ Ingest   │
-│ ChartView│                  │ /ws/market│                   │Supervisor│
-└──────────┘                  └──────────┘                    └────┬─────┘
-     ▲                              │                              │
-     │                              │                              ▼
-     │                              │                       ┌──────────┐
-     │         candle_closed        │     Binance WS     │  Binance │
-     │ ◄────────────────────────────┤ ◄─────────────────────│    WS    │
-     │                              │                       └──────────┘
-     │                              │
-     │                              ▼
-     │                       ┌──────────────┐
-     │                       │ Orchestrators │
-     │                       │ Factor→Overlay│
-     │                       └──────┬───────┘
-     │                              │
-     │                              ▼
-     │                       ┌──────────────┐
-     │    GET /api/draw/delta│   Stores     │
-     └───────────────────────│ SQLite (3个) │
-                             └──────────────┘
+### 2.2 配置层（Config/Flags）
+
+- 基础配置：`backend/app/config.py` (`Settings`)
+- 稳态功能开关：`backend/app/flags.py` (`FeatureFlags`)
+- 运行时参数与高风险开关：`backend/app/runtime_flags.py` (`RuntimeFlags`)
+
+职责：
+- 统一读取 env。
+- 在启动阶段一次性解析。
+- 通过依赖注入传入 service/orchestrator，避免运行期散读 env。
+
+### 2.3 主链路层（Domain Runtime）
+
+- 市场写入编排：`backend/app/pipelines/ingest_pipeline.py`
+- 因子编排：`backend/app/factor_orchestrator.py`
+- 绘图编排：`backend/app/overlay_orchestrator.py`
+- 市场实时监督：`backend/app/ingest_supervisor.py`
+- 市场应用服务：`backend/app/market_ingest_service.py`
+
+职责：
+- 保证写顺序一致。
+- 处理 backfill/ondemand/ws ingest 的统一下游语义。
+- 通过 `TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_OVERLAY_ERROR` 与 `TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES` 提供失败补偿 kill-switch（默认关闭）。
+- 输出可观测事件（debug hub + ws 广播）。
+
+### 2.4 读模型层（Read Models）
+
+- `backend/app/read_models/factor_read_service.py`
+- `backend/app/read_models/draw_read_service.py`
+- `backend/app/read_models/world_read_service.py`
+
+职责：
+- 按 `aligned_time + candle_id` 对齐输出。
+- strict 模式拒绝隐式修复，直接返回 `409 ledger_out_of_sync*`。
+- world 聚合 factor + draw，保证同一时间面快照一致。
+- 读模型层统一抛 `ServiceError`，由 route 层映射 `HTTPException`，避免读模型与 FastAPI 框架耦合。
+
+### 2.5 外部适配层（Adapters）
+
+- backtest：`backend/app/backtest_service.py`
+- freqtrade 映射：`backend/app/freqtrade_adapter_v1.py`
+- replay 打包：`backend/app/replay_package_service_v1.py`
+
+职责：
+- 把内部 ledger / draw / candles 映射到外部协议。
+- 保持 fail-safe（数据不足、对齐失败、模式不合法时显式报错）。
+
+---
+
+## 3. 后端主链路
+
+### 3.1 写链路（HTTP/WS/回放共用）
+
+```mermaid
+flowchart LR
+  A["CandleClosed"] --> B["IngestPipeline"]
+  B --> C["CandleStore upsert"]
+  C --> D["FactorOrchestrator ingest_closed"]
+  D --> E["OverlayOrchestrator ingest_closed"]
+  E --> F["CandleHub publish"]
 ```
 
-### 4.2 回放模式 (Replay)
+关键点：
+- `IngestPipeline` 是唯一写链路编排器。
+- Sidecar 顺序固定，避免“图画出来但因子没更新”或反之。
+- overlay 可选补偿重建（`enable_ingest_compensate_overlay_error`）。
 
-```
-┌──────────┐  GET /api/frame/at_time  ┌──────────┐
-│ Frontend │ ───────────────────────► │ Backend  │
-│ ReplayPage│                         │          │
-└──────────┘                          └────┬─────┘
-     ▲                                     │
-     │                                     ▼
-     │                              ┌──────────────┐
-     │      WorldStateV1           │   Stores     │
-     │ ◄───────────────────────────│ query at_time│
-     │   (candles + factors +      └──────────────┘
-     │    overlays at timestamp)
-     │
-```
+### 3.2 实时链路（WS）
 
-### 4.3 回测模式 (Backtest)
-
-```
-┌──────────┐  POST /api/backtest/run  ┌──────────┐
-│ Frontend │ ───────────────────────► │ Backend  │
-│BacktestPage│                        │          │
-└──────────┘                          └────┬─────┘
-     ▲                                     │
-     │                                     ▼
-     │                              ┌──────────────┐
-     │      BacktestResponse       │  Freqtrade   │
-     │ ◄───────────────────────────│   Runner     │
-     │   (trades, stats, logs)     └──────────────┘
-     │   (trades, stats, logs)     └──────────────┘
-     │
+```mermaid
+flowchart LR
+  A["/ws/market"] --> B["WsMessageParser"]
+  B --> C["WsSubscriptionCoordinator"]
+  C --> D["IngestSupervisor"]
+  D --> E["run_binance_ws_ingest_loop"]
+  E --> F["IngestPipeline"]
+  F --> G["CandleHub broadcast"]
 ```
 
-## 5. 核心模块
+关键点：
+- subscribe/unsubscribe 统一走 coordinator。
+- ondemand/whitelist 生命周期统一走 supervisor。
+- derived timeframe 订阅映射到 base timeframe 管理。
 
-### 5.1 因子计算链路
+### 3.3 读链路（factor/draw/world）
 
-#### 5.1.1 因子重算与状态回放护栏
-
-- 因子链路采用 **fingerprint 自动重算**：当编排逻辑或关键配置变更时，`FactorOrchestrator` 会清理旧因子产物并从最新保留窗口重建，避免“代码已变但旧因子仍被复用”。
-- 状态回放采用两段读取策略：
-  - 常态：`LIMIT` 读取最近事件，快速重建增量状态。
-  - 命中上限：自动切换为 `paged_full_scan`（按 `candle_time,id` 分页遍历），保证给定时间窗内事件不被截断。
-- 对外通过 debug 事件 `factor.state_rebuild.limit_reached` 暴露降级信息（含 `mode=paged_full_scan`），便于排查“重建窗口过大”场景。
-- 运行时职责已拆分为“调度 + 配置 + 重建”三块：
-  - `factor_orchestrator.py`：保留 tick 调度与写入主链路；
-  - `factor_runtime_config.py`：集中解析因子链路 env 参数；
-  - `factor_rebuild_loader.py`：集中处理重建分桶、分页扫描与 bootstrap 恢复。
-  - `factor_fingerprint.py`：集中处理指纹构建与逻辑版本覆盖，保障自动重建判断的一致性。
-  - `factor_fingerprint_rebuild.py`：集中处理指纹不匹配时的 trim+clear+fingerprint 更新事务流程。
-  - `factor_ingest_window.py`：集中处理 ingest 窗口规划与 candles 读取批次构建（含 process_times 计算）。
-
-```
-CandleClosed Event
-       │
-       ▼
-┌──────────────────┐
-│ FactorOrchestrator│
-└────────┬─────────┘
-         │
-         ├──────────────────────────────────────┐
-         ▼                                      ▼
-┌─────────────────┐                    ┌─────────────────┐
-│  pivot.py       │                    │  pen.py         │
-│  compute_major  │ ──────────────────►│  build_pens     │
-│  compute_minor  │    major_pivots    │  from_pivots    │
-└─────────────────┘                    └────────┬────────┘
-                                                │
-                                                ▼
-                                       ┌─────────────────┐
-                                       │  zhongshu.py    │
-                                       │  build_zhongshu │
-                                       │  from_pens      │
-                                       └─────────────────┘
+```mermaid
+flowchart LR
+  A["Route"] --> B["Read Service"]
+  B --> C["CandleStore/FactorStore/OverlayStore"]
+  B --> D["freshness & integrity checks"]
+  D --> E["HTTP Response"]
 ```
 
-### 5.2 覆盖层系统
+关键点：
+- 因子读取先对齐 `aligned_time`。
+- draw 在 cursor=0 做完整性校验（插件化 integrity checks）。
+- world 要求 `factor.candle_id == draw.to_candle_id`，否则 409。
 
-```
-┌─────────────────┐
-│ FactorStore     │  factor events (pivot, pen, zhongshu)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────────┐
-│ OverlayOrchestrator │  构建覆盖层指令
-└────────┬────────────┘
-         │
-         ├─────────────────┬─────────────────┐
-         ▼                 ▼                 ▼
-    ┌─────────┐      ┌──────────┐     ┌──────────┐
-    │ Marker  │      │ Polyline │     │ (其他)   │
-    │ 点标记  │      │ 线段     │     │          │
-    └─────────┘      └──────────┘     └──────────┘
-         │                 │                 │
-         └─────────────────┴─────────────────┘
-                           │
-                           ▼
-                  ┌─────────────────┐
-                  │  OverlayStore   │  版本化存储
-                  └─────────────────┘
-```
+---
 
-### 5.3 前端图表渲染
+## 4. 扩展策略
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      ChartView.tsx                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ Candlestick │  │ SMA Lines   │  │ Overlays            │  │
-│  │ Series      │  │ (5, 20)     │  │ (marker, polyline)  │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-│                                                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ Pen Lines   │  │ Zhongshu    │  │ Entry Signals       │  │
-│  │ (笔段)      │  │ (中枢)      │  │ (标记)              │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │              Lightweight Charts Engine              │    │
-│  └─────────────────────────────────────────────────────┘    │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+### 4.1 新增因子
 
-## 6. API 端点概览
+优先修改：
+- `backend/app/factor_processor_*.py`
+- `backend/app/factor_slice_plugins.py`
+- `backend/app/factor_default_components.py`
+- 对应契约：`docs/core/contracts/factor_*.md`
 
-### REST API
+原则：
+- 算法写入与切片读取都走插件注册。
+- 不在 orchestrator 继续堆 if/else 分支。
 
-| 路径 | 方法 | 说明 |
-|------|------|------|
-| `/api/market/candles` | GET | 获取蜡烛数据 |
-| `/api/market/top_markets` | GET | 获取热门市场 |
-| `/api/factor/catalog` | GET | 获取因子目录（前端因子开关动态配置） |
-| `/api/factor/slices` | GET | 获取因子快照 |
-| `/api/draw/delta` | GET | 获取绘图增量 |
-| `/api/frame/live` | GET | 获取实时世界状态 |
-| `/api/frame/at_time` | GET | 获取指定时间状态 |
-| `/api/backtest/run` | POST | 运行回测 |
+### 4.2 新增市场数据能力
 
-### WebSocket
+优先修改：
+- `backend/app/market_data/`
+- `backend/app/market_runtime_builder.py`
+- `backend/app/runtime_flags.py`
 
-| 路径 | 说明 |
-|------|------|
-| `/ws/market` | 市场数据订阅 (candle_closed, candle_forming) |
-| `/ws/debug` | 调试事件流 |
+原则：
+- 新能力必须由 `TRADE_CANVAS_ENABLE_*` 开关控制（默认关闭）。
+- 路由层不直接拼装复杂逻辑，统一下沉应用服务。
 
-## 7. 数据存储
+### 4.3 新增回测/适配能力
 
-### SQLite 表结构
+优先修改：
+- `backend/app/backtest_service.py`
+- `backend/app/freqtrade_adapter_v1.py`
+- `backend/app/freqtrade_signal_plugins.py`
 
-```
-CandleStore (store.py)
-├── candles (series_id, candle_time, open, high, low, close, volume)
-└── idx_candles_series_time
+原则：
+- 对外接口保持稳定。
+- 输入校验与 fail-safe 在 service 层显式实现。
 
-FactorStore (factor_store.py)
-├── factor_events (series_id, factor_name, kind, candle_time, visible_time, payload)
-└── factor_series_state (series_id, head_time)
+---
 
-OverlayStore (overlay_store.py)
-├── overlay_instruction_versions (version_id, instruction_id, kind, payload)
-└── overlay_series_state (series_id, head_time)
+## 5. 质量门禁
 
+后端架构类改动最小门禁：
+
+```bash
+pytest -q
 ```
 
-## 8. 关键文件索引
+涉及 `docs/core/` 变更时附加：
 
-| 文件 | 职责 |
-|------|------|
-| [main.py](../../backend/app/main.py) | FastAPI 入口 + API 端点 |
-| [schemas.py](../../backend/app/schemas.py) | Pydantic 数据模型 |
-| [ChartView.tsx](../../frontend/src/widgets/ChartView.tsx) | 图表渲染引擎 |
-| [uiStore.ts](../../frontend/src/state/uiStore.ts) | UI 状态管理 |
-| [factor_orchestrator.py](../../backend/app/factor_orchestrator.py) | 因子计算编排 |
-| [overlay_orchestrator.py](../../backend/app/overlay_orchestrator.py) | 覆盖层构建 |
-| [ingest_supervisor.py](../../backend/app/ingest_supervisor.py) | 数据摄入管理 |
-| [ws_hub.py](../../backend/app/ws_hub.py) | WebSocket 管理 |
+```bash
+bash docs/scripts/doc_audit.sh
+```
+
+涉及 FE+BE 主链路联动时附加：
+
+```bash
+bash scripts/e2e_acceptance.sh
+```
+
+---
+
+## 6. 当前已下线/不再推荐口径
+
+- 不再使用 `market_flags.py` 作为市场链路配置真源（已收口到 `FeatureFlags + RuntimeFlags`）。
+- 不再在路由实现中直接读取散落 `app.state.*` 字段（统一通过 `dependencies.py` 获取容器依赖）。
+- 不再保留“写路径多套实现”的灰度分支（统一走 `IngestPipeline`）。

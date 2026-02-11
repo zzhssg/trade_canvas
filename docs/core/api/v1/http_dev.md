@@ -1,8 +1,8 @@
 ---
 title: Dev（Worktree / Ports）HTTP API v1
-status: draft
+status: done
 created: 2026-02-05
-updated: 2026-02-07
+updated: 2026-02-11
 ---
 
 # Dev（Worktree / Ports）HTTP API v1

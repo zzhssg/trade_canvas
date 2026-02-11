@@ -1,24 +1,37 @@
-# Core Contracts（契约）
+---
+title: Core Contracts（契约索引）
+status: done
+created: 2026-02-02
+updated: 2026-02-11
+---
 
-这里放“数据结构/协议”的最小真源，优先保证：
-- 可落地（能写代码/能验收）
-- 可演进（版本化；旧版本可回放/可兼容）
-- 可对齐（前后端/回放/实盘共用同一口径）
+# Core Contracts（契约索引）
 
-## Contracts 清单
+本目录存放后端主链路的协议/数据结构真源，目标是保证：
+- 可实现（能直接映射到代码与 schema）；
+- 可验收（能被 API/E2E 门禁验证）；
+- 可演进（版本化升级且可回放）。
 
-- 因子类数据结构：`docs/core/contracts/factor_v1.md`
-- 因子拓扑与调度：`docs/core/contracts/factor_graph_v1.md`
-- 因子开发 SDK：`docs/core/contracts/factor_sdk_v1.md`
-- 因子真源账本（冷热）：`docs/core/contracts/factor_ledger_v1.md`
-- 二级增量账本（delta）：`docs/core/contracts/delta_ledger_v1.md`
-- 市场币种列表：`docs/core/contracts/market_list_v1.md`
-- 策略类数据结构：`docs/core/contracts/strategy_v1.md`
-- 绘图数据结构：`docs/core/contracts/overlay_v1.md`
-- 绘图增量输出：`docs/core/contracts/draw_delta_v1.md`
-- 回放帧（因子切片 + 绘图指令）：`docs/core/contracts/replay_frame_v1.md`
-- 复盘包（SQLite 存储协议）：`docs/core/contracts/replay_package_v1.md`
-- 中枢（dead + alive）：`docs/core/contracts/zhongshu_v1.md`
-- 锚（current + switches）：`docs/core/contracts/anchor_v1.md`
-- 世界状态（frame）：`docs/core/contracts/world_state_v1.md`
-- 世界增量（delta）：`docs/core/contracts/world_delta_v1.md`
+## 当前生效（v1）
+
+- 因子外壳：`docs/core/contracts/factor_v1.md`
+- 因子拓扑：`docs/core/contracts/factor_graph_v1.md`
+- 因子插件：`docs/core/contracts/factor_plugin_v1.md`
+- 因子 SDK：`docs/core/contracts/factor_sdk_v1.md`
+- 因子账本：`docs/core/contracts/factor_ledger_v1.md`
+- 二级增量账本：`docs/core/contracts/delta_ledger_v1.md`
+- 绘图增量：`docs/core/contracts/draw_delta_v1.md`
+- 中枢：`docs/core/contracts/zhongshu_v1.md`
+- 锚：`docs/core/contracts/anchor_v1.md`
+- 世界态 frame：`docs/core/contracts/world_state_v1.md`
+- 世界态 delta：`docs/core/contracts/world_delta_v1.md`
+- 回放帧：`docs/core/contracts/replay_frame_v1.md`
+- 回放包：`docs/core/contracts/replay_package_v1.md`
+- 策略消费边界：`docs/core/contracts/strategy_v1.md`
+- 市场榜单：`docs/core/contracts/market_list_v1.md`
+
+## 维护规则
+
+1. 变更契约字段时，必须同步更新对应 API 文档（`docs/core/api/v1/`）。
+2. 引入新高风险行为时，必须提供 `TRADE_CANVAS_ENABLE_*` 开关作为 kill-switch。
+3. 发生 `feat/fix/refactor` 且影响核心契约时，必须跑 `bash docs/scripts/doc_audit.sh` 并提交证据。

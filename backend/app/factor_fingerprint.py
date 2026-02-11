@@ -9,7 +9,7 @@ from . import pen as pen_module
 from . import zhongshu as zhongshu_module
 from .factor_graph import FactorGraph
 from .factor_registry import FactorRegistry
-from .factor_runtime_config import FactorSettings, factor_logic_version_override
+from .factor_runtime_config import FactorSettings
 
 
 def _file_sha256(path: Path) -> str:
@@ -27,6 +27,7 @@ def build_series_fingerprint(
     graph: FactorGraph,
     registry: FactorRegistry,
     orchestrator_file: Path,
+    logic_version_override: str = "",
 ) -> str:
     files = {
         "factor_orchestrator.py": _file_sha256(orchestrator_file),
@@ -54,7 +55,7 @@ def build_series_fingerprint(
             "state_rebuild_event_limit": int(settings.state_rebuild_event_limit),
         },
         "files": files,
-        "logic_version_override": factor_logic_version_override(),
+        "logic_version_override": str(logic_version_override or ""),
     }
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()

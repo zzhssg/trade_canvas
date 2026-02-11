@@ -57,7 +57,7 @@ def _new_stores(tmp_path: Path) -> tuple[CandleStore, FactorStore]:
 
 
 def test_fingerprint_rebuild_forces_trim_clear_and_fingerprint_update(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("TRADE_CANVAS_FACTOR_REBUILD_KEEP_CANDLES", "100")
+    _ = monkeypatch
     series_id = "binance:futures:BTC/USDT:1m"
     candle_store, factor_store = _new_stores(tmp_path=tmp_path)
     candle_times = [60 * (i + 1) for i in range(101)]
@@ -69,6 +69,7 @@ def test_fingerprint_rebuild_forces_trim_clear_and_fingerprint_update(tmp_path, 
         candle_store=candle_store,
         factor_store=factor_store,
         debug_hub=debug_hub,
+        keep_candles=100,
     ).ensure_series_ready(
         series_id=series_id,
         auto_rebuild=True,
@@ -104,7 +105,7 @@ def test_fingerprint_rebuild_forces_trim_clear_and_fingerprint_update(tmp_path, 
 
 
 def test_fingerprint_rebuild_noop_when_fingerprint_matches(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("TRADE_CANVAS_FACTOR_REBUILD_KEEP_CANDLES", "1")
+    _ = monkeypatch
     series_id = "binance:futures:BTC/USDT:1m"
     candle_store, factor_store = _new_stores(tmp_path=tmp_path)
     _seed_candles(candle_store, series_id=series_id)
@@ -115,6 +116,7 @@ def test_fingerprint_rebuild_noop_when_fingerprint_matches(tmp_path, monkeypatch
         candle_store=candle_store,
         factor_store=factor_store,
         debug_hub=debug_hub,
+        keep_candles=100,
     ).ensure_series_ready(
         series_id=series_id,
         auto_rebuild=True,
@@ -143,7 +145,7 @@ def test_fingerprint_rebuild_noop_when_fingerprint_matches(tmp_path, monkeypatch
 
 
 def test_fingerprint_rebuild_noop_when_auto_rebuild_disabled(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("TRADE_CANVAS_FACTOR_REBUILD_KEEP_CANDLES", "1")
+    _ = monkeypatch
     series_id = "binance:futures:BTC/USDT:1m"
     candle_store, factor_store = _new_stores(tmp_path=tmp_path)
     _seed_candles(candle_store, series_id=series_id)
@@ -152,6 +154,7 @@ def test_fingerprint_rebuild_noop_when_auto_rebuild_disabled(tmp_path, monkeypat
     outcome = FactorFingerprintRebuildCoordinator(
         candle_store=candle_store,
         factor_store=factor_store,
+        keep_candles=100,
     ).ensure_series_ready(
         series_id=series_id,
         auto_rebuild=False,

@@ -3,9 +3,8 @@ from __future__ import annotations
 import unittest
 from dataclasses import dataclass
 
-from fastapi import HTTPException
-
 from backend.app.factor_read_freshness import ensure_factor_fresh_for_read, read_factor_slices_with_freshness
+from backend.app.service_errors import ServiceError
 
 
 @dataclass(frozen=True)
@@ -145,7 +144,7 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
         orchestrator = _FakeOrchestrator(rebuilt=True)
         slices_service = _FakeSlicesService()
         factor_store = _FakeFactorStore(head_time=120)
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ServiceError) as ctx:
             read_factor_slices_with_freshness(
                 store=store,
                 factor_orchestrator=orchestrator,

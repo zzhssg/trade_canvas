@@ -24,6 +24,13 @@ class WorldStateFrameApiTests(unittest.TestCase):
         self.client = TestClient(create_app())
         self.series_id = "binance:futures:BTC/USDT:1m"
 
+    def _recreate_client(self) -> None:
+        try:
+            self.client.close()
+        except Exception:
+            pass
+        self.client = TestClient(create_app())
+
     def tearDown(self) -> None:
         self.tmpdir.cleanup()
         for k in (
@@ -82,6 +89,7 @@ class WorldStateFrameApiTests(unittest.TestCase):
     def test_frame_at_time_returns_409_when_overlay_not_ready(self) -> None:
         # Disable overlay ingest so draw/delta cannot be aligned for point queries.
         os.environ["TRADE_CANVAS_ENABLE_OVERLAY_INGEST"] = "0"
+        self._recreate_client()
         base = 60
         prices = [1, 2, 5, 2, 1]
         times = [base * (i + 1) for i in range(len(prices))]
@@ -110,8 +118,7 @@ class WorldStateFrameApiTests(unittest.TestCase):
     def test_frame_at_time_debug_mode_no_name_error(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
         try:
-            self.client.close()
-            self.client = TestClient(create_app())
+            self._recreate_client()
             base = 60
             prices = [1, 2, 5, 2, 1, 2, 5, 2, 1]
             times = [base * (i + 1) for i in range(len(prices))]

@@ -1,8 +1,8 @@
 ---
 title: Delta Ledger Contract v1（二级增量账本）
-status: draft
+status: done
 created: 2026-02-02
-updated: 2026-02-09
+updated: 2026-02-11
 ---
 
 # Delta Ledger Contract v1（二级增量账本）

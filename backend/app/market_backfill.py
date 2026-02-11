@@ -100,6 +100,7 @@ def backfill_market_gap_best_effort(
     actual_time: int,
     enable_ccxt_backfill: bool = False,
     freqtrade_limit: int = 2000,
+    market_history_source: str = "",
 ) -> int:
     """
     Best-effort gap backfill for realtime market stream.
@@ -121,7 +122,12 @@ def backfill_market_gap_best_effort(
     freqtrade_limit = max(base_limit, int(target_candles) + 8)
 
     try:
-        backfill_tail_from_freqtrade(store, series_id=series_id, limit=int(freqtrade_limit))
+        backfill_tail_from_freqtrade(
+            store,
+            series_id=series_id,
+            limit=int(freqtrade_limit),
+            market_history_source=str(market_history_source),
+        )
     except Exception:
         pass
 

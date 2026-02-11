@@ -1,51 +1,36 @@
 from __future__ import annotations
 
-import json
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
-
 from .artifacts import resolve_artifacts_root
+from .build_job_manager import BuildJobManager
 from .factor_slices_service import FactorSlicesService
 from .factor_store import FactorStore
-from .flags import resolve_env_bool
 from .history_bootstrapper import backfill_tail_from_freqtrade
 from .market_backfill import backfill_from_ccxt_range
 from .replay_package_builder_v1 import ReplayBuildParamsV1, build_replay_package_v1, stable_json_dumps
+from .replay_package_reader_v1 import ReplayPackageReaderV1
 from .replay_package_protocol_v1 import (
     ReplayCoverageV1,
     ReplayFactorHeadSnapshotV1,
     ReplayHistoryDeltaV1,
     ReplayHistoryEventV1,
-    ReplayKlineBarV1,
     ReplayPackageMetadataV1,
     ReplayWindowV1,
 )
 from .overlay_store import OverlayStore
-from .overlay_replay_protocol_v1 import OverlayReplayCheckpointV1, OverlayReplayDiffV1
 from .pipelines import IngestPipeline
-from .schemas import OverlayInstructionPatchItemV1
-from .sqlite_util import connect as sqlite_connect
+from .service_errors import ServiceError
 from .store import CandleStore
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 
 
 def _replay_pkg_root() -> Path:
     return resolve_artifacts_root() / "replay_package_v1"
-
-
-@dataclass
-class _Job:
-    job_id: str
-    cache_key: str
-    status: str  # building|done|error
-    started_at_ms: int
-    finished_at_ms: int | None = None
-    error: str | None = None
 
 
 @dataclass
@@ -72,46 +57,48 @@ class ReplayPackageServiceV1:
         window_size: int = 500,
         snapshot_interval: int = 25,
         ingest_pipeline: IngestPipeline | None = None,
+        replay_enabled: bool = False,
+        coverage_enabled: bool = False,
+        ccxt_backfill_enabled: bool = False,
+        market_history_source: str = "",
     ) -> None:
         self._candle_store = candle_store
         self._factor_store = factor_store
         self._overlay_store = overlay_store
         self._factor_slices_service = factor_slices_service
         self._ingest_pipeline = ingest_pipeline
+        self._replay_enabled = bool(replay_enabled)
+        self._coverage_enabled = bool(coverage_enabled)
+        self._ccxt_backfill_enabled = bool(ccxt_backfill_enabled)
+        self._market_history_source = str(market_history_source).strip().lower()
         self._defaults = {
             "window_candles": int(window_candles),
             "window_size": int(window_size),
             "snapshot_interval": int(snapshot_interval),
             "preload_offset": 0,
         }
-        self._lock = threading.Lock()
-        self._jobs: dict[str, _Job] = {}
+        self._reader = ReplayPackageReaderV1(candle_store=self._candle_store, root_dir=_replay_pkg_root())
+        self._build_jobs = BuildJobManager()
+        self._coverage_lock = threading.Lock()
         self._coverage_jobs: dict[str, _CoverageJob] = {}
 
     def enabled(self) -> bool:
-        return resolve_env_bool("TRADE_CANVAS_ENABLE_REPLAY_V1", fallback=False)
+        return bool(self._replay_enabled)
 
     def coverage_enabled(self) -> bool:
-        return resolve_env_bool("TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE", fallback=False)
+        return bool(self._coverage_enabled)
 
     def _cache_dir(self, cache_key: str) -> Path:
-        return _replay_pkg_root() / cache_key
+        return self._reader.cache_dir(cache_key)
 
     def _db_path(self, cache_key: str) -> Path:
-        return self._cache_dir(cache_key) / "replay.sqlite"
+        return self._reader.db_path(cache_key)
 
     def cache_exists(self, cache_key: str) -> bool:
-        return self._db_path(cache_key).exists()
+        return self._reader.cache_exists(cache_key)
 
     def _resolve_to_time(self, series_id: str, to_time: int | None) -> int:
-        store_head = self._candle_store.head_time(series_id)
-        if store_head is None and to_time is None:
-            raise HTTPException(status_code=404, detail="no_data")
-        requested = int(to_time) if to_time is not None else int(store_head or 0)
-        aligned = self._candle_store.floor_time(series_id, at_time=int(requested))
-        if aligned is None:
-            raise HTTPException(status_code=404, detail="no_data")
-        return int(aligned)
+        return self._reader.resolve_to_time(series_id, to_time)
 
     def _coverage(
         self,
@@ -120,21 +107,7 @@ class ReplayPackageServiceV1:
         to_time: int,
         target_candles: int,
     ) -> ReplayCoverageV1:
-        tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
-        start_time = max(0, int(to_time) - (int(target_candles) - 1) * int(tf_s))
-        candles = self._candle_store.get_closed_between_times(
-            series_id,
-            start_time=int(start_time),
-            end_time=int(to_time),
-            limit=int(target_candles),
-        )
-        from_time = int(candles[0].candle_time) if candles else None
-        return ReplayCoverageV1(
-            required_candles=int(target_candles),
-            candles_ready=int(len(candles)),
-            from_time=from_time,
-            to_time=int(to_time),
-        )
+        return self._reader.coverage(series_id=series_id, to_time=to_time, target_candles=target_candles)
 
     def _compute_cache_key(
         self,
@@ -161,197 +134,28 @@ class ReplayPackageServiceV1:
         return _hash_short(h)
 
     def _read_meta(self, cache_key: str) -> ReplayPackageMetadataV1:
-        db_path = self._db_path(cache_key)
-        conn = sqlite_connect(db_path)
-        try:
-            row = conn.execute(
-                """
-                SELECT schema_version, series_id, timeframe_s, total_candles, from_candle_time, to_candle_time,
-                       window_size, snapshot_interval, preload_offset, idx_to_time
-                FROM replay_meta
-                LIMIT 1
-                """
-            ).fetchone()
-            if row is None:
-                raise RuntimeError("missing replay_meta")
-            return ReplayPackageMetadataV1(
-                schema_version=int(row["schema_version"]),
-                series_id=str(row["series_id"]),
-                timeframe_s=int(row["timeframe_s"]),
-                total_candles=int(row["total_candles"]),
-                from_candle_time=int(row["from_candle_time"]),
-                to_candle_time=int(row["to_candle_time"]),
-                window_size=int(row["window_size"]),
-                snapshot_interval=int(row["snapshot_interval"]),
-                preload_offset=int(row["preload_offset"]),
-                idx_to_time=str(row["idx_to_time"]),
-            )
-        finally:
-            conn.close()
+        return self._reader.read_meta(cache_key)
 
     def _read_history_events(self, cache_key: str) -> list[ReplayHistoryEventV1]:
-        db_path = self._db_path(cache_key)
-        conn = sqlite_connect(db_path)
-        try:
-            rows = conn.execute(
-                """
-                SELECT event_id, factor_name, candle_time, kind, event_key, payload_json
-                FROM replay_factor_history_events
-                ORDER BY event_id ASC
-                """
-            ).fetchall()
-            out: list[ReplayHistoryEventV1] = []
-            for r in rows:
-                try:
-                    payload = json.loads(r["payload_json"])
-                except Exception:
-                    payload = {}
-                if not isinstance(payload, dict):
-                    payload = {}
-                out.append(
-                    ReplayHistoryEventV1(
-                        event_id=int(r["event_id"]),
-                        factor_name=str(r["factor_name"]),
-                        candle_time=int(r["candle_time"]),
-                        kind=str(r["kind"]),
-                        event_key=str(r["event_key"]),
-                        payload=payload,
-                    )
-                )
-            return out
-        finally:
-            conn.close()
+        return self._reader.read_history_events(cache_key)
 
     def _read_window(self, cache_key: str, *, target_idx: int) -> ReplayWindowV1:
-        db_path = self._db_path(cache_key)
-        conn = sqlite_connect(db_path)
-        try:
-            meta = conn.execute(
-                "SELECT total_candles, window_size FROM replay_meta LIMIT 1"
-            ).fetchone()
-            if meta is None:
-                raise HTTPException(status_code=404, detail="not_found")
-            total = int(meta["total_candles"])
-            window_size = int(meta["window_size"])
-            idx = int(target_idx)
-            if idx < 0 or idx >= total:
-                raise HTTPException(status_code=422, detail="target_idx_out_of_range")
-            window_index = idx // window_size
-            w = conn.execute(
-                """
-                SELECT window_index, start_idx, end_idx
-                FROM replay_window_meta
-                WHERE window_index = ?
-                """,
-                (int(window_index),),
-            ).fetchone()
-            if w is None:
-                raise HTTPException(status_code=404, detail="not_found")
-            start_idx = int(w["start_idx"])
-            end_idx = int(w["end_idx"])
+        return self._reader.read_window(cache_key, target_idx=target_idx)
 
-            kline_rows = conn.execute(
-                """
-                SELECT idx, candle_time, open, high, low, close, volume
-                FROM replay_kline_bars
-                WHERE idx >= ? AND idx < ?
-                ORDER BY idx ASC
-                """,
-                (int(start_idx), int(end_idx)),
-            ).fetchall()
-            kline = [
-                ReplayKlineBarV1(
-                    time=int(r["candle_time"]),
-                    open=float(r["open"]),
-                    high=float(r["high"]),
-                    low=float(r["low"]),
-                    close=float(r["close"]),
-                    volume=float(r["volume"]),
-                )
-                for r in kline_rows
-            ]
-
-            catalog_rows = conn.execute(
-                """
-                SELECT w.scope, v.version_id, v.instruction_id, v.kind, v.visible_time, v.definition_json
-                FROM replay_draw_catalog_window w
-                JOIN replay_draw_catalog_versions v ON v.version_id = w.version_id
-                WHERE w.window_index = ?
-                ORDER BY v.version_id ASC
-                """,
-                (int(window_index),),
-            ).fetchall()
-            base: list[OverlayInstructionPatchItemV1] = []
-            patch: list[OverlayInstructionPatchItemV1] = []
-            for r in catalog_rows:
-                try:
-                    definition = json.loads(r["definition_json"])
-                except Exception:
-                    definition = {}
-                item = OverlayInstructionPatchItemV1(
-                    version_id=int(r["version_id"]),
-                    instruction_id=str(r["instruction_id"]),
-                    kind=str(r["kind"]),
-                    visible_time=int(r["visible_time"]),
-                    definition=definition if isinstance(definition, dict) else {},
-                )
-                if str(r["scope"]) == "base":
-                    base.append(item)
-                else:
-                    patch.append(item)
-
-            checkpoint_rows = conn.execute(
-                """
-                SELECT at_idx, active_ids_json
-                FROM replay_draw_active_checkpoints
-                WHERE window_index = ?
-                ORDER BY at_idx ASC
-                """,
-                (int(window_index),),
-            ).fetchall()
-            checkpoints = []
-            for r in checkpoint_rows:
-                try:
-                    active_ids = json.loads(r["active_ids_json"])
-                except Exception:
-                    active_ids = []
-                checkpoints.append(OverlayReplayCheckpointV1(at_idx=int(r["at_idx"]), active_ids=active_ids or []))
-
-            diff_rows = conn.execute(
-                """
-                SELECT at_idx, add_ids_json, remove_ids_json
-                FROM replay_draw_active_diffs
-                WHERE window_index = ?
-                ORDER BY at_idx ASC
-                """,
-                (int(window_index),),
-            ).fetchall()
-            diffs = []
-            for r in diff_rows:
-                try:
-                    add_ids = json.loads(r["add_ids_json"])
-                except Exception:
-                    add_ids = []
-                try:
-                    remove_ids = json.loads(r["remove_ids_json"])
-                except Exception:
-                    remove_ids = []
-                diffs.append(
-                    OverlayReplayDiffV1(at_idx=int(r["at_idx"]), add_ids=add_ids or [], remove_ids=remove_ids or [])
-                )
-
-            return ReplayWindowV1(
-                window_index=int(window_index),
-                start_idx=int(start_idx),
-                end_idx=int(end_idx),
-                kline=kline,
-                draw_catalog_base=base,
-                draw_catalog_patch=patch,
-                draw_active_checkpoints=checkpoints,
-                draw_active_diffs=diffs,
-            )
-        finally:
-            conn.close()
+    def _normalize_window_params(
+        self,
+        *,
+        window_candles: int | None,
+        window_size: int | None,
+        snapshot_interval: int | None,
+    ) -> tuple[int, int, int]:
+        wc = int(window_candles or self._defaults["window_candles"])
+        ws = int(window_size or self._defaults["window_size"])
+        si = int(snapshot_interval or self._defaults["snapshot_interval"])
+        wc = min(5000, max(100, wc))
+        ws = min(2000, max(50, ws))
+        si = min(200, max(5, si))
+        return (wc, ws, si)
 
     def read_only(
         self,
@@ -363,12 +167,11 @@ class ReplayPackageServiceV1:
         snapshot_interval: int | None = None,
     ) -> tuple[str, str, str, ReplayCoverageV1, ReplayPackageMetadataV1 | None, str | None]:
         to_candle_time = self._resolve_to_time(series_id, to_time)
-        wc = int(window_candles or self._defaults["window_candles"])
-        ws = int(window_size or self._defaults["window_size"])
-        si = int(snapshot_interval or self._defaults["snapshot_interval"])
-        wc = min(5000, max(100, wc))
-        ws = min(2000, max(50, ws))
-        si = min(200, max(5, si))
+        wc, ws, si = self._normalize_window_params(
+            window_candles=window_candles,
+            window_size=window_size,
+            snapshot_interval=snapshot_interval,
+        )
 
         coverage = self._coverage(series_id=series_id, to_time=to_candle_time, target_candles=wc)
         if coverage.candles_ready < wc:
@@ -415,12 +218,11 @@ class ReplayPackageServiceV1:
         snapshot_interval: int | None = None,
     ) -> tuple[str, str, str]:
         to_candle_time = self._resolve_to_time(series_id, to_time)
-        wc = int(window_candles or self._defaults["window_candles"])
-        ws = int(window_size or self._defaults["window_size"])
-        si = int(snapshot_interval or self._defaults["snapshot_interval"])
-        wc = min(5000, max(100, wc))
-        ws = min(2000, max(50, ws))
-        si = min(200, max(5, si))
+        wc, ws, si = self._normalize_window_params(
+            window_candles=window_candles,
+            window_size=window_size,
+            snapshot_interval=snapshot_interval,
+        )
 
         cache_key = self._compute_cache_key(
             series_id=series_id,
@@ -433,12 +235,9 @@ class ReplayPackageServiceV1:
         if self.cache_exists(cache_key):
             return ("done", job_id, cache_key)
 
-        with self._lock:
-            existing = self._jobs.get(job_id)
-            if existing is not None:
-                return (existing.status, existing.job_id, existing.cache_key)
-            job = _Job(job_id=job_id, cache_key=cache_key, status="building", started_at_ms=int(time.time() * 1000))
-            self._jobs[job_id] = job
+        existing, created = self._build_jobs.ensure(job_id=job_id, cache_key=cache_key)
+        if not created:
+            return (existing.status, existing.job_id, existing.cache_key)
 
         def runner() -> None:
             try:
@@ -464,18 +263,9 @@ class ReplayPackageServiceV1:
                         preload_offset=0,
                     ),
                 )
-                with self._lock:
-                    j = self._jobs.get(job_id)
-                    if j is not None:
-                        j.status = "done"
-                        j.finished_at_ms = int(time.time() * 1000)
+                self._build_jobs.mark_done(job_id=job_id)
             except Exception as e:
-                with self._lock:
-                    j = self._jobs.get(job_id)
-                    if j is not None:
-                        j.status = "error"
-                        j.error = str(e)
-                        j.finished_at_ms = int(time.time() * 1000)
+                self._build_jobs.mark_error(job_id=job_id, error=str(e))
 
         t = threading.Thread(target=runner, name=f"tc-replay-package-{job_id}", daemon=True)
         t.start()
@@ -483,9 +273,7 @@ class ReplayPackageServiceV1:
 
     def status(self, *, job_id: str, include_preload: bool, include_history: bool) -> dict[str, Any]:
         job_id = str(job_id)
-        with self._lock:
-            j = self._jobs.get(job_id)
-
+        j = self._build_jobs.get(job_id)
         cache_key = job_id
         if j is None:
             if self.cache_exists(cache_key):
@@ -527,67 +315,16 @@ class ReplayPackageServiceV1:
     def window(self, *, job_id: str, target_idx: int) -> ReplayWindowV1:
         cache_key = str(job_id)
         if not self.cache_exists(cache_key):
-            raise HTTPException(status_code=404, detail="not_found")
+            raise ServiceError(status_code=404, detail="not_found", code="replay.window.cache_not_found")
         return self._read_window(cache_key, target_idx=int(target_idx))
 
-    def window_extras(self, *, job_id: str, window: ReplayWindowV1) -> tuple[list[ReplayFactorHeadSnapshotV1], list[ReplayHistoryDeltaV1]]:
-        db_path = self._db_path(str(job_id))
-        conn = sqlite_connect(db_path)
-        try:
-            start_idx = int(window.start_idx)
-            end_idx = int(window.end_idx)
-            rows = conn.execute(
-                """
-                SELECT candle_time
-                FROM replay_kline_bars
-                WHERE idx >= ? AND idx < ?
-                ORDER BY idx ASC
-                """,
-                (int(start_idx), int(end_idx)),
-            ).fetchall()
-            times = [int(r["candle_time"]) for r in rows]
-            head_rows: list[ReplayFactorHeadSnapshotV1] = []
-            if times:
-                q = """
-                SELECT factor_name, candle_time, seq, head_json
-                FROM replay_factor_head_snapshots
-                WHERE candle_time >= ? AND candle_time <= ?
-                ORDER BY candle_time ASC, factor_name ASC, seq ASC
-                """
-                for r in conn.execute(q, (int(times[0]), int(times[-1]))).fetchall():
-                    try:
-                        head = json.loads(r["head_json"])
-                    except Exception:
-                        head = {}
-                    head_rows.append(
-                        ReplayFactorHeadSnapshotV1(
-                            factor_name=str(r["factor_name"]),
-                            candle_time=int(r["candle_time"]),
-                            seq=int(r["seq"]),
-                            head=head if isinstance(head, dict) else {},
-                        )
-                    )
-
-            delta_rows = conn.execute(
-                """
-                SELECT idx, from_event_id, to_event_id
-                FROM replay_factor_history_deltas
-                WHERE idx >= ? AND idx < ?
-                ORDER BY idx ASC
-                """,
-                (int(start_idx), int(end_idx)),
-            ).fetchall()
-            deltas = [
-                ReplayHistoryDeltaV1(
-                    idx=int(r["idx"]),
-                    from_event_id=int(r["from_event_id"]),
-                    to_event_id=int(r["to_event_id"]),
-                )
-                for r in delta_rows
-            ]
-            return (head_rows, deltas)
-        finally:
-            conn.close()
+    def window_extras(
+        self,
+        *,
+        job_id: str,
+        window: ReplayWindowV1,
+    ) -> tuple[list[ReplayFactorHeadSnapshotV1], list[ReplayHistoryDeltaV1]]:
+        return self._reader.read_window_extras(cache_key=str(job_id), window=window)
 
     def ensure_coverage(
         self,
@@ -597,7 +334,7 @@ class ReplayPackageServiceV1:
         to_time: int | None,
     ) -> tuple[str, str]:
         if not self.coverage_enabled():
-            raise HTTPException(status_code=404, detail="not_found")
+            raise ServiceError(status_code=404, detail="not_found", code="replay.coverage.disabled")
 
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         if to_time is None:
@@ -609,7 +346,7 @@ class ReplayPackageServiceV1:
                 to_time = int(now_s // int(tf_s) * int(tf_s))
 
         job_id = f"coverage_{series_id}:{int(to_time)}:{int(target_candles)}"
-        with self._lock:
+        with self._coverage_lock:
             existing = self._coverage_jobs.get(job_id)
             if existing is not None:
                 return (existing.status, existing.job_id)
@@ -625,8 +362,13 @@ class ReplayPackageServiceV1:
 
         def runner() -> None:
             try:
-                backfill_tail_from_freqtrade(self._candle_store, series_id=series_id, limit=int(target_candles))
-                if resolve_env_bool("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", fallback=False):
+                backfill_tail_from_freqtrade(
+                    self._candle_store,
+                    series_id=series_id,
+                    limit=int(target_candles),
+                    market_history_source=self._market_history_source,
+                )
+                if bool(self._ccxt_backfill_enabled):
                     backfill_from_ccxt_range(
                         candle_store=self._candle_store,
                         series_id=series_id,
@@ -641,7 +383,7 @@ class ReplayPackageServiceV1:
                 )
 
                 cov = self._coverage(series_id=series_id, to_time=int(to_time or 0), target_candles=int(target_candles))
-                with self._lock:
+                with self._coverage_lock:
                     j = self._coverage_jobs.get(job_id)
                     if j is not None:
                         j.candles_ready = int(cov.candles_ready)
@@ -650,7 +392,7 @@ class ReplayPackageServiceV1:
                         j.error = None if j.status == "done" else "coverage_missing"
                         j.finished_at_ms = int(time.time() * 1000)
             except Exception as e:
-                with self._lock:
+                with self._coverage_lock:
                     j = self._coverage_jobs.get(job_id)
                     if j is not None:
                         j.status = "error"
@@ -662,7 +404,7 @@ class ReplayPackageServiceV1:
         return ("building", job_id)
 
     def coverage_status(self, *, job_id: str) -> dict[str, Any]:
-        with self._lock:
+        with self._coverage_lock:
             j = self._coverage_jobs.get(job_id)
         if j is None:
             return {"status": "error", "job_id": job_id, "error": "not_found", "candles_ready": 0, "required_candles": 0}
@@ -676,10 +418,7 @@ class ReplayPackageServiceV1:
         }
 
     def _read_preload_window(self, cache_key: str, meta: ReplayPackageMetadataV1) -> ReplayWindowV1 | None:
-        if meta.total_candles <= 0:
-            return None
-        target_idx = max(0, int(meta.total_candles) - 1 - int(meta.preload_offset))
-        return self._read_window(cache_key, target_idx=int(target_idx))
+        return self._reader.read_preload_window(cache_key, meta)
 
 
 def _hash_short(payload: str) -> str:

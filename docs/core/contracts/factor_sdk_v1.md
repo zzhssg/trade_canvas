@@ -1,8 +1,8 @@
 ---
 title: Factor SDK Contract v1（因子开发 SDK）
-status: draft
+status: done
 created: 2026-02-07
-updated: 2026-02-10
+updated: 2026-02-11
 ---
 
 # Factor SDK Contract v1（因子开发 SDK）

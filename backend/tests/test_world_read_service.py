@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from fastapi import HTTPException
-
 from backend.app.read_models.world_read_service import WorldReadService
 from backend.app.schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1
+from backend.app.service_errors import ServiceError
 
 
 class _StoreStub:
@@ -121,7 +120,7 @@ class WorldReadServiceTests(unittest.TestCase):
             debug_hub=_DebugHubStub(),
             debug_api_enabled=False,
         )
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ServiceError) as ctx:
             service.read_frame_at_time(series_id=series_id, at_time=845, window_candles=2000)
         self.assertEqual(ctx.exception.status_code, 409)
         self.assertEqual(ctx.exception.detail, "ledger_out_of_sync")

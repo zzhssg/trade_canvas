@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
-from fastapi import HTTPException
 
 from backend.app.read_models import FactorReadService
+from backend.app.service_errors import ServiceError
 
 
 @dataclass(frozen=True)
@@ -86,7 +86,7 @@ def test_factor_read_service_strict_mode_rejects_stale_factor() -> None:
         strict_mode=True,
     )
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ServiceError) as exc:
         service.read_slices(series_id="s", at_time=300, window_candles=50, ensure_fresh=True)
 
     assert exc.value.status_code == 409

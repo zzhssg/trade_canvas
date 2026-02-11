@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from fastapi import HTTPException
-
 from .schemas import GetFactorSlicesResponseV1
+from .service_errors import ServiceError
 
 
 class _FactorIngestResultLike(Protocol):
@@ -72,7 +71,11 @@ def _ensure_strict_freshness(
         series_id=series_id,
     )
     if factor_head is None or int(factor_head) < int(aligned_time):
-        raise HTTPException(status_code=409, detail="ledger_out_of_sync:factor")
+        raise ServiceError(
+            status_code=409,
+            detail="ledger_out_of_sync:factor",
+            code="factor_read.ledger_out_of_sync",
+        )
 
 
 def ensure_factor_fresh_for_read(

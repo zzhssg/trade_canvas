@@ -46,6 +46,13 @@ class DrawDeltaApiTests(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 200, res.text)
 
+    def _recreate_client(self) -> None:
+        try:
+            self.client.close()
+        except Exception:
+            pass
+        self.client = TestClient(create_app())
+
     def test_draw_delta_is_overlay_compatible_and_cursor_idempotent(self) -> None:
         base = 60
         prices = [1, 2, 5, 2, 1, 2, 5, 2, 1]
@@ -410,10 +417,12 @@ class DrawDeltaApiTests(unittest.TestCase):
             conn.commit()
 
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "0"
+        self._recreate_client()
         try:
             repaired = self.client.get("/api/draw/delta", params={"series_id": self.series_id, "cursor_version_id": 0})
         finally:
             os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "1"
+            self._recreate_client()
         self.assertEqual(repaired.status_code, 200, repaired.text)
         repaired_ids = repaired.json().get("active_ids") or []
         self.assertFalse(any(str(i).startswith("zhongshu.") for i in repaired_ids), "stale zhongshu instructions should be reset")

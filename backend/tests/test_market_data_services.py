@@ -363,7 +363,7 @@ def test_build_gap_backfill_handler_applies_flag_and_reads_recovered_interval() 
         assert [int(c.candle_time) for c in recovered] == [160]
 
 
-def test_build_derived_initial_backfill_handler_bootstraps_and_updates_sidecars(monkeypatch) -> None:
+def test_build_derived_initial_backfill_handler_bootstraps_and_updates_sidecars() -> None:
     with tempfile.TemporaryDirectory() as td:
         store = CandleStore(db_path=Path(td) / "market.db")
         base_series_id = "binance:futures:BTC/USDT:1m"
@@ -395,10 +395,11 @@ def test_build_derived_initial_backfill_handler_bootstraps_and_updates_sidecars(
             store=store,
             factor_orchestrator=factor,
             overlay_orchestrator=overlay,
+            derived_enabled=True,
+            derived_base_timeframe="1m",
+            derived_timeframes=("5m",),
+            derived_backfill_base_candles=2000,
         )
-
-        monkeypatch.setenv("TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES", "1")
-        monkeypatch.delenv("TRADE_CANVAS_DERIVED_BACKFILL_BASE_CANDLES", raising=False)
 
         asyncio.run(handler(series_id=derived_series_id))
         assert store.head_time(derived_series_id) == 0
@@ -411,7 +412,7 @@ def test_build_derived_initial_backfill_handler_bootstraps_and_updates_sidecars(
         assert overlay.ingest_calls == [(derived_series_id, 0)]
 
 
-def test_build_derived_initial_backfill_handler_respects_disable_flag(monkeypatch) -> None:
+def test_build_derived_initial_backfill_handler_respects_disable_flag() -> None:
     with tempfile.TemporaryDirectory() as td:
         store = CandleStore(db_path=Path(td) / "market.db")
         base_series_id = "binance:futures:BTC/USDT:1m"
@@ -429,8 +430,11 @@ def test_build_derived_initial_backfill_handler_respects_disable_flag(monkeypatc
             store=store,
             factor_orchestrator=_Noop(),
             overlay_orchestrator=_Noop(),
+            derived_enabled=False,
+            derived_base_timeframe="1m",
+            derived_timeframes=("5m",),
+            derived_backfill_base_candles=2000,
         )
-        monkeypatch.setenv("TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES", "0")
         asyncio.run(handler(series_id=derived_series_id))
         assert store.head_time(derived_series_id) is None
 

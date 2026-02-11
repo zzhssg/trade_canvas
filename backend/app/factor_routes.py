@@ -5,6 +5,7 @@ from fastapi import APIRouter, FastAPI, Query
 from .dependencies import FactorReadServiceDep
 from .factor_catalog import build_factor_catalog_response
 from .schemas import GetFactorCatalogResponseV1, GetFactorSlicesResponseV1, LimitQuery
+from .service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 
@@ -26,11 +27,14 @@ def get_factor_slices(
     Read-side factor slices at aligned time t.
     Returns history/head snapshots produced by the current modular factor pipeline.
     """
-    return factor_read_service.read_slices(
-        series_id=series_id,
-        at_time=int(at_time),
-        window_candles=int(window_candles),
-    )
+    try:
+        return factor_read_service.read_slices(
+            series_id=series_id,
+            at_time=int(at_time),
+            window_candles=int(window_candles),
+        )
+    except ServiceError as exc:
+        raise to_http_exception(exc) from exc
 
 
 def register_factor_routes(app: FastAPI) -> None:

@@ -76,10 +76,19 @@ class ReplayPackageApiTests(unittest.TestCase):
         self.fail(f"replay build timeout: {last_payload}")
 
     def test_replay_disabled_returns_404(self) -> None:
+        try:
+            self.client.close()
+        except Exception:
+            pass
         os.environ["TRADE_CANVAS_ENABLE_REPLAY_V1"] = "0"
-        res = self.client.get("/api/replay/read_only", params={"series_id": self.series_id, "window_candles": 10})
-        self.assertEqual(res.status_code, 404, res.text)
+        client = TestClient(create_app())
+        try:
+            res = client.get("/api/replay/read_only", params={"series_id": self.series_id, "window_candles": 10})
+            self.assertEqual(res.status_code, 404, res.text)
+        finally:
+            client.close()
         os.environ["TRADE_CANVAS_ENABLE_REPLAY_V1"] = "1"
+        self.client = TestClient(create_app())
 
     def test_replay_build_and_window_flow(self) -> None:
         base = 60

@@ -1,8 +1,8 @@
 ---
 title: World State Contract v1（统一世界状态：因子切片 + 绘图状态）
-status: draft
+status: done
 created: 2026-02-03
-updated: 2026-02-09
+updated: 2026-02-11
 ---
 
 # World State Contract v1（统一世界状态：因子切片 + 绘图状态）

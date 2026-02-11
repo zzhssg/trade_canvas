@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .factor_head_builder import build_zhongshu_alive_head
 from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
 from .factor_registry import ProcessorSpec
 from .factor_runtime_contract import FactorRuntimeContext
 from .factor_store import FactorEventWrite
 from .zhongshu import (
     ZhongshuDead,
-    build_alive_zhongshu_from_confirmed_pens,
     replay_zhongshu_state,
     replay_zhongshu_state_with_closed_candles,
     update_zhongshu_state,
@@ -158,51 +158,12 @@ class ZhongshuProcessor:
     def build_alive_head(
         self, *, state: dict[str, Any], confirmed_pens: list[dict], up_to_visible_time: int, candles: list[Any]
     ) -> dict[str, Any]:
-        out: dict[str, Any] = {}
-        if confirmed_pens:
-            out["alive"] = []
-
-        alive_state = state.get("alive")
-        if isinstance(alive_state, dict):
-            out["alive"] = [
-                {
-                    "start_time": int(alive_state.get("start_time") or 0),
-                    "end_time": int(alive_state.get("end_time") or 0),
-                    "zg": float(alive_state.get("zg") or 0.0),
-                    "zd": float(alive_state.get("zd") or 0.0),
-                    "entry_direction": int(alive_state.get("entry_direction") or 1),
-                    "formed_time": int(alive_state.get("formed_time") or 0),
-                    "formed_reason": str(alive_state.get("formed_reason") or "pen_confirmed"),
-                    "death_time": None,
-                    "visible_time": int(up_to_visible_time),
-                }
-            ]
-            return out
-
-        if not confirmed_pens:
-            return out
-
-        alive = build_alive_zhongshu_from_confirmed_pens(
-            confirmed_pens,
-            up_to_visible_time=int(up_to_visible_time),
+        return build_zhongshu_alive_head(
+            zhongshu_state=state,
+            confirmed_pens=confirmed_pens,
             candles=candles,
+            aligned_time=int(up_to_visible_time),
         )
-        if alive is None or int(alive.visible_time) != int(up_to_visible_time):
-            return out
-        out["alive"] = [
-            {
-                "start_time": int(alive.start_time),
-                "end_time": int(alive.end_time),
-                "zg": float(alive.zg),
-                "zd": float(alive.zd),
-                "entry_direction": int(alive.entry_direction),
-                "formed_time": int(alive.formed_time),
-                "formed_reason": str(alive.formed_reason),
-                "death_time": None,
-                "visible_time": int(alive.visible_time),
-            }
-        ]
-        return out
 
     def build_head_snapshot(
         self,
