@@ -285,11 +285,13 @@ class AnchorProcessor:
             candle_time=int(switch_time),
             kind="anchor.switch",
             event_key=key_switch,
-            payload=build_anchor_switch_payload(
-                switch_time=int(switch_time),
-                reason=str(reason),
-                old_anchor=old_anchor,
-                new_anchor=new_anchor,
+            payload=dict(
+                build_anchor_switch_payload(
+                    switch_time=int(switch_time),
+                    reason=str(reason),
+                    old_anchor=old_anchor,
+                    new_anchor=new_anchor,
+                )
             ),
         )
 
