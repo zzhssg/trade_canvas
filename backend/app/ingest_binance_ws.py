@@ -6,7 +6,7 @@ import logging
 import time
 from typing import SupportsFloat, SupportsInt, cast
 
-from .pipelines import IngestPipeline
+from .pipelines import IngestPipeline, IngestPipelineResult
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .store import CandleStore
@@ -133,6 +133,7 @@ async def run_binance_ws_ingest_loop(
     derived_enabled: bool = False,
     derived_base_timeframe: str = "1m",
     derived_timeframes: tuple[str, ...] = (),
+    pipeline_publish_enabled: bool = False,
     batch_max: int = 200,
     flush_s: float = 0.5,
     forming_min_interval_ms: int = 250,
@@ -230,25 +231,14 @@ async def run_binance_ws_ingest_loop(
             publish=False,
         )
         db_ms = int(pipeline_result.duration_ms)
-        rebuilt_series = list(pipeline_result.rebuilt_series)
 
         t1 = time.perf_counter()
-        await hub.publish_closed_batch(series_id=series_id, candles=deduped)
-        for derived_series_id, derived in derived_batches.items():
-            try:
-                await hub.publish_closed_batch(series_id=derived_series_id, candles=derived)
-            except Exception:
-                pass
-        for sid in rebuilt_series:
-            try:
-                await hub.publish_system(
-                    series_id=sid,
-                    event="factor.rebuild",
-                    message="因子口径更新，已自动完成历史重算",
-                    data={"series_id": sid},
-                )
-            except Exception:
-                pass
+        await _publish_pipeline_result_from_ws(
+            series_id=series_id,
+            ingest_pipeline=ingest_pipeline,
+            pipeline_result=pipeline_result,
+            pipeline_publish_enabled=bool(pipeline_publish_enabled),
+        )
         publish_ms = int((time.perf_counter() - t1) * 1000)
 
         last_emitted_time = max(last_emitted_time, up_to_time)
@@ -323,3 +313,17 @@ async def run_binance_ws_ingest_loop(
             return
         except Exception:
             await asyncio.sleep(2.0)
+
+
+async def _publish_pipeline_result_from_ws(
+    *,
+    series_id: str,
+    ingest_pipeline: IngestPipeline,
+    pipeline_result: IngestPipelineResult,
+    pipeline_publish_enabled: bool,
+) -> None:
+    await ingest_pipeline.publish_ws(
+        result=pipeline_result,
+        primary_series_id=str(series_id),
+        unified_publish_enabled=bool(pipeline_publish_enabled),
+    )

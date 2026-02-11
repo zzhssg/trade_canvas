@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import resolve_artifacts_root
-from .build_job_manager import BuildJobManager
 from .factor_slices_service import FactorSlicesService
 from .factor_store import FactorStore
 from .history_bootstrapper import backfill_tail_from_freqtrade
 from .market_backfill import backfill_from_ccxt_range
+from .package_build_service_base import PackageBuildServiceBase
 from .replay_package_builder_v1 import ReplayBuildParamsV1, build_replay_package_v1, stable_json_dumps
 from .replay_package_reader_v1 import ReplayPackageReaderV1
 from .replay_package_protocol_v1 import (
@@ -45,7 +45,7 @@ class _CoverageJob:
     error: str | None = None
 
 
-class ReplayPackageServiceV1:
+class ReplayPackageServiceV1(PackageBuildServiceBase):
     def __init__(
         self,
         *,
@@ -62,6 +62,7 @@ class ReplayPackageServiceV1:
         ccxt_backfill_enabled: bool = False,
         market_history_source: str = "",
     ) -> None:
+        super().__init__()
         self._candle_store = candle_store
         self._factor_store = factor_store
         self._overlay_store = overlay_store
@@ -78,7 +79,6 @@ class ReplayPackageServiceV1:
             "preload_offset": 0,
         }
         self._reader = ReplayPackageReaderV1(candle_store=self._candle_store, root_dir=_replay_pkg_root())
-        self._build_jobs = BuildJobManager()
         self._coverage_lock = threading.Lock()
         self._coverage_jobs: dict[str, _CoverageJob] = {}
 
@@ -231,86 +231,73 @@ class ReplayPackageServiceV1:
             window_size=ws,
             snapshot_interval=si,
         )
-        job_id = cache_key
-        if self.cache_exists(cache_key):
-            return ("done", job_id, cache_key)
+        reservation = self._reserve_build_job(cache_key=cache_key, cache_exists=self.cache_exists)
+        if not reservation.created:
+            return (reservation.status, reservation.job_id, reservation.cache_key)
 
-        existing, created = self._build_jobs.ensure(job_id=job_id, cache_key=cache_key)
-        if not created:
-            return (existing.status, existing.job_id, existing.cache_key)
+        def _build_package() -> None:
+            pkg_root = self._cache_dir(cache_key)
+            pkg_root.mkdir(parents=True, exist_ok=True)
+            db_path = self._db_path(cache_key)
+            if db_path.exists():
+                db_path.unlink()
 
-        def runner() -> None:
-            try:
-                pkg_root = self._cache_dir(cache_key)
-                pkg_root.mkdir(parents=True, exist_ok=True)
-                db_path = self._db_path(cache_key)
-                if db_path.exists():
-                    db_path.unlink()
+            build_replay_package_v1(
+                db_path=db_path,
+                cache_key=cache_key,
+                candle_store=self._candle_store,
+                factor_store=self._factor_store,
+                overlay_store=self._overlay_store,
+                factor_slices_service=self._factor_slices_service,
+                params=ReplayBuildParamsV1(
+                    series_id=series_id,
+                    to_candle_time=int(to_candle_time),
+                    window_candles=int(wc),
+                    window_size=int(ws),
+                    snapshot_interval=int(si),
+                    preload_offset=0,
+                ),
+            )
 
-                build_replay_package_v1(
-                    db_path=db_path,
-                    cache_key=cache_key,
-                    candle_store=self._candle_store,
-                    factor_store=self._factor_store,
-                    overlay_store=self._overlay_store,
-                    factor_slices_service=self._factor_slices_service,
-                    params=ReplayBuildParamsV1(
-                        series_id=series_id,
-                        to_candle_time=int(to_candle_time),
-                        window_candles=int(wc),
-                        window_size=int(ws),
-                        snapshot_interval=int(si),
-                        preload_offset=0,
-                    ),
-                )
-                self._build_jobs.mark_done(job_id=job_id)
-            except Exception as e:
-                self._build_jobs.mark_error(job_id=job_id, error=str(e))
-
-        t = threading.Thread(target=runner, name=f"tc-replay-package-{job_id}", daemon=True)
-        t.start()
-        return ("building", job_id, cache_key)
+        self._start_tracked_build(
+            job_id=reservation.job_id,
+            thread_name=f"tc-replay-package-{reservation.job_id}",
+            build_fn=_build_package,
+        )
+        return ("building", reservation.job_id, reservation.cache_key)
 
     def status(self, *, job_id: str, include_preload: bool, include_history: bool) -> dict[str, Any]:
-        job_id = str(job_id)
-        j = self._build_jobs.get(job_id)
-        cache_key = job_id
-        if j is None:
-            if self.cache_exists(cache_key):
-                meta = self._read_meta(cache_key)
-                out: dict[str, Any] = {
-                    "status": "done",
-                    "job_id": job_id,
-                    "cache_key": cache_key,
-                    "metadata": meta.model_dump(mode="json"),
-                }
-                if include_preload:
-                    preload = self._read_preload_window(cache_key, meta)
-                    out["preload_window"] = preload.model_dump(mode="json") if preload else None
-                if include_history:
-                    out["history_events"] = [e.model_dump(mode="json") for e in self._read_history_events(cache_key)]
-                return out
-            return {"status": "build_required", "job_id": job_id, "cache_key": cache_key}
-
-        if j.status == "done":
+        normalized_job_id = str(job_id)
+        cache_key = normalized_job_id
+        status, tracked_job = self._resolve_build_status(
+            job_id=normalized_job_id,
+            cache_exists=self.cache_exists,
+        )
+        if status == "build_required":
+            return {"status": "build_required", "job_id": normalized_job_id, "cache_key": cache_key}
+        if status == "done":
             done_meta: ReplayPackageMetadataV1 | None = self._read_meta(cache_key) if self.cache_exists(cache_key) else None
-            out2: dict[str, Any] = {
+            out: dict[str, Any] = {
                 "status": "done",
-                "job_id": job_id,
+                "job_id": normalized_job_id,
                 "cache_key": cache_key,
                 "metadata": done_meta.model_dump(mode="json") if done_meta else None,
             }
             if include_preload and done_meta is not None:
                 preload = self._read_preload_window(cache_key, done_meta)
-                out2["preload_window"] = preload.model_dump(mode="json") if preload else None
+                out["preload_window"] = preload.model_dump(mode="json") if preload else None
             if include_history:
-                out2["history_events"] = [e.model_dump(mode="json") for e in self._read_history_events(cache_key)]
-            return out2
-
-        if j.status == "error":
-            return {"status": "error", "job_id": job_id, "cache_key": cache_key, "error": j.error or "unknown_error"}
-
-        return {"status": "building", "job_id": job_id, "cache_key": cache_key}
+                out["history_events"] = [e.model_dump(mode="json") for e in self._read_history_events(cache_key)]
+            return out
+        if status == "error":
+            err = tracked_job.error if tracked_job is not None else None
+            return {
+                "status": "error",
+                "job_id": normalized_job_id,
+                "cache_key": cache_key,
+                "error": err or "unknown_error",
+            }
+        return {"status": "building", "job_id": normalized_job_id, "cache_key": cache_key}
 
     def window(self, *, job_id: str, target_idx: int) -> ReplayWindowV1:
         cache_key = str(job_id)

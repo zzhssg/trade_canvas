@@ -45,6 +45,7 @@ class IngestSupervisor:
         derived_enabled: bool = False,
         derived_base_timeframe: str = "1m",
         derived_timeframes: tuple[str, ...] = (),
+        ws_pipeline_publish_enabled: bool = False,
         binance_ws_batch_max: int = 200,
         binance_ws_flush_s: float = 0.5,
         forming_min_interval_ms: int = 250,
@@ -61,6 +62,7 @@ class IngestSupervisor:
         self._derived_enabled = bool(derived_enabled)
         self._derived_base_timeframe = str(derived_base_timeframe).strip() or "1m"
         self._derived_timeframes = tuple(str(tf).strip() for tf in (derived_timeframes or ()) if str(tf).strip())
+        self._ws_pipeline_publish_enabled = bool(ws_pipeline_publish_enabled)
         self._binance_ws_batch_max = max(1, int(binance_ws_batch_max))
         self._binance_ws_flush_s = max(0.05, float(binance_ws_flush_s))
         self._forming_min_interval_ms = max(0, int(forming_min_interval_ms))
@@ -94,6 +96,9 @@ class IngestSupervisor:
 
         async with self._lock:
             job = self._jobs.get(series_id)
+            if job is not None and job.task.done():
+                self._jobs.pop(series_id, None)
+                job = None
             if job is None:
                 max_jobs = int(self._ondemand_max_jobs)
 
@@ -176,7 +181,12 @@ class IngestSupervisor:
                 "whitelist_series_ids": sorted(self._whitelist),
                 "ondemand_max_jobs": int(self._ondemand_max_jobs),
                 "whitelist_ingest_enabled": self._whitelist_ingest_enabled,
+                "ws_pipeline_publish_enabled": bool(self._ws_pipeline_publish_enabled),
             }
+
+    @property
+    def ws_pipeline_publish_enabled(self) -> bool:
+        return bool(self._ws_pipeline_publish_enabled)
 
     def _start_job(self, series_id: str, *, refcount: int) -> _Job:
         stop = asyncio.Event()
@@ -201,6 +211,7 @@ class IngestSupervisor:
                     derived_enabled=self._derived_enabled,
                     derived_base_timeframe=self._derived_base_timeframe,
                     derived_timeframes=self._derived_timeframes,
+                    pipeline_publish_enabled=self._ws_pipeline_publish_enabled,
                     batch_max=self._binance_ws_batch_max,
                     flush_s=self._binance_ws_flush_s,
                     forming_min_interval_ms=self._forming_min_interval_ms,
@@ -231,8 +242,15 @@ class IngestSupervisor:
             await asyncio.sleep(1.0)
             now = time.time()
             to_stop: list[_Job] = []
+            to_restart: list[tuple[str, _Job]] = []
             async with self._lock:
                 for series_id, job in list(self._jobs.items()):
+                    if job.task.done():
+                        if self._is_pinned_whitelist(series_id) or int(job.refcount) > 0:
+                            to_restart.append((series_id, job))
+                        else:
+                            self._jobs.pop(series_id, None)
+                        continue
                     if self._is_pinned_whitelist(series_id):
                         continue
                     if job.refcount != 0 or job.last_zero_at is None:
@@ -247,6 +265,23 @@ class IngestSupervisor:
                 job.task.cancel()
             if to_stop:
                 await asyncio.gather(*(j.task for j in to_stop), return_exceptions=True)
+            for series_id, snapshot in to_restart:
+                await self._restart_dead_job(series_id=series_id, snapshot=snapshot)
+
+    async def _restart_dead_job(self, *, series_id: str, snapshot: _Job) -> None:
+        async with self._lock:
+            current = self._jobs.get(series_id)
+            if current is not snapshot:
+                return
+            try:
+                replacement = self._start_job(series_id, refcount=int(snapshot.refcount))
+            except Exception:
+                snapshot.crashes += 1
+                snapshot.last_crash_at = time.time()
+                return
+            replacement.crashes = int(snapshot.crashes)
+            replacement.last_crash_at = snapshot.last_crash_at
+            self._jobs[series_id] = replacement
 
     def _is_pinned_whitelist(self, series_id: str) -> bool:
         return self._whitelist_ingest_enabled and series_id in self._whitelist

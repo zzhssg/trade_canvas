@@ -65,6 +65,7 @@ updated: 2026-02-11
 - 保证写顺序一致。
 - 处理 backfill/ondemand/ws ingest 的统一下游语义。
 - 通过 `TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_OVERLAY_ERROR` 与 `TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES` 提供失败补偿 kill-switch（默认关闭）。
+- `TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH`（默认 `0`）用于灰度切换 Binance WS 发布策略；两种模式都收口在 `IngestPipeline.publish_ws` 单点编排（无 WS 路由侧手工发布分支）。
 - 输出可观测事件（debug hub + ws 广播）。
 
 ### 2.4 读模型层（Read Models）
@@ -75,6 +76,7 @@ updated: 2026-02-11
 
 职责：
 - 按 `aligned_time + candle_id` 对齐输出。
+- factor 读链路默认不触发隐式重算；仅在 `TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE=1` 时允许非 strict 兼容重算。
 - 读链路默认不做隐式修复；发现账本不一致直接返回 `409 ledger_out_of_sync*`。
 - world 聚合 factor + draw，保证同一时间面快照一致。
 - 读模型层统一抛 `ServiceError`，由 route 层映射 `HTTPException`，避免读模型与 FastAPI 框架耦合。
@@ -125,6 +127,7 @@ flowchart LR
 - subscribe/unsubscribe 统一走 coordinator。
 - ondemand/whitelist 生命周期统一走 supervisor。
 - derived timeframe 订阅映射到 base timeframe 管理。
+- WS flush 的 candle/system 广播可通过 `TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH=1` 切到 pipeline 统一发布（best-effort）。
 
 ### 3.3 读链路（factor/draw/world）
 

@@ -129,6 +129,7 @@ def build_market_runtime(
         derived_enabled=bool(effective_runtime_flags.enable_derived_timeframes),
         derived_base_timeframe=str(effective_runtime_flags.derived_base_timeframe),
         derived_timeframes=tuple(effective_runtime_flags.derived_timeframes),
+        ws_pipeline_publish_enabled=bool(effective_runtime_flags.enable_ingest_ws_pipeline_publish),
         binance_ws_batch_max=int(effective_runtime_flags.binance_ws_batch_max),
         binance_ws_flush_s=float(effective_runtime_flags.binance_ws_flush_s),
         forming_min_interval_ms=int(effective_runtime_flags.market_forming_min_interval_ms),

@@ -17,6 +17,7 @@ def _env_csv(name: str, *, default: tuple[str, ...]) -> tuple[str, ...]:
 @dataclass(frozen=True)
 class RuntimeFlags:
     enable_debug_api: bool
+    enable_read_implicit_recompute: bool
     enable_factor_ingest: bool
     enable_factor_fingerprint_rebuild: bool
     factor_pivot_window_major: int
@@ -29,6 +30,7 @@ class RuntimeFlags:
     overlay_window_candles: int
     enable_ingest_compensate_overlay_error: bool
     enable_ingest_compensate_new_candles: bool
+    enable_ingest_ws_pipeline_publish: bool
     enable_market_auto_tail_backfill: bool
     market_auto_tail_backfill_max_candles: int | None
     enable_market_gap_backfill: bool
@@ -61,6 +63,7 @@ class RuntimeFlags:
 def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
     return RuntimeFlags(
         enable_debug_api=bool(base_flags.enable_debug_api),
+        enable_read_implicit_recompute=env_bool("TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE", default=False),
         enable_factor_ingest=env_bool("TRADE_CANVAS_ENABLE_FACTOR_INGEST", default=True),
         enable_factor_fingerprint_rebuild=env_bool("TRADE_CANVAS_ENABLE_FACTOR_FINGERPRINT_REBUILD", default=True),
         factor_pivot_window_major=env_int(
@@ -97,6 +100,7 @@ def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
         ),
         enable_ingest_compensate_overlay_error=env_bool("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_OVERLAY_ERROR"),
         enable_ingest_compensate_new_candles=env_bool("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES"),
+        enable_ingest_ws_pipeline_publish=env_bool("TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH", default=False),
         enable_market_auto_tail_backfill=bool(base_flags.enable_market_auto_tail_backfill),
         market_auto_tail_backfill_max_candles=base_flags.market_auto_tail_backfill_max_candles,
         enable_market_gap_backfill=env_bool("TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL"),

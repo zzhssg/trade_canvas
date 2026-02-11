@@ -28,6 +28,10 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             "TRADE_CANVAS_ENABLE_FACTOR_INGEST",
             "TRADE_CANVAS_ENABLE_OVERLAY_INGEST",
             "TRADE_CANVAS_ENABLE_READ_STRICT_MODE",
+            "TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE",
+            "TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH",
+            "TRADE_CANVAS_ENABLE_WHITELIST_INGEST",
+            "TRADE_CANVAS_ENABLE_ONDEMAND_INGEST",
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
@@ -118,6 +122,47 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             self.assertIn("ledger_out_of_sync:factor", factor.text)
         finally:
             client.close()
+
+    def test_read_implicit_recompute_flag_is_wired_to_factor_read_service(self) -> None:
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertFalse(container.runtime_flags.enable_read_implicit_recompute)
+            self.assertFalse(container.factor_read_service.implicit_recompute_enabled)
+        finally:
+            client.close()
+
+    def test_ingest_ws_pipeline_publish_flag_is_wired_to_supervisor(self) -> None:
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertFalse(container.runtime_flags.enable_ingest_ws_pipeline_publish)
+            self.assertFalse(container.supervisor.ws_pipeline_publish_enabled)
+        finally:
+            client.close()
+
+        os.environ["TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH"] = "1"
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertTrue(container.runtime_flags.enable_ingest_ws_pipeline_publish)
+            self.assertTrue(container.supervisor.ws_pipeline_publish_enabled)
+        finally:
+            client.close()
+
+    def test_whitelist_mode_starts_reaper_even_without_ondemand(self) -> None:
+        os.environ["TRADE_CANVAS_DB_PATH"] = str(self.db_path)
+        os.environ["TRADE_CANVAS_WHITELIST_PATH"] = str(self.whitelist_path)
+        os.environ["TRADE_CANVAS_ENABLE_WHITELIST_INGEST"] = "1"
+        os.environ["TRADE_CANVAS_ENABLE_ONDEMAND_INGEST"] = "0"
+
+        with TestClient(create_app()) as client:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertIsNotNone(getattr(container.supervisor, "_reaper_task", None))
 
 
 if __name__ == "__main__":

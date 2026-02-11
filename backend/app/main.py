@@ -80,7 +80,7 @@ def create_app() -> FastAPI:
         if container.whitelist_ingest_enabled:
             await container.supervisor.start_whitelist()
 
-        if bool(container.flags.enable_ondemand_ingest):
+        if container.whitelist_ingest_enabled or bool(container.flags.enable_ondemand_ingest):
             await container.supervisor.start_reaper()
 
         try:

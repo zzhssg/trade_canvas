@@ -316,24 +316,73 @@ class IngestPipeline:
             await self.publish_system_rebuilds(result=result)
         return result
 
-    async def publish(self, *, result: IngestPipelineResult) -> None:
+    async def publish(self, *, result: IngestPipelineResult, best_effort: bool = False) -> None:
         if self._hub is None:
             return
         for batch in result.series_batches:
-            candles = list(batch.candles)
-            if len(candles) == 1:
-                await self._hub.publish_closed(series_id=batch.series_id, candle=candles[0])
-            else:
-                await self._hub.publish_closed_batch(series_id=batch.series_id, candles=candles)
-        await self.publish_system_rebuilds(result=result)
+            await self._publish_series_batch(batch=batch, best_effort=best_effort)
+        await self.publish_system_rebuilds(result=result, best_effort=best_effort)
 
-    async def publish_system_rebuilds(self, *, result: IngestPipelineResult) -> None:
+    async def publish_ws(
+        self,
+        *,
+        result: IngestPipelineResult,
+        primary_series_id: str,
+        unified_publish_enabled: bool,
+    ) -> None:
+        if self._hub is None:
+            return
+        if unified_publish_enabled:
+            await self.publish(result=result, best_effort=True)
+            return
+
+        primary_batch: IngestSeriesBatch | None = None
+        for batch in result.series_batches:
+            if str(batch.series_id) == str(primary_series_id):
+                primary_batch = batch
+                break
+
+        if primary_batch is not None:
+            await self._publish_series_batch(batch=primary_batch, best_effort=False)
+
+        for batch in result.series_batches:
+            if primary_batch is not None and batch is primary_batch:
+                continue
+            await self._publish_series_batch(batch=batch, best_effort=True)
+
+        await self.publish_system_rebuilds(result=result, best_effort=True)
+
+    async def publish_system_rebuilds(self, *, result: IngestPipelineResult, best_effort: bool = False) -> None:
         if self._hub is None:
             return
         for series_id in result.rebuilt_series:
-            await self._hub.publish_system(
-                series_id=series_id,
-                event="factor.rebuild",
-                message="因子口径更新，已自动完成历史重算",
-                data={"series_id": series_id},
-            )
+            try:
+                await self._hub.publish_system(
+                    series_id=series_id,
+                    event="factor.rebuild",
+                    message="因子口径更新，已自动完成历史重算",
+                    data={"series_id": series_id},
+                )
+            except Exception:
+                if not best_effort:
+                    raise
+
+    async def _publish_series_batch(self, *, batch: IngestSeriesBatch, best_effort: bool) -> None:
+        if self._hub is None:
+            return
+        candles = list(batch.candles)
+        if not candles:
+            return
+        if len(candles) == 1:
+            try:
+                await self._hub.publish_closed(series_id=batch.series_id, candle=candles[0])
+            except Exception:
+                if not best_effort:
+                    raise
+            return
+
+        try:
+            await self._hub.publish_closed_batch(series_id=batch.series_id, candles=candles)
+        except Exception:
+            if not best_effort:
+                raise

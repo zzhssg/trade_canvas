@@ -101,6 +101,7 @@ def read_factor_slices_with_freshness(
     aligned_time: int | None = None,
     ensure_fresh: bool = True,
     strict_mode: bool = False,
+    implicit_recompute_enabled: bool = False,
     factor_store: _FactorStoreLike | None = None,
 ) -> GetFactorSlicesResponseV1:
     aligned: int | None
@@ -118,7 +119,7 @@ def read_factor_slices_with_freshness(
                 series_id=series_id,
                 aligned_time=aligned,
             )
-        else:
+        elif bool(implicit_recompute_enabled):
             _ = ensure_factor_fresh_for_read(
                 factor_orchestrator=factor_orchestrator,
                 series_id=series_id,

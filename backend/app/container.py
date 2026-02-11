@@ -102,6 +102,7 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         factor_orchestrator=factor_orchestrator,
         factor_slices_service=factor_slices_service,
         strict_mode=bool(flags.enable_read_strict_mode),
+        implicit_recompute_enabled=bool(runtime_flags.enable_read_implicit_recompute),
     )
     draw_read_service = DrawReadService(
         store=store,

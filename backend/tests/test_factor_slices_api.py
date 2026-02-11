@@ -34,6 +34,7 @@ class FactorSlicesApiTests(unittest.TestCase):
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
             "TRADE_CANVAS_FACTOR_LOGIC_VERSION",
             "TRADE_CANVAS_ENABLE_READ_STRICT_MODE",
+            "TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE",
         ):
             os.environ.pop(k, None)
 
@@ -86,7 +87,7 @@ class FactorSlicesApiTests(unittest.TestCase):
         majors = snap["history"]["major"]
         self.assertTrue(any(m.get("pivot_time") == 180 and m.get("direction") == "resistance" for m in majors))
 
-    def test_factor_slices_read_path_rebuilds_when_fingerprint_mismatched(self) -> None:
+    def test_factor_slices_read_path_rebuild_requires_explicit_non_strict_switch(self) -> None:
         base = 60
         prices = [1, 2, 3, 4, 5, 6]
         times = [base * (i + 1) for i in range(len(prices))]
@@ -127,11 +128,18 @@ class FactorSlicesApiTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_FACTOR_LOGIC_VERSION"] = "force-rebuild-for-read-path"
         os.environ["TRADE_CANVAS_ENABLE_READ_STRICT_MODE"] = "0"
         self._recreate_client()
-        after = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
-        self.assertEqual(after.status_code, 200, after.text)
-        self.assertNotIn("zhongshu", after.json()["factors"])
+        after_without_recompute = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
+        self.assertEqual(after_without_recompute.status_code, 200, after_without_recompute.text)
+        self.assertIn("zhongshu", after_without_recompute.json()["factors"])
+
+        os.environ["TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE"] = "1"
+        self._recreate_client()
+        after_with_recompute = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": times[-1]})
+        self.assertEqual(after_with_recompute.status_code, 200, after_with_recompute.text)
+        self.assertNotIn("zhongshu", after_with_recompute.json()["factors"])
         os.environ.pop("TRADE_CANVAS_FACTOR_LOGIC_VERSION", None)
         os.environ.pop("TRADE_CANVAS_ENABLE_READ_STRICT_MODE", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE", None)
         self._recreate_client()
 
     def test_factor_slices_ignores_stale_zhongshu_head_snapshot(self) -> None:

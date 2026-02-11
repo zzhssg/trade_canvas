@@ -116,6 +116,12 @@ sequenceDiagram
 - `binance_ws_batch_max`
 - `binance_ws_flush_s`
 - `market_forming_min_interval_ms`
+- `enable_ingest_ws_pipeline_publish`（env: `TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH`，默认 `0`）
+
+发布语义：
+- 默认（`0`）：`IngestPipeline.publish_ws` 走 legacy 兼容策略（primary strict + secondary/system best-effort）。
+- 灰度（`1`）：`IngestPipeline.publish_ws` 切到 unified 策略（`publish(best_effort=True)`）。
+- WS 入口（`ingest_binance_ws.py`）不再手工拼装 `hub.publish_*`，发布职责统一收口到 pipeline。
 
 ---
 
@@ -125,7 +131,8 @@ sequenceDiagram
 
 - 路由：`/api/factor/slices`
 - 服务：`FactorReadService`
-- 关键点：对齐 `aligned_time`；默认 strict（`TRADE_CANVAS_ENABLE_READ_STRICT_MODE=1`），非 strict 需显式降级。
+- 关键点：对齐 `aligned_time`；默认 strict（`TRADE_CANVAS_ENABLE_READ_STRICT_MODE=1`）。
+- 非 strict 默认不隐式重算；仅在 `TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE=1` 时允许兼容性重算。
 
 ### 5.2 draw
 

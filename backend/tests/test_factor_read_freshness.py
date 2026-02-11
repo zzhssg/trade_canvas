@@ -92,7 +92,7 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
         self.assertTrue(rebuilt)
         self.assertEqual(orchestrator.calls, [("binance:futures:BTC/USDT:1m", 1700000000)])
 
-    def test_read_factor_slices_with_freshness_uses_store_alignment_and_runs_ingest(self) -> None:
+    def test_read_factor_slices_with_freshness_uses_store_alignment_and_runs_ingest_when_enabled(self) -> None:
         store = _FakeStore(aligned_time=180)
         orchestrator = _FakeOrchestrator(rebuilt=False)
         slices_service = _FakeSlicesService()
@@ -103,13 +103,14 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
             series_id="s",
             at_time=200,
             window_candles=100,
+            implicit_recompute_enabled=True,
         )
         self.assertEqual(store.calls, [("s", 200)])
         self.assertEqual(orchestrator.calls, [("s", 180)])
         self.assertEqual(slices_service.calls, [("s", 180, 200, 100)])
         self.assertEqual(payload.candle_id, "s:180")
 
-    def test_read_factor_slices_with_freshness_respects_aligned_time_hint(self) -> None:
+    def test_read_factor_slices_with_freshness_respects_aligned_time_hint_when_recompute_enabled(self) -> None:
         store = _FakeStore(aligned_time=999)
         orchestrator = _FakeOrchestrator(rebuilt=True)
         slices_service = _FakeSlicesService()
@@ -121,6 +122,7 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
             at_time=200,
             aligned_time=160,
             window_candles=50,
+            implicit_recompute_enabled=True,
         )
         self.assertEqual(store.calls, [])
         self.assertEqual(orchestrator.calls, [("s", 160)])
@@ -166,7 +168,7 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
         self.assertEqual(orchestrator.calls, [])
         self.assertEqual(slices_service.calls, [])
 
-    def test_read_factor_slices_with_freshness_non_strict_keeps_auto_ingest(self) -> None:
+    def test_read_factor_slices_with_freshness_non_strict_skips_auto_ingest_by_default(self) -> None:
         store = _FakeStore(aligned_time=300)
         orchestrator = _FakeOrchestrator(rebuilt=False)
         slices_service = _FakeSlicesService()
@@ -179,6 +181,25 @@ class EnsureFactorFreshForReadTests(unittest.TestCase):
             aligned_time=300,
             window_candles=120,
             strict_mode=False,
+        )
+        self.assertEqual(orchestrator.calls, [])
+        self.assertEqual(slices_service.calls, [("s", 300, 360, 120)])
+        self.assertEqual(payload.candle_id, "s:300")
+
+    def test_read_factor_slices_with_freshness_non_strict_can_enable_auto_ingest_explicitly(self) -> None:
+        store = _FakeStore(aligned_time=300)
+        orchestrator = _FakeOrchestrator(rebuilt=False)
+        slices_service = _FakeSlicesService()
+        payload = read_factor_slices_with_freshness(
+            store=store,
+            factor_orchestrator=orchestrator,
+            factor_slices_service=slices_service,
+            series_id="s",
+            at_time=360,
+            aligned_time=300,
+            window_candles=120,
+            strict_mode=False,
+            implicit_recompute_enabled=True,
         )
         self.assertEqual(orchestrator.calls, [("s", 300)])
         self.assertEqual(slices_service.calls, [("s", 300, 360, 120)])

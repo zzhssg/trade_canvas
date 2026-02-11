@@ -37,6 +37,7 @@ class FactorReadService:
     factor_orchestrator: _FactorOrchestratorLike
     factor_slices_service: _FactorSlicesServiceLike
     strict_mode: bool = False
+    implicit_recompute_enabled: bool = False
 
     def resolve_aligned_time(
         self,
@@ -74,5 +75,6 @@ class FactorReadService:
             aligned_time=aligned,
             ensure_fresh=bool(ensure_fresh),
             strict_mode=bool(self.strict_mode),
+            implicit_recompute_enabled=bool(self.implicit_recompute_enabled),
             factor_store=self.factor_store,
         )

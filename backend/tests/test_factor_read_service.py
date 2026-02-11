@@ -63,7 +63,7 @@ class _Slices:
         )
 
 
-def test_factor_read_service_non_strict_keeps_legacy_auto_freshness() -> None:
+def test_factor_read_service_non_strict_skips_implicit_recompute_by_default() -> None:
     orch = _Orchestrator()
     slices = _Slices()
     service = FactorReadService(
@@ -72,6 +72,25 @@ def test_factor_read_service_non_strict_keeps_legacy_auto_freshness() -> None:
         factor_orchestrator=orch,
         factor_slices_service=slices,
         strict_mode=False,
+    )
+
+    out = service.read_slices(series_id="s", at_time=200, window_candles=100, ensure_fresh=True)
+
+    assert orch.calls == []
+    assert slices.calls == [("s", 180, 200, 100)]
+    assert out.candle_id == "s:180"
+
+
+def test_factor_read_service_non_strict_can_enable_implicit_recompute_explicitly() -> None:
+    orch = _Orchestrator()
+    slices = _Slices()
+    service = FactorReadService(
+        store=_Store(aligned=180),
+        factor_store=_FactorStore(head=100),
+        factor_orchestrator=orch,
+        factor_slices_service=slices,
+        strict_mode=False,
+        implicit_recompute_enabled=True,
     )
 
     out = service.read_slices(series_id="s", at_time=200, window_candles=100, ensure_fresh=True)
