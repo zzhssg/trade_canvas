@@ -6,6 +6,7 @@ import logging
 import time
 from typing import SupportsFloat, SupportsInt, cast
 
+from .ingest_loop_guardrail import IngestLoopGuardrail
 from .pipelines import IngestPipeline, IngestPipelineResult
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
@@ -133,10 +134,10 @@ async def run_binance_ws_ingest_loop(
     derived_enabled: bool = False,
     derived_base_timeframe: str = "1m",
     derived_timeframes: tuple[str, ...] = (),
-    pipeline_publish_enabled: bool = False,
     batch_max: int = 200,
     flush_s: float = 0.5,
     forming_min_interval_ms: int = 250,
+    loop_guardrail: IngestLoopGuardrail | None = None,
 ) -> None:
     series = parse_series_id(series_id)
 
@@ -234,10 +235,8 @@ async def run_binance_ws_ingest_loop(
 
         t1 = time.perf_counter()
         await _publish_pipeline_result_from_ws(
-            series_id=series_id,
             ingest_pipeline=ingest_pipeline,
             pipeline_result=pipeline_result,
-            pipeline_publish_enabled=bool(pipeline_publish_enabled),
         )
         publish_ms = int((time.perf_counter() - t1) * 1000)
 
@@ -254,6 +253,14 @@ async def run_binance_ws_ingest_loop(
         )
 
     while not stop.is_set():
+        if loop_guardrail is not None:
+            wait_s = float(loop_guardrail.before_attempt())
+            if wait_s > 0:
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=float(wait_s))
+                except asyncio.TimeoutError:
+                    pass
+                continue
         try:
             import websockets
 
@@ -264,6 +271,8 @@ async def run_binance_ws_ingest_loop(
                 close_timeout=2,
                 max_queue=32,
             ) as upstream:
+                if loop_guardrail is not None:
+                    loop_guardrail.on_success()
                 while not stop.is_set():
                     try:
                         raw = await asyncio.wait_for(upstream.recv(), timeout=1.0)
@@ -309,21 +318,27 @@ async def run_binance_ws_ingest_loop(
                     if len(buf) >= batch_max or (time.time() - last_flush_at) >= flush_s:
                         await flush("threshold")
                 await flush("disconnect")
+                if loop_guardrail is not None:
+                    loop_guardrail.on_success()
         except asyncio.CancelledError:
             return
-        except Exception:
-            await asyncio.sleep(2.0)
+        except Exception as exc:
+            sleep_s = 2.0
+            if loop_guardrail is not None:
+                sleep_s = max(0.0, float(loop_guardrail.on_failure(error=exc)))
+            if sleep_s <= 0:
+                continue
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=float(sleep_s))
+            except asyncio.TimeoutError:
+                pass
 
 
 async def _publish_pipeline_result_from_ws(
     *,
-    series_id: str,
     ingest_pipeline: IngestPipeline,
     pipeline_result: IngestPipelineResult,
-    pipeline_publish_enabled: bool,
 ) -> None:
     await ingest_pipeline.publish_ws(
         result=pipeline_result,
-        primary_series_id=str(series_id),
-        unified_publish_enabled=bool(pipeline_publish_enabled),
     )

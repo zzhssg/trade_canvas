@@ -4,6 +4,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 
+from .ingest_loop_guardrail import IngestLoopGuardrail, IngestLoopGuardrailConfig
 from .ingest_binance_ws import run_binance_ws_ingest_loop
 from .ingest_settings import WhitelistIngestSettings
 from .pipelines import IngestPipeline
@@ -27,6 +28,7 @@ class _Job:
     started_at: float
     crashes: int = 0
     last_crash_at: float | None = None
+    guardrail: IngestLoopGuardrail | None = None
 
 
 class IngestSupervisor:
@@ -45,10 +47,15 @@ class IngestSupervisor:
         derived_enabled: bool = False,
         derived_base_timeframe: str = "1m",
         derived_timeframes: tuple[str, ...] = (),
-        ws_pipeline_publish_enabled: bool = False,
         binance_ws_batch_max: int = 200,
         binance_ws_flush_s: float = 0.5,
         forming_min_interval_ms: int = 250,
+        enable_loop_guardrail: bool = False,
+        guardrail_crash_budget: int = 5,
+        guardrail_budget_window_s: float = 60.0,
+        guardrail_backoff_initial_s: float = 1.0,
+        guardrail_backoff_max_s: float = 15.0,
+        guardrail_open_cooldown_s: float = 30.0,
     ) -> None:
         self._store = store
         self._hub = hub
@@ -62,10 +69,18 @@ class IngestSupervisor:
         self._derived_enabled = bool(derived_enabled)
         self._derived_base_timeframe = str(derived_base_timeframe).strip() or "1m"
         self._derived_timeframes = tuple(str(tf).strip() for tf in (derived_timeframes or ()) if str(tf).strip())
-        self._ws_pipeline_publish_enabled = bool(ws_pipeline_publish_enabled)
         self._binance_ws_batch_max = max(1, int(binance_ws_batch_max))
         self._binance_ws_flush_s = max(0.05, float(binance_ws_flush_s))
         self._forming_min_interval_ms = max(0, int(forming_min_interval_ms))
+        self._guardrail_enabled = bool(enable_loop_guardrail)
+        self._guardrail_config = IngestLoopGuardrailConfig(
+            crash_budget=max(1, int(guardrail_crash_budget)),
+            budget_window_s=max(1.0, float(guardrail_budget_window_s)),
+            backoff_initial_s=max(0.0, float(guardrail_backoff_initial_s)),
+            backoff_max_s=max(0.0, float(guardrail_backoff_max_s)),
+            open_cooldown_s=max(0.0, float(guardrail_open_cooldown_s)),
+        )
+        self._guardrails: dict[str, IngestLoopGuardrail] = {}
         self._lock = asyncio.Lock()
         self._jobs: dict[str, _Job] = {}
         self._reaper_stop = asyncio.Event()
@@ -97,6 +112,11 @@ class IngestSupervisor:
         async with self._lock:
             job = self._jobs.get(series_id)
             if job is not None and job.task.done():
+                guardrail = job.guardrail
+                if guardrail is not None:
+                    wait_s = float(guardrail.before_attempt())
+                    if wait_s > 0:
+                        return False
                 self._jobs.pop(series_id, None)
                 job = None
             if job is None:
@@ -114,6 +134,7 @@ class IngestSupervisor:
                         if idle:
                             victim = idle[0]
                             self._jobs.pop(victim.series_id, None)
+                            self._guardrails.pop(victim.series_id, None)
                             to_stop.append(victim)
                         else:
                             return False
@@ -149,6 +170,7 @@ class IngestSupervisor:
         async with self._lock:
             jobs = list(self._jobs.values())
             self._jobs.clear()
+            self._guardrails.clear()
         for job in jobs:
             job.stop.set()
             job.task.cancel()
@@ -172,6 +194,7 @@ class IngestSupervisor:
                     "crashes": j.crashes,
                     "last_crash_at": j.last_crash_at,
                     "running": bool(not j.task.done()),
+                    "guardrail": None if j.guardrail is None else j.guardrail.snapshot(),
                 }
                 for j in self._jobs.values()
             ]
@@ -181,12 +204,12 @@ class IngestSupervisor:
                 "whitelist_series_ids": sorted(self._whitelist),
                 "ondemand_max_jobs": int(self._ondemand_max_jobs),
                 "whitelist_ingest_enabled": self._whitelist_ingest_enabled,
-                "ws_pipeline_publish_enabled": bool(self._ws_pipeline_publish_enabled),
+                "loop_guardrail_enabled": bool(self._guardrail_enabled),
             }
 
     @property
-    def ws_pipeline_publish_enabled(self) -> bool:
-        return bool(self._ws_pipeline_publish_enabled)
+    def whitelist_ingest_enabled(self) -> bool:
+        return bool(self._whitelist_ingest_enabled)
 
     def _start_job(self, series_id: str, *, refcount: int) -> _Job:
         stop = asyncio.Event()
@@ -195,6 +218,15 @@ class IngestSupervisor:
             raise ValueError(f"unsupported exchange for realtime ingest: {series.exchange!r}")
         ingest_fn = run_binance_ws_ingest_loop
         source = "binance_ws"
+        guardrail: IngestLoopGuardrail | None = None
+        if self._guardrail_enabled:
+            guardrail = self._guardrails.get(series_id)
+            if guardrail is None:
+                guardrail = IngestLoopGuardrail(
+                    enabled=True,
+                    config=self._guardrail_config,
+                )
+                self._guardrails[series_id] = guardrail
 
         started_at = time.time()
 
@@ -211,20 +243,30 @@ class IngestSupervisor:
                     derived_enabled=self._derived_enabled,
                     derived_base_timeframe=self._derived_base_timeframe,
                     derived_timeframes=self._derived_timeframes,
-                    pipeline_publish_enabled=self._ws_pipeline_publish_enabled,
                     batch_max=self._binance_ws_batch_max,
                     flush_s=self._binance_ws_flush_s,
                     forming_min_interval_ms=self._forming_min_interval_ms,
+                    loop_guardrail=guardrail,
                 )
+                if guardrail is not None:
+                    guardrail.on_success()
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
                 async with self._lock:
                     job = self._jobs.get(series_id)
                     if job is not None:
                         job.crashes += 1
                         job.last_crash_at = time.time()
-                await asyncio.sleep(2.0)
+                wait_s = 2.0
+                if guardrail is not None:
+                    wait_s = max(0.0, float(guardrail.on_failure(error=exc)))
+                if wait_s <= 0:
+                    return
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=float(wait_s))
+                except asyncio.TimeoutError:
+                    pass
 
         task = asyncio.create_task(runner())
         return _Job(
@@ -235,6 +277,7 @@ class IngestSupervisor:
             refcount=refcount,
             last_zero_at=None,
             started_at=started_at,
+            guardrail=guardrail,
         )
 
     async def _reaper_loop(self) -> None:
@@ -250,6 +293,7 @@ class IngestSupervisor:
                             to_restart.append((series_id, job))
                         else:
                             self._jobs.pop(series_id, None)
+                            self._guardrails.pop(series_id, None)
                         continue
                     if self._is_pinned_whitelist(series_id):
                         continue
@@ -259,6 +303,7 @@ class IngestSupervisor:
                         continue
                     to_stop.append(job)
                     self._jobs.pop(series_id, None)
+                    self._guardrails.pop(series_id, None)
 
             for job in to_stop:
                 job.stop.set()
@@ -273,6 +318,11 @@ class IngestSupervisor:
             current = self._jobs.get(series_id)
             if current is not snapshot:
                 return
+            guardrail = snapshot.guardrail
+            if guardrail is not None:
+                wait_s = float(guardrail.before_attempt())
+                if wait_s > 0:
+                    return
             try:
                 replacement = self._start_job(series_id, refcount=int(snapshot.refcount))
             except Exception:

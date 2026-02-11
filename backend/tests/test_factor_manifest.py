@@ -67,14 +67,5 @@ class FactorManifestTests(unittest.TestCase):
             )
         self.assertIn("manifest_duplicate_slice_plugin:pivot", str(ctx.exception))
 
-    def test_manifest_accepts_legacy_processors_keyword(self) -> None:
-        manifest = build_factor_manifest(
-            processors=(_TickPlugin("pivot"),),
-            slice_plugins=(_SlicePlugin("pivot"),),
-        )
-        self.assertEqual([p.spec.factor_name for p in manifest.tick_plugins], ["pivot"])
-        self.assertEqual([p.spec.factor_name for p in manifest.processors], ["pivot"])
-
-
 if __name__ == "__main__":
     unittest.main()

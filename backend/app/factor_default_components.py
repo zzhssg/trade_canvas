@@ -21,10 +21,6 @@ class FactorDefaultBundleSpec:
     tick_plugin_builder: Callable[[], FactorPlugin]
     slice_plugin_builder: Callable[[], FactorSlicePlugin]
 
-    @property
-    def processor_builder(self) -> Callable[[], FactorPlugin]:
-        return self.tick_plugin_builder
-
 
 def build_default_factor_bundle_specs() -> tuple[FactorDefaultBundleSpec, ...]:
     return (

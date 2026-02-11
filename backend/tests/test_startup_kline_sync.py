@@ -68,11 +68,29 @@ class _FakeWhitelist:
 
 
 @dataclass(frozen=True)
+class _FakeReadCtx:
+    backfill: _FakeBackfill
+    whitelist: _FakeWhitelist
+
+
+@dataclass(frozen=True)
+class _FakeIngestCtx:
+    ingest_pipeline: _FakePipeline
+
+
+@dataclass(frozen=True)
+class _FakeRuntimeFlags:
+    enable_ledger_sync_service: bool
+
+
+@dataclass(frozen=True)
 class _FakeRuntime:
     store: _FakeStore
-    backfill: _FakeBackfill
-    ingest_pipeline: _FakePipeline
-    whitelist: _FakeWhitelist
+    factor_orchestrator: _FakeStore
+    overlay_orchestrator: _FakeStore
+    read_ctx: _FakeReadCtx
+    ingest_ctx: _FakeIngestCtx
+    runtime_flags: _FakeRuntimeFlags
     debug_hub: _FakeDebugHub
 
 
@@ -157,9 +175,11 @@ def test_startup_kline_sync_for_runtime_uses_whitelist_series(monkeypatch) -> No
     debug_hub = _FakeDebugHub()
     runtime = _FakeRuntime(
         store=store,
-        backfill=backfill,
-        ingest_pipeline=pipeline,
-        whitelist=_FakeWhitelist(series_ids=(series_id,)),
+        factor_orchestrator=_FakeStore(heads={series_id: 0}),
+        overlay_orchestrator=_FakeStore(heads={series_id: 0}),
+        read_ctx=_FakeReadCtx(backfill=backfill, whitelist=_FakeWhitelist(series_ids=(series_id,))),
+        ingest_ctx=_FakeIngestCtx(ingest_pipeline=pipeline),
+        runtime_flags=_FakeRuntimeFlags(enable_ledger_sync_service=False),
         debug_hub=debug_hub,
     )
 
@@ -174,3 +194,34 @@ def test_startup_kline_sync_for_runtime_uses_whitelist_series(monkeypatch) -> No
     assert result.series_total == 1
     assert len(backfill.calls) == 1
     assert backfill.calls[0][0] == series_id
+
+
+def test_startup_kline_sync_runtime_uses_ledger_sync_service_when_enabled(monkeypatch) -> None:
+    monkeypatch.setattr("backend.app.startup_kline_sync.run_blocking", _inline_run_blocking)
+    series_id = "binance:futures:ETH/USDT:1m"
+    store = _FakeStore(heads={series_id: 0})
+    factor_store = _FakeStore(heads={series_id: 3_000_000_000})
+    overlay_store = _FakeStore(heads={series_id: 3_000_000_000})
+    backfill = _FakeBackfill(store=store)
+    pipeline = _FakePipeline()
+    runtime = _FakeRuntime(
+        store=store,
+        factor_orchestrator=factor_store,
+        overlay_orchestrator=overlay_store,
+        read_ctx=_FakeReadCtx(backfill=backfill, whitelist=_FakeWhitelist(series_ids=(series_id,))),
+        ingest_ctx=_FakeIngestCtx(ingest_pipeline=pipeline),
+        runtime_flags=_FakeRuntimeFlags(enable_ledger_sync_service=True),
+        debug_hub=_FakeDebugHub(),
+    )
+
+    result = asyncio.run(
+        run_startup_kline_sync_for_runtime(
+            runtime=runtime,
+            enabled=True,
+            target_candles=600,
+        )
+    )
+
+    assert result.series_total == 1
+    assert len(pipeline.calls) == 0
+    assert result.series_results[0].refreshed is False

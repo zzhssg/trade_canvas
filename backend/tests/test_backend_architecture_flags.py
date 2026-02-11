@@ -25,11 +25,15 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
         for name in (
             "TRADE_CANVAS_DB_PATH",
             "TRADE_CANVAS_WHITELIST_PATH",
+            "TRADE_CANVAS_ENABLE_DEBUG_API",
             "TRADE_CANVAS_ENABLE_FACTOR_INGEST",
             "TRADE_CANVAS_ENABLE_OVERLAY_INGEST",
-            "TRADE_CANVAS_ENABLE_READ_STRICT_MODE",
-            "TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE",
-            "TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH",
+            "TRADE_CANVAS_ENABLE_READ_LEDGER_WARMUP",
+            "TRADE_CANVAS_ENABLE_DEV_API",
+            "TRADE_CANVAS_ENABLE_RUNTIME_METRICS",
+            "TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE",
+            "TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE",
+            "TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL",
             "TRADE_CANVAS_ENABLE_WHITELIST_INGEST",
             "TRADE_CANVAS_ENABLE_ONDEMAND_INGEST",
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
@@ -96,19 +100,19 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             app = cast(Any, client.app)
             container = app.state.container
             runtime = container.market_runtime
-            pipeline = container.ingest_pipeline
-            self.assertIs(runtime.ingest_pipeline, pipeline)
+            pipeline = runtime.ingest_ctx.ingest_pipeline
+            self.assertIs(runtime.ingest_ctx.ingest_pipeline, pipeline)
             self.assertIs(runtime.flags, container.flags)
             self.assertIs(runtime.runtime_flags, container.runtime_flags)
-            self.assertIs(container.hub, runtime.hub)
-            self.assertIs(getattr(pipeline, "_hub", None), container.hub)
+            self.assertIs(getattr(pipeline, "_hub", None), runtime.hub)
+            self.assertIs(container.lifecycle.market_runtime, runtime)
+            self.assertFalse(hasattr(container.lifecycle, "supervisor"))
         finally:
             client.close()
 
-    def test_read_strict_mode_blocks_implicit_factor_recompute(self) -> None:
+    def test_read_path_requires_strict_fresh_ledger(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "0"
         os.environ["TRADE_CANVAS_ENABLE_OVERLAY_INGEST"] = "1"
-        os.environ["TRADE_CANVAS_ENABLE_READ_STRICT_MODE"] = "1"
 
         client = self._build_client()
         try:
@@ -123,33 +127,144 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
         finally:
             client.close()
 
-    def test_read_implicit_recompute_flag_is_wired_to_factor_read_service(self) -> None:
+    def test_factor_read_service_is_strict_by_default(self) -> None:
         client = self._build_client()
         try:
             app = cast(Any, client.app)
             container = app.state.container
-            self.assertFalse(container.runtime_flags.enable_read_implicit_recompute)
-            self.assertFalse(container.factor_read_service.implicit_recompute_enabled)
+            self.assertTrue(container.factor_read_service.strict_mode)
+            self.assertFalse(container.runtime_flags.enable_read_ledger_warmup)
+            query_service = container.market_runtime.read_ctx.query
+            self.assertFalse(query_service.runtime_flags.enable_read_ledger_warmup)
         finally:
             client.close()
 
-    def test_ingest_ws_pipeline_publish_flag_is_wired_to_supervisor(self) -> None:
+    def test_ledger_warmup_dependency_belongs_to_route_orchestrator_not_query_service(self) -> None:
         client = self._build_client()
         try:
             app = cast(Any, client.app)
             container = app.state.container
-            self.assertFalse(container.runtime_flags.enable_ingest_ws_pipeline_publish)
-            self.assertFalse(container.supervisor.ws_pipeline_publish_enabled)
+            query_service = container.market_runtime.read_ctx.query
+            warmup_service = container.market_runtime.read_ctx.ledger_warmup
+            self.assertFalse(hasattr(query_service, "ingest_pipeline"))
+            self.assertTrue(hasattr(warmup_service, "ingest_pipeline"))
         finally:
             client.close()
 
-        os.environ["TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH"] = "1"
+    def test_db_schema_migrations_are_always_enabled_in_stores(self) -> None:
         client = self._build_client()
         try:
             app = cast(Any, client.app)
             container = app.state.container
-            self.assertTrue(container.runtime_flags.enable_ingest_ws_pipeline_publish)
-            self.assertTrue(container.supervisor.ws_pipeline_publish_enabled)
+            self.assertFalse(hasattr(container.runtime_flags, "enable_db_schema_migrations"))
+            self.assertFalse(hasattr(container.store, "schema_migrations_enabled"))
+            self.assertFalse(hasattr(container.factor_store, "schema_migrations_enabled"))
+            self.assertFalse(hasattr(container.overlay_store, "schema_migrations_enabled"))
+        finally:
+            client.close()
+
+    def test_dev_api_flag_guards_dev_routes(self) -> None:
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertFalse(container.runtime_flags.enable_dev_api)
+            blocked = client.get("/api/dev/worktrees")
+            self.assertEqual(blocked.status_code, 404, blocked.text)
+        finally:
+            client.close()
+
+        os.environ["TRADE_CANVAS_ENABLE_DEV_API"] = "1"
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertTrue(container.runtime_flags.enable_dev_api)
+            allowed = client.get("/api/dev/worktrees")
+            self.assertEqual(allowed.status_code, 200, allowed.text)
+        finally:
+            client.close()
+
+    def test_runtime_metrics_flag_wires_container_and_debug_endpoint(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertFalse(container.runtime_flags.enable_runtime_metrics)
+            self.assertFalse(container.runtime_metrics.enabled())
+            self.assertIs(container.market_runtime.realtime_ctx.ws_subscriptions._runtime_metrics, container.runtime_metrics)
+            blocked = client.get("/api/market/debug/metrics")
+            self.assertEqual(blocked.status_code, 404, blocked.text)
+        finally:
+            client.close()
+
+        os.environ["TRADE_CANVAS_ENABLE_RUNTIME_METRICS"] = "1"
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertTrue(container.runtime_flags.enable_runtime_metrics)
+            self.assertTrue(container.runtime_metrics.enabled())
+            self.assertIs(container.market_runtime.realtime_ctx.ws_subscriptions._runtime_metrics, container.runtime_metrics)
+            allowed = client.get("/api/market/debug/metrics")
+            self.assertEqual(allowed.status_code, 200, allowed.text)
+        finally:
+            client.close()
+
+    def test_backfill_progress_persistence_flag_is_wired_to_tracker(self) -> None:
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            tracker = container.market_runtime.read_ctx.backfill_progress
+            self.assertFalse(container.runtime_flags.enable_market_backfill_progress_persistence)
+            self.assertIsNone(getattr(tracker, "_state_path", None))
+        finally:
+            client.close()
+
+        os.environ["TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE"] = "1"
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            tracker = container.market_runtime.read_ctx.backfill_progress
+            self.assertTrue(container.runtime_flags.enable_market_backfill_progress_persistence)
+            expected_path = self.db_path.parent / "runtime_state" / "market_backfill_progress.json"
+            self.assertEqual(Path(getattr(tracker, "_state_path")), expected_path)
+        finally:
+            client.close()
+
+    def test_ingest_supervisor_uses_single_publish_path(self) -> None:
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            snapshot = container.market_runtime.ingest_ctx.supervisor.debug_snapshot
+            self.assertTrue(callable(snapshot))
+            self.assertFalse(hasattr(container.runtime_flags, "enable_ingest_ws_pipeline_publish"))
+        finally:
+            client.close()
+
+    def test_ledger_sync_service_flag_wires_single_instance(self) -> None:
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertFalse(container.runtime_flags.enable_ledger_sync_service)
+            self.assertIs(container.read_repair_service.ledger_sync_service, container.ledger_sync_service)
+            self.assertIs(container.replay_prepare_service.ledger_sync_service, container.ledger_sync_service)
+        finally:
+            client.close()
+
+        os.environ["TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE"] = "1"
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertTrue(container.runtime_flags.enable_ledger_sync_service)
+            self.assertTrue(container.read_repair_service.enable_ledger_sync_service)
+            self.assertTrue(container.replay_prepare_service.enable_ledger_sync_service)
         finally:
             client.close()
 
@@ -162,7 +277,7 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
         with TestClient(create_app()) as client:
             app = cast(Any, client.app)
             container = app.state.container
-            self.assertIsNotNone(getattr(container.supervisor, "_reaper_task", None))
+            self.assertIsNotNone(getattr(container.market_runtime.ingest_ctx.supervisor, "_reaper_task", None))
 
 
 if __name__ == "__main__":

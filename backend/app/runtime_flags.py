@@ -17,7 +17,10 @@ def _env_csv(name: str, *, default: tuple[str, ...]) -> tuple[str, ...]:
 @dataclass(frozen=True)
 class RuntimeFlags:
     enable_debug_api: bool
-    enable_read_implicit_recompute: bool
+    enable_dev_api: bool
+    enable_runtime_metrics: bool
+    enable_read_ledger_warmup: bool
+    enable_ledger_sync_service: bool
     enable_factor_ingest: bool
     enable_factor_fingerprint_rebuild: bool
     factor_pivot_window_major: int
@@ -30,9 +33,9 @@ class RuntimeFlags:
     overlay_window_candles: int
     enable_ingest_compensate_overlay_error: bool
     enable_ingest_compensate_new_candles: bool
-    enable_ingest_ws_pipeline_publish: bool
     enable_market_auto_tail_backfill: bool
     market_auto_tail_backfill_max_candles: int | None
+    enable_market_backfill_progress_persistence: bool
     enable_market_gap_backfill: bool
     market_gap_backfill_freqtrade_limit: int
     enable_startup_kline_sync: bool
@@ -58,12 +61,19 @@ class RuntimeFlags:
     binance_ws_batch_max: int
     binance_ws_flush_s: float
     market_forming_min_interval_ms: int
+    enable_ingest_loop_guardrail: bool
 
 
 def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
     return RuntimeFlags(
         enable_debug_api=bool(base_flags.enable_debug_api),
-        enable_read_implicit_recompute=env_bool("TRADE_CANVAS_ENABLE_READ_IMPLICIT_RECOMPUTE", default=False),
+        enable_dev_api=env_bool("TRADE_CANVAS_ENABLE_DEV_API", default=False),
+        enable_runtime_metrics=env_bool("TRADE_CANVAS_ENABLE_RUNTIME_METRICS", default=False),
+        enable_read_ledger_warmup=env_bool(
+            "TRADE_CANVAS_ENABLE_READ_LEDGER_WARMUP",
+            default=bool(base_flags.enable_market_auto_tail_backfill),
+        ),
+        enable_ledger_sync_service=env_bool("TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE", default=False),
         enable_factor_ingest=env_bool("TRADE_CANVAS_ENABLE_FACTOR_INGEST", default=True),
         enable_factor_fingerprint_rebuild=env_bool("TRADE_CANVAS_ENABLE_FACTOR_FINGERPRINT_REBUILD", default=True),
         factor_pivot_window_major=env_int(
@@ -100,9 +110,12 @@ def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
         ),
         enable_ingest_compensate_overlay_error=env_bool("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_OVERLAY_ERROR"),
         enable_ingest_compensate_new_candles=env_bool("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES"),
-        enable_ingest_ws_pipeline_publish=env_bool("TRADE_CANVAS_ENABLE_INGEST_WS_PIPELINE_PUBLISH", default=False),
         enable_market_auto_tail_backfill=bool(base_flags.enable_market_auto_tail_backfill),
         market_auto_tail_backfill_max_candles=base_flags.market_auto_tail_backfill_max_candles,
+        enable_market_backfill_progress_persistence=env_bool(
+            "TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE",
+            default=False,
+        ),
         enable_market_gap_backfill=env_bool("TRADE_CANVAS_ENABLE_MARKET_GAP_BACKFILL"),
         market_gap_backfill_freqtrade_limit=env_int(
             "TRADE_CANVAS_MARKET_GAP_BACKFILL_FREQTRADE_LIMIT",
@@ -170,4 +183,5 @@ def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
             default=250,
             minimum=0,
         ),
+        enable_ingest_loop_guardrail=env_bool("TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL", default=False),
     )

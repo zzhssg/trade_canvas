@@ -222,6 +222,40 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_guardrail_snapshot_exposed_when_enabled(self) -> None:
+        store = CandleStore(db_path=self.db_path)
+        hub = CandleHub()
+        sup = IngestSupervisor(
+            store=store,
+            hub=hub,
+            whitelist_series_ids=(),
+            enable_loop_guardrail=True,
+            guardrail_crash_budget=1,
+            guardrail_open_cooldown_s=0.5,
+        )
+        series_id = "binance:spot:BTC/USDT:1m"
+
+        async def _failing_ws_loop(**kwargs) -> None:  # noqa: ANN003
+            _ = kwargs
+            raise RuntimeError("ws_loop_failed")
+
+        async def run() -> None:
+            with patch("backend.app.ingest_supervisor.run_binance_ws_ingest_loop", new=_failing_ws_loop):
+                ok = await sup.subscribe(series_id)
+                self.assertTrue(ok)
+                await asyncio.sleep(0.05)
+                snap = await sup.debug_snapshot()
+                self.assertEqual(len(snap["jobs"]), 1)
+                self.assertTrue(bool(snap["loop_guardrail_enabled"]))
+                guardrail = snap["jobs"][0].get("guardrail")
+                self.assertIsInstance(guardrail, dict)
+                assert isinstance(guardrail, dict)
+                self.assertEqual(guardrail.get("state"), "open")
+                self.assertGreaterEqual(int(guardrail.get("window_failures", 0)), 1)
+            await sup.close()
+
+        asyncio.run(run())
+
 
 if __name__ == "__main__":
     unittest.main()

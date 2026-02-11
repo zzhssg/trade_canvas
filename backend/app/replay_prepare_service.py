@@ -1,67 +1,48 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Protocol
+from typing import Protocol
 
+from .ledger_alignment import require_aligned_point, require_ledger_heads_ready
+from .ledger_sync_service import LedgerAlignedPoint, LedgerHeadTimes
 from .schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
-from .service_errors import ServiceError
+from .shared_ports import AlignedStorePort, DebugHubPort, HeadStorePort, IngestPipelineSyncPort
 
 
-class _StoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
-
-
-class _HeadStoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-
-class _PipelineStepLike(Protocol):
-    @property
-    def name(self) -> str: ...
-
-
-class _RefreshResultLike(Protocol):
-    @property
-    def steps(self) -> tuple[_PipelineStepLike, ...] | list[_PipelineStepLike]: ...
-
-
-class _IngestPipelineLike(Protocol):
-    def refresh_series_sync(self, *, up_to_times: Mapping[str, int]) -> _RefreshResultLike: ...
-
-
-class _DebugHubLike(Protocol):
-    def emit(
+class _LedgerSyncLike(Protocol):
+    def resolve_aligned_point(
         self,
         *,
-        pipe: str,
-        event: str,
-        level: str = "info",
-        message: str,
-        series_id: str | None = None,
-        data: dict | None = None,
-    ) -> None: ...
+        series_id: str,
+        to_time: int | None,
+        no_data_code: str,
+        no_data_detail: str = "no_data",
+    ) -> LedgerAlignedPoint: ...
+
+    def refresh_if_needed(self, *, series_id: str, up_to_time: int): ...
+
+    def require_heads_ready(
+        self,
+        *,
+        series_id: str,
+        aligned_time: int,
+        factor_out_of_sync_code: str,
+        overlay_out_of_sync_code: str,
+        factor_out_of_sync_detail: str = "ledger_out_of_sync:factor",
+        overlay_out_of_sync_detail: str = "ledger_out_of_sync:overlay",
+    ) -> LedgerHeadTimes: ...
 
 
 @dataclass(frozen=True)
 class ReplayPrepareService:
-    store: _StoreLike
-    factor_store: _HeadStoreLike
-    overlay_store: _HeadStoreLike
-    ingest_pipeline: _IngestPipelineLike
-    debug_hub: _DebugHubLike
+    store: AlignedStorePort
+    factor_store: HeadStorePort
+    overlay_store: HeadStorePort
+    ingest_pipeline: IngestPipelineSyncPort
+    debug_hub: DebugHubPort
+    ledger_sync_service: _LedgerSyncLike | None = None
+    enable_ledger_sync_service: bool = False
     debug_api_enabled: bool = False
-
-    def _require_aligned_time(self, *, series_id: str, to_time: int | None) -> tuple[int, int]:
-        store_head = self.store.head_time(series_id)
-        if store_head is None:
-            raise ServiceError(status_code=404, detail="no_data", code="replay_prepare.no_data")
-        requested_time = int(to_time) if to_time is not None else int(store_head)
-        aligned = self.store.floor_time(series_id, at_time=int(requested_time))
-        if aligned is None:
-            raise ServiceError(status_code=404, detail="no_data", code="replay_prepare.no_data")
-        return int(requested_time), int(aligned)
 
     @staticmethod
     def _clamp_window_candles(window_candles: int | None) -> int:
@@ -70,37 +51,68 @@ class ReplayPrepareService:
 
     def prepare(self, payload: ReplayPrepareRequestV1) -> ReplayPrepareResponseV1:
         series_id = payload.series_id
-        requested_time, aligned = self._require_aligned_time(series_id=series_id, to_time=payload.to_time)
+        ledger_sync = self.ledger_sync_service
+        use_ledger_sync = bool(self.enable_ledger_sync_service and ledger_sync is not None)
+        if use_ledger_sync and ledger_sync is not None:
+            point = ledger_sync.resolve_aligned_point(
+                series_id=series_id,
+                to_time=payload.to_time,
+                no_data_code="replay_prepare.no_data",
+                no_data_detail="no_data",
+            )
+        else:
+            point = require_aligned_point(
+                store=self.store,
+                series_id=series_id,
+                to_time=payload.to_time,
+                no_data_code="replay_prepare.no_data",
+                no_data_detail="no_data",
+            )
+        requested_time = int(point.requested_time)
+        aligned = int(point.aligned_time)
         window_candles = self._clamp_window_candles(payload.window_candles)
 
         computed = False
-        factor_head = self.factor_store.head_time(series_id)
-        overlay_head = self.overlay_store.head_time(series_id)
-        if (
-            factor_head is None
-            or int(factor_head) < int(aligned)
-            or overlay_head is None
-            or int(overlay_head) < int(aligned)
-        ):
-            pipeline_result = self.ingest_pipeline.refresh_series_sync(
-                up_to_times={series_id: int(aligned)}
+        if use_ledger_sync and ledger_sync is not None:
+            refresh_outcome = ledger_sync.refresh_if_needed(
+                series_id=series_id,
+                up_to_time=int(aligned),
             )
-            computed = bool(pipeline_result.steps)
+            computed = bool(refresh_outcome.refreshed)
+            heads = ledger_sync.require_heads_ready(
+                series_id=series_id,
+                aligned_time=int(aligned),
+                factor_out_of_sync_code="replay_prepare.ledger_out_of_sync.factor",
+                overlay_out_of_sync_code="replay_prepare.ledger_out_of_sync.overlay",
+                factor_out_of_sync_detail="ledger_out_of_sync:factor",
+                overlay_out_of_sync_detail="ledger_out_of_sync:overlay",
+            )
+        else:
+            factor_head = self.factor_store.head_time(series_id)
+            overlay_head = self.overlay_store.head_time(series_id)
+            if (
+                factor_head is None
+                or int(factor_head) < int(aligned)
+                or overlay_head is None
+                or int(overlay_head) < int(aligned)
+            ):
+                pipeline_result = self.ingest_pipeline.refresh_series_sync(
+                    up_to_times={series_id: int(aligned)}
+                )
+                computed = bool(pipeline_result.steps)
 
-        factor_head = self.factor_store.head_time(series_id)
-        overlay_head = self.overlay_store.head_time(series_id)
-        if factor_head is None or int(factor_head) < int(aligned):
-            raise ServiceError(
-                status_code=409,
-                detail="ledger_out_of_sync:factor",
-                code="replay_prepare.ledger_out_of_sync.factor",
+            heads = require_ledger_heads_ready(
+                factor_store=self.factor_store,
+                overlay_store=self.overlay_store,
+                series_id=series_id,
+                aligned_time=int(aligned),
+                factor_out_of_sync_code="replay_prepare.ledger_out_of_sync.factor",
+                overlay_out_of_sync_code="replay_prepare.ledger_out_of_sync.overlay",
+                factor_out_of_sync_detail="ledger_out_of_sync:factor",
+                overlay_out_of_sync_detail="ledger_out_of_sync:overlay",
             )
-        if overlay_head is None or int(overlay_head) < int(aligned):
-            raise ServiceError(
-                status_code=409,
-                detail="ledger_out_of_sync:overlay",
-                code="replay_prepare.ledger_out_of_sync.overlay",
-            )
+        factor_head = int(heads.factor_head_time)
+        overlay_head = int(heads.overlay_head_time)
 
         if bool(self.debug_api_enabled):
             self.debug_hub.emit(

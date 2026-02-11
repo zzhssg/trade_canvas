@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .app_lifecycle_service import AppLifecycleService
 from .backtest_runtime import list_strategies_async, run_backtest_async
 from .backtest_service import BacktestService
 from .blocking import configure_blocking_executor
@@ -13,7 +14,7 @@ from .factor_runtime_config import FactorSettings
 from .factor_slices_service import FactorSlicesService
 from .factor_store import FactorStore
 from .flags import FeatureFlags, load_feature_flags
-from .ingest_supervisor import IngestSupervisor
+from .ledger_sync_service import LedgerSyncService
 from .market_runtime import MarketRuntime
 from .market_runtime_builder import build_market_runtime
 from .overlay_orchestrator import OverlayOrchestrator, OverlaySettings
@@ -24,9 +25,9 @@ from .read_models import DrawReadService, FactorReadService, ReadRepairService, 
 from .replay_prepare_service import ReplayPrepareService
 from .replay_package_service_v1 import ReplayPackageServiceV1
 from .runtime_flags import RuntimeFlags, load_runtime_flags
+from .runtime_metrics import RuntimeMetrics
 from .store import CandleStore
 from .worktree_manager import WorktreeManager
-from .ws_hub import CandleHub
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class AppContainer:
     draw_read_service: DrawReadService
     world_read_service: WorldReadService
     read_repair_service: ReadRepairService
+    ledger_sync_service: LedgerSyncService
     overlay_store: OverlayStore
     overlay_orchestrator: OverlayOrchestrator
     replay_prepare_service: ReplayPrepareService
@@ -50,21 +52,24 @@ class AppContainer:
     overlay_pkg_service: OverlayReplayPackageServiceV1
     backtest_service: BacktestService
     debug_hub: DebugHub
-    hub: CandleHub
-    ingest_pipeline: IngestPipeline
+    runtime_metrics: RuntimeMetrics
     market_runtime: MarketRuntime
-    supervisor: IngestSupervisor
+    lifecycle: AppLifecycleService
     worktree_manager: WorktreeManager
-    whitelist_ingest_enabled: bool
 
 
 def build_app_container(*, settings: Settings, project_root: Path) -> AppContainer:
     flags = load_feature_flags()
     runtime_flags = load_runtime_flags(base_flags=flags)
     configure_blocking_executor(workers=int(runtime_flags.blocking_workers))
+    runtime_metrics = RuntimeMetrics(enabled=bool(runtime_flags.enable_runtime_metrics))
 
-    store = CandleStore(db_path=settings.db_path)
-    factor_store = FactorStore(db_path=settings.db_path)
+    store = CandleStore(
+        db_path=settings.db_path,
+    )
+    factor_store = FactorStore(
+        db_path=settings.db_path,
+    )
     factor_orchestrator = FactorOrchestrator(
         candle_store=store,
         factor_store=factor_store,
@@ -81,7 +86,9 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
     )
     factor_slices_service = FactorSlicesService(candle_store=store, factor_store=factor_store)
 
-    overlay_store = OverlayStore(db_path=settings.db_path)
+    overlay_store = OverlayStore(
+        db_path=settings.db_path,
+    )
     overlay_orchestrator = OverlayOrchestrator(
         candle_store=store,
         factor_store=factor_store,
@@ -99,10 +106,8 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
     factor_read_service = FactorReadService(
         store=store,
         factor_store=factor_store,
-        factor_orchestrator=factor_orchestrator,
         factor_slices_service=factor_slices_service,
-        strict_mode=bool(flags.enable_read_strict_mode),
-        implicit_recompute_enabled=bool(runtime_flags.enable_read_implicit_recompute),
+        strict_mode=True,
     )
     draw_read_service = DrawReadService(
         store=store,
@@ -127,11 +132,16 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         factor_orchestrator=factor_orchestrator,
         overlay_orchestrator=overlay_orchestrator,
         debug_hub=debug_hub,
+        runtime_metrics=runtime_metrics,
         flags=flags,
         runtime_flags=runtime_flags,
     )
+    lifecycle = AppLifecycleService(
+        market_runtime=runtime_build.runtime,
+    )
 
-    ingest_pipeline = runtime_build.runtime.ingest_pipeline
+    ingest_pipeline = runtime_build.runtime.ingest_ctx.ingest_pipeline
+    ledger_sync_service = runtime_build.ledger_sync_service
     read_repair_service = ReadRepairService(
         store=store,
         factor_store=factor_store,
@@ -139,6 +149,8 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         ingest_pipeline=ingest_pipeline,
         overlay_orchestrator=overlay_orchestrator,
         debug_hub=debug_hub,
+        ledger_sync_service=ledger_sync_service,
+        enable_ledger_sync_service=bool(runtime_flags.enable_ledger_sync_service),
         debug_api_enabled=bool(runtime_flags.enable_debug_api),
     )
 
@@ -148,6 +160,8 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         overlay_store=overlay_store,
         ingest_pipeline=ingest_pipeline,
         debug_hub=debug_hub,
+        ledger_sync_service=ledger_sync_service,
+        enable_ledger_sync_service=bool(runtime_flags.enable_ledger_sync_service),
         debug_api_enabled=bool(runtime_flags.enable_debug_api),
     )
     replay_service = ReplayPackageServiceV1(
@@ -190,6 +204,7 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         draw_read_service=draw_read_service,
         world_read_service=world_read_service,
         read_repair_service=read_repair_service,
+        ledger_sync_service=ledger_sync_service,
         overlay_store=overlay_store,
         overlay_orchestrator=overlay_orchestrator,
         replay_prepare_service=replay_prepare_service,
@@ -197,10 +212,8 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         overlay_pkg_service=overlay_pkg_service,
         backtest_service=backtest_service,
         debug_hub=debug_hub,
-        hub=runtime_build.hub,
-        ingest_pipeline=ingest_pipeline,
+        runtime_metrics=runtime_metrics,
         market_runtime=runtime_build.runtime,
-        supervisor=runtime_build.supervisor,
+        lifecycle=lifecycle,
         worktree_manager=worktree_manager,
-        whitelist_ingest_enabled=runtime_build.whitelist_ingest_on,
     )

@@ -3,16 +3,13 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
+from backend.app.factor_default_components import build_default_factor_components
 from backend.app.factor_graph import FactorGraph, FactorSpec
-from backend.app.factor_processors import (
-    AnchorProcessor,
-    PenProcessor,
-    PivotProcessor,
-    ZhongshuProcessor,
-    build_default_factor_plugins,
-    build_default_factor_processors,
-    build_default_slice_bucket_specs,
-)
+from backend.app.factor_processor_anchor import AnchorProcessor
+from backend.app.factor_processor_pen import PenProcessor
+from backend.app.factor_processor_pivot import PivotProcessor
+from backend.app.factor_processor_slice_buckets import build_default_slice_bucket_specs
+from backend.app.factor_processor_zhongshu import ZhongshuProcessor
 from backend.app.factor_registry import FactorRegistry, FactorRegistryError
 from backend.app.pen import ConfirmedPen, PivotMajorPoint
 from backend.app.zhongshu import ZhongshuDead
@@ -37,11 +34,8 @@ class FactorRegistryTests(unittest.TestCase):
         self.assertEqual(graph.topo_order, ("pivot", "pen", "zhongshu", "anchor"))
 
     def test_default_tick_plugins_are_graph_ready(self) -> None:
-        reg = FactorRegistry(build_default_factor_plugins())
-        self.assertEqual([s.factor_name for s in reg.specs()], ["pivot", "pen", "zhongshu", "anchor"])
-
-    def test_default_processors_alias_is_graph_ready(self) -> None:
-        reg = FactorRegistry(build_default_factor_processors())
+        tick_plugins, _ = build_default_factor_components()
+        reg = FactorRegistry(list(tick_plugins))
         self.assertEqual([s.factor_name for s in reg.specs()], ["pivot", "pen", "zhongshu", "anchor"])
 
     def test_default_slice_bucket_specs_are_unique_and_cover_anchor(self) -> None:
