@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any
 
 from backend.app.factor_graph import FactorGraph, FactorSpec
 from backend.app.factor_processors import (
@@ -166,6 +167,40 @@ class FactorRegistryTests(unittest.TestCase):
         self.assertEqual(cur["kind"], "confirmed")
         self.assertEqual(int(cur["start_time"]), 120)
         self.assertEqual(float(strength), 20.0)
+
+    def test_anchor_processor_collect_rebuild_event_normalizes_switch_payload(self) -> None:
+        proc = AnchorProcessor()
+        events: list[dict[str, Any]] = []
+        proc.collect_rebuild_event(
+            kind="anchor.switch",
+            payload={
+                "switch_time": "300",
+                "reason": "strong_pen",
+                "new_anchor": {"kind": "candidate", "start_time": "120", "end_time": "180", "direction": "-1"},
+                "old_anchor": {"kind": "confirmed", "start_time": "60", "end_time": "120", "direction": "1"},
+            },
+            events=events,
+        )
+        self.assertEqual(len(events), 1)
+        self.assertEqual(int(events[0]["switch_time"]), 300)
+        self.assertEqual(int(events[0]["visible_time"]), 300)
+        new_anchor = events[0]["new_anchor"]
+        self.assertIsInstance(new_anchor, dict)
+        if isinstance(new_anchor, dict):
+            self.assertEqual(new_anchor["kind"], "candidate")
+            self.assertEqual(int(new_anchor["direction"]), -1)
+
+    def test_anchor_processor_collect_rebuild_event_keeps_invalid_anchor_switch_raw(self) -> None:
+        proc = AnchorProcessor()
+        events: list[dict[str, Any]] = []
+        proc.collect_rebuild_event(
+            kind="anchor.switch",
+            payload={"switch_time": 300, "reason": "strong_pen", "new_anchor": {"kind": "candidate"}},
+            events=events,
+        )
+        self.assertEqual(len(events), 1)
+        self.assertEqual(int(events[0]["switch_time"]), 300)
+        self.assertIn("new_anchor", events[0])
 
 
 if __name__ == "__main__":

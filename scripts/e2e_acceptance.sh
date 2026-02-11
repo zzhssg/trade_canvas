@@ -195,6 +195,7 @@ else
     export TRADE_CANVAS_PIVOT_WINDOW_MINOR="${TRADE_CANVAS_PIVOT_WINDOW_MINOR:-5}"
     export TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES="${TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES:-20000}"
     export TRADE_CANVAS_OVERLAY_WINDOW_CANDLES="${TRADE_CANVAS_OVERLAY_WINDOW_CANDLES:-2000}"
+    export TRADE_CANVAS_UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN_S="${TRADE_CANVAS_UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN_S:-12}"
     # When overriding frontend ports for parallel runs, ensure backend CORS allows that origin.
     export TRADE_CANVAS_CORS_ORIGINS="${TRADE_CANVAS_CORS_ORIGINS:-http://localhost:${frontend_port},http://127.0.0.1:${frontend_port},http://localhost:5173,http://127.0.0.1:5173}"
     bash scripts/dev_backend.sh --no-reload --host "$backend_host" --port "$backend_port"
