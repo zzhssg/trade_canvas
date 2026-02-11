@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from backend.app.ccxt_client import _make_exchange_client
+from backend.app.flags import resolve_env_int
 from backend.app.series_id import parse_series_id
 
 
@@ -27,9 +28,10 @@ class IngestCcxtTimeoutOptionTests(unittest.TestCase):
 
         os.environ["TRADE_CANVAS_CCXT_TIMEOUT_MS"] = "12345"
         series = parse_series_id("binance:futures:BTC/USDT:1m")
+        timeout_ms = resolve_env_int("TRADE_CANVAS_CCXT_TIMEOUT_MS", fallback=10_000, minimum=1000)
 
         with patch.dict("sys.modules", {"ccxt": fake_ccxt}):
-            _make_exchange_client(series)
+            _make_exchange_client(series, timeout_ms=timeout_ms)
 
         self.assertEqual(len(calls), 1)
         name, options = calls[0]

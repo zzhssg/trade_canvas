@@ -50,6 +50,8 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_STARTUP_KLINE_SYNC", "1")
     monkeypatch.setenv("TRADE_CANVAS_STARTUP_KLINE_SYNC_TARGET_CANDLES", "9")
+    monkeypatch.setenv("TRADE_CANVAS_CCXT_TIMEOUT_MS", "9")
+    monkeypatch.setenv("TRADE_CANVAS_BLOCKING_WORKERS", "0")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_REPLAY_V1", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_REPLAY_PACKAGE", "1")
@@ -78,6 +80,8 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     assert flags.enable_ingest_compensate_new_candles is True
     assert flags.enable_startup_kline_sync is True
     assert flags.startup_kline_sync_target_candles == 100
+    assert flags.ccxt_timeout_ms == 1000
+    assert flags.blocking_workers == 1
     assert flags.enable_replay_v1 is True
     assert flags.enable_replay_ensure_coverage is True
     assert flags.enable_replay_package is True

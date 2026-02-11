@@ -200,7 +200,17 @@ def test_store_backfill_service_falls_back_to_ccxt_for_missing_window(monkeypatc
         def fake_tail_backfill(store: CandleStore, *, series_id: str, limit: int) -> int:
             return 0
 
-        def fake_ccxt_backfill(*, candle_store: CandleStore, series_id: str, start_time: int, end_time: int, batch_limit: int = 1000) -> int:
+        def fake_ccxt_backfill(
+            *,
+            candle_store: CandleStore,
+            series_id: str,
+            start_time: int,
+            end_time: int,
+            batch_limit: int = 1000,
+            ccxt_timeout_ms: int = 10_000,
+        ) -> int:
+            _ = batch_limit
+            _ = ccxt_timeout_ms
             called.append((int(start_time), int(end_time)))
             with candle_store.connect() as conn:
                 candle_store.upsert_closed_in_conn(
@@ -242,7 +252,17 @@ def test_store_backfill_service_to_time_none_uses_now_window_for_stale_series(mo
         def fake_tail_backfill(store: CandleStore, *, series_id: str, limit: int) -> int:
             return 0
 
-        def fake_ccxt_backfill(*, candle_store: CandleStore, series_id: str, start_time: int, end_time: int, batch_limit: int = 1000) -> int:
+        def fake_ccxt_backfill(
+            *,
+            candle_store: CandleStore,
+            series_id: str,
+            start_time: int,
+            end_time: int,
+            batch_limit: int = 1000,
+            ccxt_timeout_ms: int = 10_000,
+        ) -> int:
+            _ = batch_limit
+            _ = ccxt_timeout_ms
             called.append((int(start_time), int(end_time)))
             with candle_store.connect() as conn:
                 candle_store.upsert_closed_in_conn(
@@ -281,7 +301,18 @@ def test_store_backfill_service_to_time_none_skips_ccxt_by_default(monkeypatch) 
         def fake_tail_backfill(store: CandleStore, *, series_id: str, limit: int) -> int:
             return 0
 
-        def fake_ccxt_backfill(*, candle_store: CandleStore, series_id: str, start_time: int, end_time: int, batch_limit: int = 1000) -> int:
+        def fake_ccxt_backfill(
+            *,
+            candle_store: CandleStore,
+            series_id: str,
+            start_time: int,
+            end_time: int,
+            batch_limit: int = 1000,
+            ccxt_timeout_ms: int = 10_000,
+        ) -> int:
+            _ = candle_store
+            _ = batch_limit
+            _ = ccxt_timeout_ms
             called.append((int(start_time), int(end_time)))
             return 0
 

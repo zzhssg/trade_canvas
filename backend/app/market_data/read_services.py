@@ -59,6 +59,7 @@ class StoreBackfillService(BackfillService):
         progress_tracker: MarketBackfillProgressTracker | None = None,
         enable_ccxt_backfill: bool = False,
         enable_ccxt_backfill_on_read: bool = False,
+        ccxt_timeout_ms: int = 10_000,
     ) -> None:
         self._store = store
         self._gap_backfill_fn = gap_backfill_fn
@@ -66,6 +67,7 @@ class StoreBackfillService(BackfillService):
         self._progress_tracker = progress_tracker
         self._enable_ccxt_backfill = bool(enable_ccxt_backfill)
         self._enable_ccxt_backfill_on_read = bool(enable_ccxt_backfill_on_read)
+        self._ccxt_timeout_ms = max(1000, int(ccxt_timeout_ms))
 
     def _best_effort_backfill_from_base_1m(
         self,
@@ -207,6 +209,7 @@ class StoreBackfillService(BackfillService):
                     series_id=series_id,
                     start_time=int(start_time),
                     end_time=int(end_time),
+                    ccxt_timeout_ms=int(self._ccxt_timeout_ms),
                 )
             except Exception as exc:
                 errors.append(f"ccxt_backfill_failed:{exc}")

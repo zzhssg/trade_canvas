@@ -153,3 +153,20 @@ def test_market_runtime_path_does_not_depend_on_market_flags_module() -> None:
             offenders.append(str(path.relative_to(app_root)))
 
     assert not offenders, f"runtime path should use runtime flags/config injection, found market_flags dependency in: {offenders}"
+
+
+def test_blocking_and_ccxt_client_do_not_read_env_directly() -> None:
+    app_root = _backend_app_root()
+    target_files = [
+        app_root / "blocking.py",
+        app_root / "ccxt_client.py",
+    ]
+    pattern = re.compile(r"\bos\.environ\b|\bresolve_env_int\b")
+
+    offenders: list[str] = []
+    for path in target_files:
+        text = path.read_text(encoding="utf-8")
+        if pattern.search(text):
+            offenders.append(path.name)
+
+    assert not offenders, f"infrastructure modules should rely on runtime injection, found env reads in: {offenders}"

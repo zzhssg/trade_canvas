@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import queue
 import threading
 from dataclasses import dataclass
@@ -18,6 +17,7 @@ class _Job:
 _q: queue.Queue[_Job] = queue.Queue()
 _started = False
 _start_lock = threading.Lock()
+_configured_workers = 8
 
 
 def _dispatch_future(
@@ -60,14 +60,12 @@ def _worker() -> None:
             _q.task_done()
 
 
-def _max_workers() -> int:
-    raw = (os.environ.get("TRADE_CANVAS_BLOCKING_WORKERS") or "").strip()
-    if not raw:
-        return 8
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return 8
+def configure_blocking_executor(*, workers: int) -> None:
+    global _configured_workers
+    desired = max(1, int(workers))
+    if _started:
+        return
+    _configured_workers = desired
 
 
 def _ensure_started() -> None:
@@ -77,7 +75,7 @@ def _ensure_started() -> None:
     with _start_lock:
         if _started:
             return
-        for i in range(_max_workers()):
+        for i in range(int(_configured_workers)):
             t = threading.Thread(target=_worker, name=f"tc-blocking-{i}", daemon=True)
             t.start()
         _started = True
@@ -88,7 +86,7 @@ async def run_blocking(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> 
     Run a blocking callable without blocking the asyncio event loop.
 
     - Uses daemon worker threads so that a stuck blocking call won't prevent process exit (Ctrl+C).
-    - Bounds concurrency via TRADE_CANVAS_BLOCKING_WORKERS (default 8).
+    - Bounds concurrency via startup-injected runtime flag (default 8).
     """
     _ensure_started()
     loop = asyncio.get_running_loop()

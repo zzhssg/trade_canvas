@@ -17,6 +17,7 @@ def backfill_from_ccxt_range(
     start_time: int,
     end_time: int,
     batch_limit: int = 1000,
+    ccxt_timeout_ms: int = 10_000,
 ) -> int:
     """
     Best-effort CCXT backfill for [start_time, end_time] (inclusive).
@@ -36,7 +37,7 @@ def backfill_from_ccxt_range(
     if end <= 0:
         end = int(time.time() // int(tf_s) * int(tf_s))
 
-    exchange = _make_exchange_client(series)
+    exchange = _make_exchange_client(series, timeout_ms=int(ccxt_timeout_ms))
     symbol = ccxt_symbol_for_series(series)
     since_ms = int(start * 1000)
     total_written = 0
@@ -101,6 +102,7 @@ def backfill_market_gap_best_effort(
     enable_ccxt_backfill: bool = False,
     freqtrade_limit: int = 2000,
     market_history_source: str = "",
+    ccxt_timeout_ms: int = 10_000,
 ) -> int:
     """
     Best-effort gap backfill for realtime market stream.
@@ -138,6 +140,7 @@ def backfill_market_gap_best_effort(
                 series_id=series_id,
                 start_time=int(start),
                 end_time=int(end),
+                ccxt_timeout_ms=int(ccxt_timeout_ms),
             )
         except Exception:
             pass

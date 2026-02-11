@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .backtest_runtime import list_strategies_async, run_backtest_async
 from .backtest_service import BacktestService
+from .blocking import configure_blocking_executor
 from .config import Settings
 from .debug_hub import DebugHub
 from .factor_orchestrator import FactorOrchestrator
@@ -59,6 +60,7 @@ class AppContainer:
 def build_app_container(*, settings: Settings, project_root: Path) -> AppContainer:
     flags = load_feature_flags()
     runtime_flags = load_runtime_flags(base_flags=flags)
+    configure_blocking_executor(workers=int(runtime_flags.blocking_workers))
 
     store = CandleStore(db_path=settings.db_path)
     factor_store = FactorStore(db_path=settings.db_path)

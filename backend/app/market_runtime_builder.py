@@ -62,6 +62,7 @@ def build_market_runtime(
             enable_ccxt_backfill=bool(effective_runtime_flags.enable_ccxt_backfill),
             freqtrade_limit=int(effective_runtime_flags.market_gap_backfill_freqtrade_limit),
             market_history_source=str(effective_runtime_flags.market_history_source),
+            ccxt_timeout_ms=int(effective_runtime_flags.ccxt_timeout_ms),
             **kwargs,
         ),
         tail_backfill_fn=lambda s, *, series_id, limit: backfill_tail_from_freqtrade(
@@ -73,6 +74,7 @@ def build_market_runtime(
         progress_tracker=backfill_progress,
         enable_ccxt_backfill=bool(effective_runtime_flags.enable_ccxt_backfill),
         enable_ccxt_backfill_on_read=bool(effective_runtime_flags.enable_ccxt_backfill_on_read),
+        ccxt_timeout_ms=int(effective_runtime_flags.ccxt_timeout_ms),
     )
     hub.set_gap_backfill_handler(
         build_gap_backfill_handler(

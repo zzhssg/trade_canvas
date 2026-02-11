@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-from .flags import resolve_env_int
 from .series_id import SeriesId
 
 
-def _make_exchange_client(series: SeriesId):
+def _make_exchange_client(series: SeriesId, *, timeout_ms: int = 10_000):
     import ccxt  # imported lazily so tests don't require it unless a path needs ccxt
 
     if series.exchange != "binance":
         raise ValueError(f"unsupported exchange: {series.exchange!r}")
 
-    timeout_ms = resolve_env_int("TRADE_CANVAS_CCXT_TIMEOUT_MS", fallback=10_000, minimum=1000)
-    options = {"enableRateLimit": True, "timeout": timeout_ms}
+    timeout = max(1000, int(timeout_ms))
+    options = {"enableRateLimit": True, "timeout": timeout}
     if series.market == "spot":
         return ccxt.binance(options)
     if series.market == "futures":

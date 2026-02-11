@@ -8,6 +8,8 @@ from .anchor_semantics import should_append_switch
 from .factor_pen_contract import (
     anchor_pen_ref_key,
     build_anchor_pen_ref,
+    build_anchor_switch_payload,
+    normalize_anchor_switch_payload,
     pen_strength as calc_pen_strength,
 )
 from .factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec
@@ -101,7 +103,8 @@ class AnchorProcessor:
     def collect_rebuild_event(self, *, kind: str, payload: dict[str, Any], events: list[dict[str, Any]]) -> None:
         if str(kind) != "anchor.switch":
             return
-        events.append(dict(payload))
+        normalized = normalize_anchor_switch_payload(payload)
+        events.append(dict(normalized) if normalized is not None else dict(payload))
 
     def sort_rebuild_events(self, *, events: list[dict[str, Any]]) -> None:
         events.sort(key=lambda d: (int(d.get("visible_time") or 0), int(d.get("switch_time") or 0)))
@@ -218,9 +221,9 @@ class AnchorProcessor:
         confirmed_pen_ref_index: dict[tuple[int, int, int], dict[str, Any]] | None = None
         confirmed_visible_times: list[int] | None = None
         if anchor_switches:
-            last_switch = anchor_switches[-1]
-            cur = last_switch.get("new_anchor")
-            if isinstance(cur, dict):
+            normalized_switch = normalize_anchor_switch_payload(anchor_switches[-1])
+            if normalized_switch is not None:
+                cur = normalized_switch["new_anchor"]
                 anchor_current_ref = self.pen_ref_from_pen(cur, kind=str(cur.get("kind") or ""))
                 kind = str(cur.get("kind") or "")
                 if kind == "confirmed":
@@ -231,7 +234,7 @@ class AnchorProcessor:
                     if match is not None:
                         anchor_strength = self.pen_strength(match)
                 elif kind == "candidate":
-                    switch_time = int(last_switch.get("switch_time") or 0)
+                    switch_time = int(normalized_switch["switch_time"])
                     if switch_time > 0:
                         if confirmed_visible_times is None:
                             confirmed_visible_times = [int(p.get("visible_time") or 0) for p in confirmed_pens]
@@ -282,13 +285,12 @@ class AnchorProcessor:
             candle_time=int(switch_time),
             kind="anchor.switch",
             event_key=key_switch,
-            payload={
-                "switch_time": int(switch_time),
-                "reason": str(reason),
-                "old_anchor": dict(old_anchor) if isinstance(old_anchor, dict) else None,
-                "new_anchor": dict(new_anchor),
-                "visible_time": int(switch_time),
-            },
+            payload=build_anchor_switch_payload(
+                switch_time=int(switch_time),
+                reason=str(reason),
+                old_anchor=old_anchor,
+                new_anchor=new_anchor,
+            ),
         )
 
     def apply_zhongshu_entry_switch(

@@ -89,7 +89,9 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_MARKET_HISTORY_SOURCE"] = "freqtrade"
         calls: list[tuple[int, int]] = []
 
-        def fake_ccxt_backfill(*, candle_store, series_id, start_time, end_time, batch_limit=1000):
+        def fake_ccxt_backfill(*, candle_store, series_id, start_time, end_time, batch_limit=1000, ccxt_timeout_ms=10_000):
+            _ = batch_limit
+            _ = ccxt_timeout_ms
             self.assertEqual(series_id, self.series_id)
             calls.append((int(start_time), int(end_time)))
             with candle_store.connect() as conn:

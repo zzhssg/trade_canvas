@@ -35,6 +35,8 @@ class RuntimeFlags:
     market_gap_backfill_freqtrade_limit: int
     enable_startup_kline_sync: bool
     startup_kline_sync_target_candles: int
+    ccxt_timeout_ms: int
+    blocking_workers: int
     enable_ccxt_backfill: bool
     enable_ccxt_backfill_on_read: bool
     ondemand_max_jobs: int
@@ -107,6 +109,16 @@ def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
             "TRADE_CANVAS_STARTUP_KLINE_SYNC_TARGET_CANDLES",
             default=2000,
             minimum=100,
+        ),
+        ccxt_timeout_ms=env_int(
+            "TRADE_CANVAS_CCXT_TIMEOUT_MS",
+            default=10_000,
+            minimum=1000,
+        ),
+        blocking_workers=env_int(
+            "TRADE_CANVAS_BLOCKING_WORKERS",
+            default=8,
+            minimum=1,
         ),
         enable_ccxt_backfill=env_bool("TRADE_CANVAS_ENABLE_CCXT_BACKFILL"),
         enable_ccxt_backfill_on_read=env_bool(
