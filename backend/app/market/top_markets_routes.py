@@ -7,8 +7,8 @@ from typing import Literal
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 
-from ..dependencies import MarketForceLimiterDep, MarketListServiceDep
-from ..schemas import TopMarketItem, TopMarketsLimitQuery, TopMarketsResponse
+from ..deps import MarketForceLimiterDep, MarketListServiceDep
+from ..core.schemas import TopMarketItem, TopMarketsLimitQuery, TopMarketsResponse
 
 router = APIRouter()
 

@@ -7,7 +7,7 @@ from typing import Awaitable, Callable
 from .loop_guardrail import IngestLoopGuardrail
 from .settings import WhitelistIngestSettings
 from ..pipelines import IngestPipeline
-from ..store import CandleStore
+from ..storage.candle_store import CandleStore
 from ..ws.hub import CandleHub
 
 IngestLoopFn = Callable[..., Awaitable[None]]

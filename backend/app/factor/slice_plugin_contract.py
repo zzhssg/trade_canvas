@@ -5,8 +5,8 @@ from typing import Any, Mapping, Protocol
 
 from .plugin_contract import FactorPluginSpec
 from .store import FactorHeadSnapshotRow
-from ..schemas import FactorSliceV1
-from ..store import CandleStore
+from ..core.schemas import FactorSliceV1
+from ..storage.candle_store import CandleStore
 
 
 @dataclass(frozen=True)

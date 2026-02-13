@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Literal, Protocol
 
-from ..schemas import CandleClosed
+from ..core.schemas import CandleClosed
 
 FreshnessState = Literal["missing", "fresh", "stale", "degraded"]
 

@@ -41,7 +41,7 @@ class WorktreeMetadataStore:
             if not common_dir.is_absolute():
                 common_dir = (self._repo_root / common_dir).resolve()
             return common_dir.parent.resolve()
-        except Exception:
+        except (OSError, subprocess.CalledProcessError):
             return self._repo_root
 
     def read_index(self) -> dict[str, Any]:
@@ -50,7 +50,7 @@ class WorktreeMetadataStore:
             return _default_index()
         try:
             return json.loads(index_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             return _default_index()
 
     def write_index(self, data: dict[str, Any]) -> None:
@@ -70,7 +70,7 @@ class WorktreeMetadataStore:
                 owner=data.get("owner"),
                 ports=data.get("ports", {}),
             )
-        except Exception:
+        except (json.JSONDecodeError, OSError, KeyError, TypeError):
             return None
 
     def write_metadata(self, worktree_id: str, metadata: WorktreeMetadata) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..service_errors import ServiceError
+from ..core.service_errors import ServiceError
 
 
 class AlignedStoreLike(Protocol):

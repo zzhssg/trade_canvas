@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from backend.app.read_models.world_read_service import WorldReadService
-from backend.app.schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1
-from backend.app.service_errors import ServiceError
+from backend.app.core.schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1
+from backend.app.core.service_errors import ServiceError
 
 
 class _StoreStub:

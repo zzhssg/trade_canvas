@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Any
 
 from ..overlay.replay_protocol_v1 import OverlayReplayCheckpointV1, OverlayReplayDiffV1
-from ..schemas import OverlayInstructionPatchItemV1
-from ..service_errors import ServiceError
-from ..store import CandleStore
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..core.schemas import OverlayInstructionPatchItemV1
+from ..core.service_errors import ServiceError
+from ..storage.candle_store import CandleStore
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from .package_protocol_v1 import (
     ReplayCoverageV1,
     ReplayFactorHeadSnapshotV1,
@@ -193,7 +193,7 @@ class ReplayPackageReaderV1:
             raise ServiceError(status_code=404, detail="not_found", code="replay.package.not_found")
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:
+        except (json.JSONDecodeError, OSError) as exc:
             raise RuntimeError("replay_package_json_invalid") from exc
         if not isinstance(payload, dict):
             raise RuntimeError("replay_package_json_invalid")

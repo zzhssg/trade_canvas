@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 
+from .config import IngestRuntimeConfig
 from .guardrail_registry import IngestGuardrailRegistry
 from .job_runner import IngestJobRunner, IngestJobRunnerConfig, IngestLoopFn
 from .loop_guardrail import IngestLoopGuardrail, IngestLoopGuardrailConfig
@@ -22,7 +23,7 @@ from .supervisor_support import (
 from .binance_ws import run_binance_ws_ingest_loop
 from .settings import WhitelistIngestSettings
 from ..pipelines import IngestPipeline
-from ..store import CandleStore
+from ..storage.candle_store import CandleStore
 from ..ws.hub import CandleHub
 
 
@@ -35,41 +36,27 @@ class IngestSupervisor:
         whitelist_series_ids: tuple[str, ...],
         ingest_settings: WhitelistIngestSettings | None = None,
         ondemand_idle_ttl_s: int = 60,
-        ondemand_max_jobs: int = 0,
         whitelist_ingest_enabled: bool = False,
         ingest_pipeline: IngestPipeline | None = None,
-        market_history_source: str = "",
-        derived_enabled: bool = False,
-        derived_base_timeframe: str = "1m",
-        derived_timeframes: tuple[str, ...] = (),
-        binance_ws_batch_max: int = 200,
-        binance_ws_flush_s: float = 0.5,
-        forming_min_interval_ms: int = 250,
-        enable_loop_guardrail: bool = False,
-        guardrail_crash_budget: int = 5,
-        guardrail_budget_window_s: float = 60.0,
-        guardrail_backoff_initial_s: float = 1.0,
-        guardrail_backoff_max_s: float = 15.0,
-        guardrail_open_cooldown_s: float = 30.0,
-        enable_role_guard: bool = False,
-        ingest_role: str = "hybrid",
+        config: IngestRuntimeConfig | None = None,
     ) -> None:
+        cfg = config or IngestRuntimeConfig()
         self._whitelist = set(whitelist_series_ids)
         self._whitelist_ingest_enabled = bool(whitelist_ingest_enabled)
-        self._ingest_role_guard_enabled = bool(enable_role_guard)
-        self._ingest_role = normalize_ingest_role(ingest_role)
+        self._ingest_role_guard_enabled = bool(cfg.role_guard_enabled)
+        self._ingest_role = normalize_ingest_role(cfg.ingest_role)
         self._ingest_jobs_enabled = (not self._ingest_role_guard_enabled) or self._ingest_role in {"hybrid", "ingest"}
         self._settings = ingest_settings or WhitelistIngestSettings()
         self._idle_ttl_s = ondemand_idle_ttl_s
-        self._ondemand_max_jobs = max(0, int(ondemand_max_jobs))
+        self._ondemand_max_jobs = max(0, int(cfg.ondemand_max_jobs))
         self._ingest_pipeline = ingest_pipeline
-        self._market_history_source = str(market_history_source or "").strip().lower()
-        self._derived_enabled = bool(derived_enabled)
-        self._derived_base_timeframe = str(derived_base_timeframe).strip() or "1m"
-        self._derived_timeframes = tuple(str(tf).strip() for tf in (derived_timeframes or ()) if str(tf).strip())
-        self._binance_ws_batch_max = max(1, int(binance_ws_batch_max))
-        self._binance_ws_flush_s = max(0.05, float(binance_ws_flush_s))
-        self._forming_min_interval_ms = max(0, int(forming_min_interval_ms))
+        self._market_history_source = str(cfg.market_history_source or "").strip().lower()
+        self._derived_enabled = bool(cfg.derived_enabled)
+        self._derived_base_timeframe = str(cfg.derived_base_timeframe).strip() or "1m"
+        self._derived_timeframes = tuple(str(tf).strip() for tf in (cfg.derived_timeframes or ()) if str(tf).strip())
+        self._binance_ws_batch_max = max(1, int(cfg.ws_batch_max))
+        self._binance_ws_flush_s = max(0.05, float(cfg.ws_flush_s))
+        self._forming_min_interval_ms = max(0, int(cfg.forming_min_interval_ms))
         self._source_registry = IngestSourceRegistry(
             bindings={
                 "binance": IngestSourceBinding(
@@ -102,13 +89,13 @@ class IngestSupervisor:
             ),
         )
         self._guardrails = IngestGuardrailRegistry(
-            enabled=bool(enable_loop_guardrail),
+            enabled=bool(cfg.loop_guardrail_enabled),
             config=IngestLoopGuardrailConfig(
-                crash_budget=max(1, int(guardrail_crash_budget)),
-                budget_window_s=max(1.0, float(guardrail_budget_window_s)),
-                backoff_initial_s=max(0.0, float(guardrail_backoff_initial_s)),
-                backoff_max_s=max(0.0, float(guardrail_backoff_max_s)),
-                open_cooldown_s=max(0.0, float(guardrail_open_cooldown_s)),
+                crash_budget=max(1, int(cfg.guardrail_crash_budget)),
+                budget_window_s=max(1.0, float(cfg.guardrail_budget_window_s)),
+                backoff_initial_s=max(0.0, float(cfg.guardrail_backoff_initial_s)),
+                backoff_max_s=max(0.0, float(cfg.guardrail_backoff_max_s)),
+                open_cooldown_s=max(0.0, float(cfg.guardrail_open_cooldown_s)),
             ),
         )
         self._lock = asyncio.Lock()

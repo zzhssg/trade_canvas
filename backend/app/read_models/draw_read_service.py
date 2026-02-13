@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from ..overlay.store import OverlayInstructionVersionRow
-from ..schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..core.schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from .draw_delta_steps import (
     assert_overlay_head_covers,
     build_patch,

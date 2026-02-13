@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..port_allocator import allocate_ports, get_main_ports
+from .port_allocator import allocate_ports, get_main_ports
 from .metadata_store import WorktreeMetadataStore
 from .models import ServiceState, ServiceStatus, WorktreeInfo, WorktreeMetadata, parse_worktree_list, worktree_id
 from .process_runtime import WorktreeProcessRuntime

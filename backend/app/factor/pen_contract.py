@@ -37,14 +37,14 @@ class AnchorSwitchPayloadV1(TypedDict):
 def _to_int(value: Any, *, default: int = 0) -> int:
     try:
         return int(value)
-    except Exception:
+    except (ValueError, TypeError):
         return int(default)
 
 
 def _to_float(value: Any, *, default: float = 0.0) -> float:
     try:
         return float(value)
-    except Exception:
+    except (ValueError, TypeError):
         return float(default)
 
 
@@ -53,7 +53,7 @@ def _to_optional_int(value: Any) -> int | None:
         return None
     try:
         return int(value)
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 

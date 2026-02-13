@@ -4,8 +4,8 @@ from pathlib import Path
 
 from backend.app.factor.fingerprint_rebuild import FactorFingerprintRebuildCoordinator
 from backend.app.factor.store import FactorEventWrite, FactorStore
-from backend.app.schemas import CandleClosed
-from backend.app.store import CandleStore
+from backend.app.core.schemas import CandleClosed
+from backend.app.storage.candle_store import CandleStore
 
 
 class _DebugHubStub:

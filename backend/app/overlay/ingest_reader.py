@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..factor.store import FactorEventRow, FactorStore
-from ..store import CandleStore
+from ..storage.candle_store import CandleStore
 from .renderer_bucketing import collect_overlay_event_buckets
 
 

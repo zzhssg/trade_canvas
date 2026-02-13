@@ -9,7 +9,7 @@ from backend.app.overlay.integrity_plugins import (
     evaluate_overlay_integrity,
 )
 from backend.app.overlay.store import OverlayInstructionVersionRow
-from backend.app.schemas import FactorMetaV1, FactorSliceV1, GetFactorSlicesResponseV1
+from backend.app.core.schemas import FactorMetaV1, FactorSliceV1, GetFactorSlicesResponseV1
 
 
 def _meta(*, factor_name: str, at_time: int = 180) -> FactorMetaV1:

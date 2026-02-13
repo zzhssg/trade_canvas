@@ -9,8 +9,8 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
-from backend.app.schemas import CandleClosed
-from backend.app.store import CandleStore
+from backend.app.core.schemas import CandleClosed
+from backend.app.storage.candle_store import CandleStore
 
 
 class MarketCandlesApiTests(unittest.TestCase):

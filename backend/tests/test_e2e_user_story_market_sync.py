@@ -10,7 +10,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
-from backend.app.schemas import CandleClosed
+from backend.app.core.schemas import CandleClosed
 
 
 class MarketSyncE2EUserStoryTests(unittest.TestCase):
@@ -173,7 +173,7 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
         started = threading.Event()
         proceed = threading.Event()
 
-        from backend.app.store import CandleStore
+        from backend.app.storage.candle_store import CandleStore
 
         original_get_closed = CandleStore.get_closed
 
@@ -182,7 +182,7 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
             proceed.wait(timeout=1.0)
             return original_get_closed(self, series_id, since=since, limit=limit)
 
-        with mock.patch("backend.app.store.CandleStore.get_closed", new=delayed_get_closed):
+        with mock.patch("backend.app.storage.candle_store.CandleStore.get_closed", new=delayed_get_closed):
             with self.client.websocket_connect("/ws/market") as ws:
                 ws.send_json({"type": "subscribe", "series_id": self.series_id, "since": 100})
 

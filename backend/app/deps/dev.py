@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import Depends
 
 from ..backtest.service import BacktestService
-from ..container import AppContainer
+from ..bootstrap.container import AppContainer
 from ..worktree.manager import WorktreeManager
 from .core import get_app_container
 

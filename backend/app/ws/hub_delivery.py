@@ -4,7 +4,7 @@ from typing import Awaitable, Callable
 
 from fastapi import WebSocket
 
-from ..schemas import CandleClosed
+from ..core.schemas import CandleClosed
 from .hub_subscription_store import Subscription
 from .protocol import WS_MSG_CANDLE_CLOSED, WS_MSG_CANDLES_BATCH, WS_MSG_GAP
 

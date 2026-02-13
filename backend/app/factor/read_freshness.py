@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from ..schemas import GetFactorSlicesResponseV1
-from ..service_errors import ServiceError
+from ..core.schemas import GetFactorSlicesResponseV1
+from ..core.service_errors import ServiceError
 
 
 class _AlignedStoreLike(Protocol):
@@ -44,7 +44,7 @@ def _factor_head_time(
         return None
     try:
         return int(head)
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 

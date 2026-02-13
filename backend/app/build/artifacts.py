@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..flags import resolve_env_str
+from ..core.flags import resolve_env_str
 
 
 def repo_root() -> Path:

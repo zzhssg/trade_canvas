@@ -9,15 +9,15 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from .backtest.routes import register_backtest_routes
-from .config import load_settings
-from .container import build_app_container
-from .dependencies import (
-    FeatureFlagsDep,
+from .core.config import load_settings
+from .bootstrap.container import build_app_container
+from .deps import (
     MarketDataDep,
     MarketDerivedInitialBackfillDep,
     MarketWsCatchupLimitDep,
     MarketWsMessagesDep,
     MarketWsSubscriptionsDep,
+    RuntimeFlagsDep,
 )
 from .debug.routes import handle_debug_ws
 from .routes.dev import register_dev_routes
@@ -62,7 +62,7 @@ def _maybe_enable_faulthandler() -> None:
         faulthandler.enable(file=file)
         if hasattr(signal, "SIGUSR1"):
             faulthandler.register(signal.SIGUSR1, file=file, all_threads=True)
-    except Exception:
+    except (ImportError, OSError):
         pass
 
 
@@ -115,7 +115,7 @@ def create_app() -> FastAPI:
         ws_subscriptions: MarketWsSubscriptionsDep,
         market_data: MarketDataDep,
         derived_initial_backfill: MarketDerivedInitialBackfillDep,
-        flags: FeatureFlagsDep,
+        flags: RuntimeFlagsDep,
         catchup_limit: MarketWsCatchupLimitDep,
     ) -> None:
         await handle_market_ws(
@@ -133,7 +133,7 @@ def create_app() -> FastAPI:
         await handle_debug_ws(
             ws,
             debug_hub=container.debug_hub,
-            flags=container.flags,
+            flags=container.runtime_flags,
         )
 
     return app

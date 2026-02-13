@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..service_errors import ServiceError
-from ..store import CandleStore
+from ..core.service_errors import ServiceError
+from ..storage.candle_store import CandleStore
 from .replay_protocol_v1 import (
     OverlayReplayDeltaMetaV1,
     OverlayReplayDeltaPackageV1,

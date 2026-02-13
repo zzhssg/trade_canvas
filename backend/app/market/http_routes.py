@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 
-from ..dependencies import (
+from ..deps import (
     MarketIngestServiceDep,
     MarketLedgerWarmupServiceDep,
     MarketQueryServiceDep,
     RuntimeFlagsDep,
 )
-from ..schemas import (
+from ..core.schemas import (
     GetCandlesResponse,
     IngestCandleClosedRequest,
     IngestCandleClosedResponse,
@@ -17,7 +17,7 @@ from ..schemas import (
     LimitQuery,
     SinceQuery,
 )
-from ..service_errors import ServiceError, to_http_exception
+from ..core.service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 

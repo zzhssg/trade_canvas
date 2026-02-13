@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from ..ledger.alignment import LedgerAlignedPoint, LedgerHeadTimes
-from ..schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
-from ..shared_ports import DebugHubPort
+from ..core.schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
+from ..core.ports import DebugHubPort
 
 
 class _LedgerSyncLike(Protocol):

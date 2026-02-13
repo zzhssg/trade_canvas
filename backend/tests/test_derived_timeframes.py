@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import unittest
 
-from backend.app.derived_timeframes import (
+from backend.app.market.derived_timeframes import (
     DerivedTimeframeFanout,
     derived_base_timeframe,
     derived_enabled,
@@ -11,7 +11,7 @@ from backend.app.derived_timeframes import (
     rollup_closed_candles,
     to_derived_series_id,
 )
-from backend.app.schemas import CandleClosed
+from backend.app.core.schemas import CandleClosed
 
 
 class DerivedTimeframesTests(unittest.TestCase):

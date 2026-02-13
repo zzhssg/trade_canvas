@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .config import load_settings
-from .schemas import CandleClosed
-from .series_id import SeriesId, parse_series_id
-from .store import CandleStore
+from ..core.config import load_settings
+from ..core.schemas import CandleClosed
+from ..core.series_id import SeriesId, parse_series_id
+from ..storage.candle_store import CandleStore
 
 
 def _resolve_freqtrade_datadir() -> Path | None:
@@ -20,7 +20,7 @@ def _resolve_freqtrade_datadir() -> Path | None:
 
     try:
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         return None
 
     datadir_raw = str(cfg.get("datadir") or "").strip()
@@ -187,7 +187,7 @@ def maybe_bootstrap_from_freqtrade(
 
     try:
         series = parse_series_id(series_id)
-    except Exception:
+    except ValueError:
         return 0
 
     if store.head_time(series_id) is not None:
@@ -199,7 +199,7 @@ def maybe_bootstrap_from_freqtrade(
 
     try:
         candles = _read_freqtrade_feather(path, limit=max(int(limit), 1))
-    except Exception:
+    except (OSError, ValueError):
         return 0
     if not candles:
         return 0
@@ -228,7 +228,7 @@ def backfill_tail_from_freqtrade(
 
     try:
         series = parse_series_id(series_id)
-    except Exception:
+    except ValueError:
         return 0
 
     path = _find_freqtrade_ohlcv_file(series)
@@ -237,7 +237,7 @@ def backfill_tail_from_freqtrade(
 
     try:
         candles = _read_freqtrade_feather(path, limit=max(int(limit), 1))
-    except Exception:
+    except (OSError, ValueError):
         return 0
     if not candles:
         return 0

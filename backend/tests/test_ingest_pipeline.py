@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from backend.app.pipelines import IngestPipeline, IngestPipelineError
-from backend.app.schemas import CandleClosed
-from backend.app.store import CandleStore
+from backend.app.core.schemas import CandleClosed
+from backend.app.storage.candle_store import CandleStore
 
 
 class _Factor:

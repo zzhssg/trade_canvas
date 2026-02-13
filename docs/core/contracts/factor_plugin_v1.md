@@ -2,7 +2,7 @@
 title: Factor Plugin Contract v1（因子插件契约）
 status: done
 created: 2026-02-10
-updated: 2026-02-11
+updated: 2026-02-13
 ---
 
 # Factor Plugin Contract v1（因子插件契约）
@@ -86,12 +86,12 @@ class FactorHeadSnapshotPlugin(FactorTickPlugin, Protocol):
 - `bootstrap_from_history`：在拓扑序下恢复该因子的热状态（仅使用 `<=head_time` 数据）；
 - `build_head_snapshot`：在写路径结束时产出该因子 head，返回 `None` 表示本轮不落 head。
 
-## 5. 与旧接口兼容
+## 5. 无兼容双轨（严格口径）
 
-当前兼容策略（2026-02-11）：
-- `FactorRegistry` 新增主接口 `tick_plugins()`，同时保留 `processors()` 只读别名；
-- `FactorPluginSpec` 已作为主类型，`ProcessorSpec` 仅作为兼容别名保留；
-- `build_factor_manifest()` 主参数为 `tick_plugins=...`，仍接受 `processors=...` 兼容调用。
+当前规则（2026-02-13）：
+- 不新增兼容别名与双轨入口；
+- 注册与发现统一走 `backend/app/factor/bundles/`；
+- 任何遗留兼容接口若继续存在，必须在后续里程碑明确移除时间点。
 
 ## 6. 读路径插件扩展（Slice Plugin）
 
@@ -135,7 +135,7 @@ def build_default_factor_manifest() -> FactorManifest: ...
 ```
 
 约束：
-- 默认注册单点维护在 `backend/app/factor_default_components.py`（bundle 形式声明 `tick_plugin_builder + slice_plugin_builder` 配对）；
+- 默认注册入口在 `backend/app/factor/default_components.py`，其实现通过扫描 `backend/app/factor/bundles/*.py` 自动发现 bundle；
 - `tick_plugins` 与 `slice_plugins` 的因子集合必须完全相同；
 - 同名因子的 `depends_on` 必须完全相同；
 - 违反时启动即 fail-fast（`manifest_*` 错误码）。
@@ -144,7 +144,7 @@ def build_default_factor_manifest() -> FactorManifest: ...
 
 当主链路因子插件化后，下游消费链路也应遵循同样的“声明 bucket，再由 orchestrator 调度”原则：
 
-1) Overlay 渲染插件（`overlay_renderer_plugins.py`）
+1) Overlay 渲染插件（`backend/app/overlay/renderer_plugins.py`）
 - 插件声明：
   - `spec: FactorPluginSpec`
   - `bucket_specs: tuple[OverlayEventBucketSpec, ...]`
@@ -154,7 +154,7 @@ def build_default_factor_manifest() -> FactorManifest: ...
   - 统一归桶并按拓扑调度；
   - 合并并落盘绘图指令。
 
-2) Freqtrade signal 插件（`freqtrade_signal_plugins.py`）
+2) Freqtrade signal 插件（`backend/app/freqtrade/signal_strategies/*.py`）
 - 插件声明：
   - `spec: FactorPluginSpec`
   - `bucket_specs: tuple[FreqtradeSignalBucketSpec, ...]`
@@ -164,7 +164,7 @@ def build_default_factor_manifest() -> FactorManifest: ...
   - 统一归桶并按拓扑调度 signal plugin；
   - 避免在 adapter 主流程里写死某个因子（如 `pen.confirmed`）。
 
-3) Draw Delta integrity 插件（`overlay_integrity_plugins.py`）
+3) Draw Delta integrity 插件（`backend/app/overlay/integrity_plugins.py`）
 - 插件声明：
   - `name: str`
   - `evaluate(ctx) -> OverlayIntegrityResult`

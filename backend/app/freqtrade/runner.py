@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..flags import resolve_env_float
+from ..core.flags import resolve_env_float
 from .runner_commands import build_backtest_command, build_list_strategies_command, build_runner_env
 
 

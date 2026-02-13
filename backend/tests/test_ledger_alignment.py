@@ -8,7 +8,7 @@ from backend.app.ledger.alignment import (
     require_aligned_point,
     require_ledger_heads_ready,
 )
-from backend.app.service_errors import ServiceError
+from backend.app.core.service_errors import ServiceError
 
 
 class _StoreStub:

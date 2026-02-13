@@ -8,9 +8,9 @@ from .manifest import build_default_factor_manifest
 from .plugin_registry import FactorPluginRegistry
 from .slice_plugin_contract import FactorSliceBuildContext, FactorSlicePlugin
 from .store import FactorStore
-from ..schemas import FactorSliceV1, GetFactorSlicesResponseV1
-from ..store import CandleStore
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..core.schemas import FactorSliceV1, GetFactorSlicesResponseV1
+from ..storage.candle_store import CandleStore
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 
 
 def _build_event_bucket_config(
@@ -45,7 +45,7 @@ def _is_visible_payload(payload: dict[str, Any], *, at_time: int) -> bool:
         return True
     try:
         return int(vt) <= int(at_time)
-    except Exception:
+    except (ValueError, TypeError):
         return True
 
 

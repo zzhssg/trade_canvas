@@ -9,8 +9,8 @@ from ..factor.store import FactorStore
 from ..overlay.store import OverlayStore
 from ..build.service_base import PackageBuildServiceBase
 from ..pipelines import IngestPipeline
-from ..service_errors import ServiceError
-from ..store import CandleStore
+from ..core.service_errors import ServiceError
+from ..storage.candle_store import CandleStore
 from .coverage_service import ReplayCoverageCoordinator
 from .package_builder_v1 import ReplayBuildParamsV1, build_replay_package_v1, stable_json_dumps
 from .package_protocol_v1 import (

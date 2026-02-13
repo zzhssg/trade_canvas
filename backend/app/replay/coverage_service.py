@@ -5,9 +5,9 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from ..history_bootstrapper import backfill_tail_from_freqtrade
+from ..market.history_bootstrapper import backfill_tail_from_freqtrade
 from ..market.backfill import backfill_from_ccxt_range
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 
 
 @dataclass

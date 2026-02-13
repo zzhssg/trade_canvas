@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
-from ..local_store_runtime import LocalConnectionBase, MemoryCursor
+from ..storage.local_store_runtime import LocalConnectionBase, MemoryCursor
 from .store_local_sql import execute_local_factor_sql
 
 

@@ -20,6 +20,15 @@ type UseReplayControllerArgs = {
   setReplayPreparedAlignedTime: (time: number | null) => void;
 };
 
+/**
+ * 回放播放控制 hook。
+ *
+ * 职责:
+ * - series 切换时重置回放数据
+ * - 启用回放时调用 prepare API 获取对齐时间
+ * - 播放中通过 setTimeout 链式推进 replayIndex
+ * - 提供 setReplayIndexAndFocus 用于手动跳帧 (自动 clamp 到有效范围)
+ */
 export function useReplayController({
   seriesId,
   replayEnabled,

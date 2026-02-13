@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from backend.app.factor.read_freshness import read_factor_slices_with_freshness
-from backend.app.schemas import GetFactorSlicesResponseV1
-from backend.app.service_errors import ServiceError
+from backend.app.core.schemas import GetFactorSlicesResponseV1
+from backend.app.core.service_errors import ServiceError
 
 
 class _FakeStore:

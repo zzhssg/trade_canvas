@@ -8,8 +8,8 @@ from ..debug.hub import DebugHub
 from ..factor.graph import FactorGraph, FactorSpec
 from ..factor.plugin_registry import FactorPluginRegistry
 from ..factor.store import FactorStore
-from ..store import CandleStore
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..storage.candle_store import CandleStore
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from .ingest_reader import OverlayIngestInput, OverlayIngestReader
 from .ingest_writer import OverlayInstructionWriter
 from .renderer_plugins import (

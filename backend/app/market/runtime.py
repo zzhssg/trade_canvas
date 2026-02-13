@@ -18,13 +18,12 @@ from .list import BinanceMarketListService, MinIntervalLimiter
 from .ingest_service import MarketIngestService
 from .query_service import MarketQueryService
 from ..overlay.orchestrator import OverlayOrchestrator
-from ..store import CandleStore
-from ..whitelist import MarketWhitelist
+from ..storage.candle_store import CandleStore
+from ..market.whitelist import MarketWhitelist
 from ..ws.hub import CandleHub
 from .backfill_tracker import MarketBackfillProgressTracker
 
 if TYPE_CHECKING:
-    from ..flags import FeatureFlags
     from ..ledger.sync_service import LedgerSyncService
     from ..pipelines import IngestPipeline
     from ..runtime.flags import RuntimeFlags
@@ -66,7 +65,6 @@ class MarketRuntime:
     overlay_orchestrator: OverlayOrchestrator
     debug_hub: DebugHub
     hub: CandleHub
-    flags: FeatureFlags
     runtime_flags: RuntimeFlags
     runtime_metrics: RuntimeMetrics
     ledger_sync_service: LedgerSyncService

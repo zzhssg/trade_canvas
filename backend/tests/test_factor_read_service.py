@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import pytest
 
 from backend.app.read_models import FactorReadService
-from backend.app.schemas import GetFactorSlicesResponseV1
-from backend.app.service_errors import ServiceError
+from backend.app.core.schemas import GetFactorSlicesResponseV1
+from backend.app.core.service_errors import ServiceError
 
 
 class _Store:

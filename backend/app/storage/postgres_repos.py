@@ -4,7 +4,7 @@ import re
 from contextlib import AbstractContextManager
 from typing import Any
 
-from ..schemas import CandleClosed
+from ..core.schemas import CandleClosed
 from .postgres_pool import PostgresPool
 
 
@@ -26,7 +26,7 @@ def _row_get(row: Any, *, index: int, key: str) -> Any:
     if hasattr(row, "keys"):
         try:
             return row[key]
-        except Exception:
+        except (KeyError, IndexError):
             pass
     return row[index]
 

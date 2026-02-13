@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..local_store_runtime import LocalConnectionBase, MemoryCursor
+from ..storage.local_store_runtime import LocalConnectionBase, MemoryCursor
 
 
 def execute_local_factor_sql(
@@ -73,7 +73,7 @@ def execute_local_factor_sql(
         event_id = int(values[1]) if len(values) > 1 else 0
         try:
             payload = json.loads(payload_text)
-        except Exception:
+        except json.JSONDecodeError:
             payload = {}
         if not isinstance(payload, dict):
             payload = {}

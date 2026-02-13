@@ -4,8 +4,8 @@ from typing import Protocol
 
 from ..overlay.integrity_plugins import evaluate_overlay_integrity
 from ..overlay.store import OverlayInstructionVersionRow
-from ..schemas import GetFactorSlicesResponseV1, OverlayInstructionPatchItemV1
-from ..service_errors import ServiceError
+from ..core.schemas import GetFactorSlicesResponseV1, OverlayInstructionPatchItemV1
+from ..core.service_errors import ServiceError
 
 
 class StoreLike(Protocol):
@@ -176,7 +176,7 @@ def collect_active_ids(
                 continue
             try:
                 pivot_time = int(marker_time)
-            except Exception:
+            except (ValueError, TypeError):
                 continue
             if pivot_time < int(cutoff_time) or pivot_time > int(to_time):
                 continue
@@ -197,7 +197,7 @@ def collect_active_ids(
                 continue
             try:
                 point_time_int = int(point_time)
-            except Exception:
+            except (ValueError, TypeError):
                 continue
             if int(cutoff_time) <= point_time_int <= int(to_time):
                 has_visible_point = True

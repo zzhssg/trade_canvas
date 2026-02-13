@@ -24,10 +24,10 @@ def _imports() -> dict[str, Any]:
     sys.path.insert(0, str(root))
     sys.path.insert(0, str(root / "backend"))
 
-    from backend.app.config import load_settings  # noqa: WPS433
+    from backend.app.core.config import load_settings  # noqa: WPS433
     from backend.app.market_data import StoreBackfillService  # noqa: WPS433
     from backend.app.market_kline_health import analyze_series_health  # noqa: WPS433
-    from backend.app.store import CandleStore  # noqa: WPS433
+    from backend.app.storage.candle_store import CandleStore  # noqa: WPS433
 
     return {
         "load_settings": load_settings,

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..local_store_runtime import LocalConnectionBase, MemoryCursor
+from ..storage.local_store_runtime import LocalConnectionBase, MemoryCursor
 
 
 @dataclass(frozen=True)
@@ -85,7 +85,7 @@ class _OverlayStoreConnection(LocalConnectionBase):
             payload_text = str(values[3])
             try:
                 payload = json.loads(payload_text)
-            except Exception:
+            except json.JSONDecodeError:
                 payload = {}
             if not isinstance(payload, dict):
                 payload = {}

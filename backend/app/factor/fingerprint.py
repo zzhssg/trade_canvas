@@ -15,7 +15,7 @@ from .runtime_config import FactorSettings
 def _file_sha256(path: Path) -> str:
     try:
         data = path.read_bytes()
-    except Exception:
+    except OSError:
         return "missing"
     return hashlib.sha256(data).hexdigest()
 
@@ -41,7 +41,7 @@ def build_series_fingerprint(
     for plugin in sorted(registry.plugins(), key=lambda p: str(p.spec.factor_name)):
         try:
             plugin_file = Path(inspect.getfile(plugin.__class__))
-        except Exception:
+        except (TypeError, OSError):
             continue
         files[f"plugin:{plugin.spec.factor_name}"] = _file_sha256(plugin_file)
 

@@ -55,6 +55,17 @@ type UseReplayPackageWindowSyncArgs = {
   setCandles: Dispatch<SetStateAction<Candle[]>>;
 };
 
+/**
+ * 回放窗口数据同步 hook — 将 package window 数据投射到图表。
+ *
+ * 当 status="ready" 且 replayIndex 变化时:
+ * 1. ensureWindowRange 确保所有窗口数据已加载
+ * 2. 填充 replayAllCandlesRef (全量 candle 数组) 并更新图表 candles
+ * 3. applyReplayPackageWindow 应用当前窗口的 overlay 数据
+ * 4. buildReplayFactorSlices 构建当前帧的因子切片
+ * 5. applyPenAndAnchorFromFactorSlices 渲染 pen/anchor 到图表
+ * 6. setReplayCandle 更新当前帧的 candleId + activeIds
+ */
 export function useReplayPackageWindowSync({
   enabled,
   status,

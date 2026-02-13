@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.ccxt_client import ccxt_symbol_for_series
-from backend.app.series_id import parse_series_id
+from backend.app.market.ccxt_client import ccxt_symbol_for_series
+from backend.app.core.series_id import parse_series_id
 
 
 class IngestCcxtSymbolTests(unittest.TestCase):

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .store import FactorStore
-from ..store import CandleStore
+from ..storage.candle_store import CandleStore
 
 
 class _DebugHubLike(Protocol):

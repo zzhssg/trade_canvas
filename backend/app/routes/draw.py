@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, Query
 
-from ..dependencies import DrawReadServiceDep
-from ..schemas import DrawDeltaV1, LimitQuery
-from ..service_errors import ServiceError, to_http_exception
+from ..deps import DrawReadServiceDep
+from ..core.schemas import DrawDeltaV1, LimitQuery
+from ..core.service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 

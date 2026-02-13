@@ -3,13 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from .processor_anchor import AnchorProcessor
-from .processor_pen import PenProcessor
-from .processor_pivot import PivotProcessor
-from .processor_zhongshu import ZhongshuProcessor
+from .bundles import build_default_factor_bundles
 from .registry import FactorPlugin
 from .slice_plugin_contract import FactorSlicePlugin
-from .slice_plugins import AnchorSlicePlugin, PenSlicePlugin, PivotSlicePlugin, ZhongshuSlicePlugin
 
 
 class FactorDefaultComponentsError(RuntimeError):
@@ -23,23 +19,12 @@ class FactorDefaultBundleSpec:
 
 
 def build_default_factor_bundle_specs() -> tuple[FactorDefaultBundleSpec, ...]:
-    return (
+    return tuple(
         FactorDefaultBundleSpec(
-            tick_plugin_builder=PivotProcessor,
-            slice_plugin_builder=PivotSlicePlugin,
-        ),
-        FactorDefaultBundleSpec(
-            tick_plugin_builder=PenProcessor,
-            slice_plugin_builder=PenSlicePlugin,
-        ),
-        FactorDefaultBundleSpec(
-            tick_plugin_builder=ZhongshuProcessor,
-            slice_plugin_builder=ZhongshuSlicePlugin,
-        ),
-        FactorDefaultBundleSpec(
-            tick_plugin_builder=AnchorProcessor,
-            slice_plugin_builder=AnchorSlicePlugin,
-        ),
+            tick_plugin_builder=tick_builder,
+            slice_plugin_builder=slice_builder,
+        )
+        for tick_builder, slice_builder in build_default_factor_bundles()
     )
 
 

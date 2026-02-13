@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..blocking import run_blocking
+from ..runtime.blocking import run_blocking
 from ..freqtrade.runner import list_strategies, run_backtest
 
 

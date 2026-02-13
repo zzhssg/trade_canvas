@@ -4,8 +4,8 @@ import logging
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 
-from ..dependencies import MarketIngestServiceDep, RuntimeFlagsDep, WorktreeManagerDep
-from ..schemas import (
+from ..deps import ApiGatesDep, MarketIngestServiceDep, WorktreeManagerDep
+from ..core.schemas import (
     DevCreateWorktreeRequest,
     DevCreateWorktreeResponse,
     DevDeleteWorktreeRequest,
@@ -24,11 +24,11 @@ from ..schemas import (
     IngestCandlesClosedBatchRequest,
     IngestCandlesClosedBatchResponse,
 )
-from ..service_errors import ServiceError, to_http_exception
+from ..core.service_errors import ServiceError, to_http_exception
 
 
-def _require_dev_api_enabled(runtime_flags: RuntimeFlagsDep) -> None:
-    if not bool(runtime_flags.enable_dev_api):
+def _require_dev_api_enabled(api_gates: ApiGatesDep) -> None:
+    if not api_gates.dev_api:
         raise HTTPException(status_code=404, detail="not_found")
 
 
@@ -167,7 +167,7 @@ def delete_worktree(
 
 @router.get("/api/dev/ports/allocate", response_model=DevPortAllocationResponse)
 def allocate_ports_endpoint(worktree_manager: WorktreeManagerDep) -> DevPortAllocationResponse:
-    from ..port_allocator import allocate_ports as do_allocate
+    from ..worktree.port_allocator import allocate_ports as do_allocate
 
     index = worktree_manager.read_index()
     used_backend = {v.get("backend_port", 0) for v in index.get("allocations", {}).values()}

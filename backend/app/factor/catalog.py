@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .graph import FactorGraph, FactorSpec
 from .manifest import FactorManifest, build_default_factor_manifest
-from ..schemas import (
+from ..core.schemas import (
     FactorCatalogItemV1,
     FactorCatalogSubFeatureV1,
     GetFactorCatalogResponseV1,

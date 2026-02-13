@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import time
 
-from ..blocking import run_blocking
-from ..schemas import CandleClosed
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..runtime.blocking import run_blocking
+from ..core.schemas import CandleClosed
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from ..ws.hub import CandleHub
 from ..ws.protocol import WS_MSG_CANDLE_CLOSED, WS_MSG_CANDLES_BATCH
 from .contracts import (

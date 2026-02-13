@@ -5,9 +5,9 @@ import types
 import unittest
 from unittest.mock import patch
 
-from backend.app.ccxt_client import _make_exchange_client
-from backend.app.flags import resolve_env_int
-from backend.app.series_id import parse_series_id
+from backend.app.market.ccxt_client import _make_exchange_client
+from backend.app.core.flags import resolve_env_int
+from backend.app.core.series_id import parse_series_id
 
 
 class IngestCcxtTimeoutOptionTests(unittest.TestCase):

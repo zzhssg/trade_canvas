@@ -9,7 +9,7 @@ from backend.app.factor.plugin_registry import FactorPluginRegistry
 from backend.app.factor.processor_slice_buckets import SliceBucketSpec, build_default_slice_bucket_specs
 from backend.app.factor.slice_plugins import build_default_factor_slice_plugins
 from backend.app.factor.slices_service import FactorSlicesService
-from backend.app.schemas import FactorMetaV1, FactorSliceV1
+from backend.app.core.schemas import FactorMetaV1, FactorSliceV1
 
 
 class _FakeCandleStore:

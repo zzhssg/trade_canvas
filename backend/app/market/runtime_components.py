@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..config import Settings
+from ..core.config import Settings
 from ..debug.hub import DebugHub
 from ..factor.orchestrator import FactorOrchestrator
-from ..flags import FeatureFlags
-from ..history_bootstrapper import backfill_tail_from_freqtrade
+from ..market.history_bootstrapper import backfill_tail_from_freqtrade
+from ..ingest.config import IngestRuntimeConfig
 from ..ingest.supervisor import IngestSupervisor
 from ..ledger.sync_service import LedgerSyncService
 from ..pipelines import IngestPipeline
 from ..runtime.flags import RuntimeFlags
 from ..runtime.metrics import RuntimeMetrics
-from ..store import CandleStore
-from ..whitelist import load_market_whitelist
+from ..storage.candle_store import CandleStore
+from ..market.whitelist import load_market_whitelist
 from ..ws.hub import CandleHub
 from .backfill import backfill_market_gap_best_effort
 from .backfill_tracker import MarketBackfillProgressTracker
@@ -51,7 +51,6 @@ def build_read_context(
     ledger_sync_service: LedgerSyncService,
     runtime_flags: RuntimeFlags,
     runtime_metrics: RuntimeMetrics,
-    flags: FeatureFlags,
 ) -> ReadBuildResult:
     backfill_state_path = None
     if bool(runtime_flags.enable_market_backfill_progress_persistence):
@@ -122,7 +121,7 @@ def build_read_context(
     )
     return ReadBuildResult(
         context=read_context,
-        whitelist_ingest_on=bool(flags.enable_whitelist_ingest),
+        whitelist_ingest_on=bool(runtime_flags.enable_whitelist_ingest),
     )
 
 
@@ -135,7 +134,6 @@ def build_ingest_context(
     debug_hub: DebugHub,
     runtime_flags: RuntimeFlags,
     runtime_metrics: RuntimeMetrics,
-    flags: FeatureFlags,
     whitelist_series_ids: tuple[str, ...],
     whitelist_ingest_on: bool,
     ingest_pipeline: IngestPipeline | None = None,
@@ -148,24 +146,27 @@ def build_ingest_context(
         overlay_compensate_on_error=bool(runtime_flags.enable_ingest_compensate_overlay_error),
         candle_compensate_on_error=bool(runtime_flags.enable_ingest_compensate_new_candles),
     )
+    ingest_config = IngestRuntimeConfig(
+        derived_enabled=bool(runtime_flags.enable_derived_timeframes),
+        derived_base_timeframe=str(runtime_flags.derived_base_timeframe),
+        derived_timeframes=tuple(runtime_flags.derived_timeframes),
+        ws_batch_max=int(runtime_flags.binance_ws_batch_max),
+        ws_flush_s=float(runtime_flags.binance_ws_flush_s),
+        forming_min_interval_ms=int(runtime_flags.market_forming_min_interval_ms),
+        loop_guardrail_enabled=bool(runtime_flags.enable_ingest_loop_guardrail),
+        role_guard_enabled=bool(runtime_flags.enable_ingest_role_guard),
+        ingest_role=str(runtime_flags.ingest_role),
+        ondemand_max_jobs=int(runtime_flags.ondemand_max_jobs),
+        market_history_source=str(runtime_flags.market_history_source),
+    )
     supervisor = IngestSupervisor(
         store=store,
         hub=hub,
         whitelist_series_ids=whitelist_series_ids,
-        ondemand_idle_ttl_s=int(flags.ondemand_idle_ttl_s),
-        ondemand_max_jobs=int(runtime_flags.ondemand_max_jobs),
+        ondemand_idle_ttl_s=int(runtime_flags.ondemand_idle_ttl_s),
         whitelist_ingest_enabled=bool(whitelist_ingest_on),
         ingest_pipeline=pipeline,
-        market_history_source=str(runtime_flags.market_history_source),
-        derived_enabled=bool(runtime_flags.enable_derived_timeframes),
-        derived_base_timeframe=str(runtime_flags.derived_base_timeframe),
-        derived_timeframes=tuple(runtime_flags.derived_timeframes),
-        binance_ws_batch_max=int(runtime_flags.binance_ws_batch_max),
-        binance_ws_flush_s=float(runtime_flags.binance_ws_flush_s),
-        forming_min_interval_ms=int(runtime_flags.market_forming_min_interval_ms),
-        enable_loop_guardrail=bool(runtime_flags.enable_ingest_loop_guardrail),
-        enable_role_guard=bool(runtime_flags.enable_ingest_role_guard),
-        ingest_role=str(runtime_flags.ingest_role),
+        config=ingest_config,
     )
     ingest_service = MarketIngestService(
         hub=hub,

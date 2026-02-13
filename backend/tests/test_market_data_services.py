@@ -21,8 +21,8 @@ from backend.app.market_data import (
     build_ws_error_payload,
 )
 from backend.app.runtime.metrics import RuntimeMetrics
-from backend.app.schemas import CandleClosed
-from backend.app.store import CandleStore
+from backend.app.core.schemas import CandleClosed
+from backend.app.storage.candle_store import CandleStore
 
 
 def _upsert_times(store: CandleStore, *, series_id: str, times: list[int]) -> None:

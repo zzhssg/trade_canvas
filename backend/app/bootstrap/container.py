@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .lifecycle.service import AppLifecycleService
-from .blocking import configure_blocking_executor
-from .config import Settings
+from ..lifecycle.service import AppLifecycleService
+from ..runtime.blocking import configure_blocking_executor
+from ..core.config import Settings
 from .container_builders import (
     build_backtest_service,
     build_domain_core,
@@ -13,34 +13,35 @@ from .container_builders import (
     build_read_repair_service,
     build_replay_services,
 )
-from .backtest.service import BacktestService
-from .debug.hub import DebugHub
-from .factor.orchestrator import FactorOrchestrator
-from .factor.slices_service import FactorSlicesService
-from .factor.store import FactorStore
-from .flags import FeatureFlags, load_feature_flags
-from .ledger.sync_service import LedgerSyncService
-from .market.runtime import MarketRuntime
-from .market.runtime_builder import build_market_runtime
-from .overlay.orchestrator import OverlayOrchestrator
-from .overlay.package_service_v1 import OverlayReplayPackageServiceV1
-from .overlay.store import OverlayStore
-from .read_models import DrawReadService, FactorReadService, ReadRepairService, WorldReadService
-from .replay.prepare_service import ReplayPrepareService
-from .replay.package_service_v1 import ReplayPackageServiceV1
-from .runtime.flags import RuntimeFlags, load_runtime_flags
-from .runtime.metrics import RuntimeMetrics
-from .store import CandleStore
-from .storage import PostgresPool, PostgresPoolSettings, bootstrap_postgres_schema
-from .worktree.manager import WorktreeManager
+from ..backtest.service import BacktestService
+from ..debug.hub import DebugHub
+from ..factor.orchestrator import FactorOrchestrator
+from ..factor.slices_service import FactorSlicesService
+from ..factor.store import FactorStore
+from ..runtime.flags import RuntimeFlags, load_runtime_flags
+from ..ledger.sync_service import LedgerSyncService
+from ..market.runtime import MarketRuntime
+from ..market.runtime_builder import build_market_runtime
+from ..overlay.orchestrator import OverlayOrchestrator
+from ..overlay.package_service_v1 import OverlayReplayPackageServiceV1
+from ..overlay.store import OverlayStore
+from ..read_models import DrawReadService, FactorReadService, ReadRepairService, WorldReadService
+from ..replay.prepare_service import ReplayPrepareService
+from ..replay.package_service_v1 import ReplayPackageServiceV1
+from ..runtime.api_gates import ApiGateConfig
+from ..runtime.flags import RuntimeFlags, load_runtime_flags
+from ..runtime.metrics import RuntimeMetrics
+from ..storage.candle_store import CandleStore
+from ..storage import PostgresPool, PostgresPoolSettings, bootstrap_postgres_schema
+from ..worktree.manager import WorktreeManager
 
 
 @dataclass(frozen=True)
 class AppContainer:
     project_root: Path
     settings: Settings
-    flags: FeatureFlags
     runtime_flags: RuntimeFlags
+    api_gates: ApiGateConfig
     store: CandleStore
     factor_store: FactorStore
     factor_orchestrator: FactorOrchestrator
@@ -90,8 +91,16 @@ def _maybe_bootstrap_postgres(*, settings: Settings, runtime_flags: RuntimeFlags
 
 
 def build_app_container(*, settings: Settings, project_root: Path) -> AppContainer:
-    flags = load_feature_flags()
-    runtime_flags = load_runtime_flags(base_flags=flags)
+    runtime_flags = load_runtime_flags()
+    api_gates = ApiGateConfig(
+        debug_api=bool(runtime_flags.enable_debug_api),
+        dev_api=bool(runtime_flags.enable_dev_api),
+        read_repair_api=bool(runtime_flags.enable_read_repair_api),
+        kline_health_v2=bool(runtime_flags.enable_kline_health_v2),
+        kline_health_backfill_recent_seconds=int(runtime_flags.kline_health_backfill_recent_seconds),
+        runtime_metrics=bool(runtime_flags.enable_runtime_metrics),
+        capacity_metrics=bool(runtime_flags.enable_capacity_metrics),
+    )
     postgres_pool = _maybe_bootstrap_postgres(settings=settings, runtime_flags=runtime_flags)
     configure_blocking_executor(workers=int(runtime_flags.blocking_workers))
     runtime_metrics = RuntimeMetrics(enabled=bool(runtime_flags.enable_runtime_metrics))
@@ -109,7 +118,6 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         overlay_orchestrator=core.overlay_orchestrator,
         debug_hub=core.debug_hub,
         runtime_metrics=runtime_metrics,
-        flags=flags,
         runtime_flags=runtime_flags,
     )
     lifecycle = AppLifecycleService(market_runtime=runtime_build.runtime)
@@ -135,8 +143,8 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
     return AppContainer(
         project_root=project_root,
         settings=settings,
-        flags=flags,
         runtime_flags=runtime_flags,
+        api_gates=api_gates,
         store=core.store,
         factor_store=core.factor_store,
         factor_orchestrator=core.factor_orchestrator,

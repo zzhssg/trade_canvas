@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .local_store_runtime import LocalConnectionBase, MemoryCursor
-from .schemas import CandleClosed
+from ..core.schemas import CandleClosed
 
 
 @dataclass

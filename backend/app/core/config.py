@@ -29,7 +29,7 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    root_dir = Path(__file__).resolve().parents[2]
+    root_dir = Path(__file__).resolve().parents[3]
 
     db_path = Path(os.environ.get("TRADE_CANVAS_DB_PATH", "backend/data/market.db"))
     whitelist_path = Path(os.environ.get("TRADE_CANVAS_WHITELIST_PATH", "backend/config/market_whitelist.json"))

@@ -12,7 +12,7 @@ def _build_effective_major_pivots(*, major_pivots: list[dict], at_time: int) -> 
         try:
             pivot_time = int(p.get("pivot_time") or 0)
             pivot_price = float(p.get("pivot_price") or 0.0)
-        except Exception:
+        except (ValueError, TypeError):
             continue
         if direction not in {"support", "resistance"}:
             continue
@@ -51,13 +51,13 @@ def _pick_extreme_after(*, candles: list[Any], start_time: int, pick: str) -> tu
     for c in candles:
         try:
             t = int(c.candle_time)
-        except Exception:
+        except (ValueError, TypeError):
             continue
         if t <= int(start_time):
             continue
         try:
             price = float(c.high) if pick == "high" else float(c.low)
-        except Exception:
+        except (ValueError, TypeError):
             continue
         if not found:
             best_time = int(t)
@@ -144,7 +144,7 @@ def build_pen_head_candidate(
         last_end_time = int(last_confirmed.get("end_time") or 0)
         last_end_price = float(last_confirmed.get("end_price") or 0.0)
         last_dir = int(last_confirmed.get("direction") or 0)
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
     if last_end_time <= 0 or last_dir not in (-1, 1):

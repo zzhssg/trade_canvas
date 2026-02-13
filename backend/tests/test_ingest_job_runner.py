@@ -5,7 +5,7 @@ from pathlib import Path
 
 from backend.app.ingest.job_runner import IngestJobRunner, IngestJobRunnerConfig
 from backend.app.ingest.settings import WhitelistIngestSettings
-from backend.app.store import CandleStore
+from backend.app.storage.candle_store import CandleStore
 from backend.app.ws.hub import CandleHub
 
 

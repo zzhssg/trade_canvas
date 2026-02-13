@@ -11,7 +11,7 @@ def _connection_total_changes(conn: Any) -> int | None:
         return None
     try:
         return int(raw)
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 

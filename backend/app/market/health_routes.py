@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 
-from ..dependencies import MarketBackfillProgressDep, MarketDataDep, MarketWhitelistDep, RuntimeFlagsDep
+from ..deps import ApiGatesDep, MarketBackfillProgressDep, MarketDataDep, MarketWhitelistDep
 from .health_service import build_market_health_snapshot
-from ..schemas import MarketBackfillStatusResponse, MarketHealthResponse
+from ..core.schemas import MarketBackfillStatusResponse, MarketHealthResponse
 
 router = APIRouter()
 
@@ -19,11 +19,11 @@ def get_market_health(
     series_id: str = Query(..., min_length=1),
     now_time: int | None = Query(None, ge=0),
     *,
-    runtime_flags: RuntimeFlagsDep,
+    api_gates: ApiGatesDep,
     market_data: MarketDataDep,
     backfill_progress: MarketBackfillProgressDep,
 ) -> MarketHealthResponse:
-    if not (bool(runtime_flags.enable_kline_health_v2) or bool(runtime_flags.enable_debug_api)):
+    if not (api_gates.kline_health_v2 or api_gates.debug_api):
         raise HTTPException(status_code=404, detail="not_found")
     try:
         snapshot = build_market_health_snapshot(
@@ -31,7 +31,7 @@ def get_market_health(
             backfill_progress=backfill_progress,
             series_id=series_id,
             now_time=now_time,
-            backfill_recent_seconds=int(runtime_flags.kline_health_backfill_recent_seconds),
+            backfill_recent_seconds=api_gates.kline_health_backfill_recent_seconds,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

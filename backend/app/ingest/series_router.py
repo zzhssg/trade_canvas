@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..derived_timeframes import is_derived_series_id_with_config, to_base_series_id_with_base
+from ..market.derived_timeframes import is_derived_series_id_with_config, to_base_series_id_with_base
 from .source_registry import IngestSourceBinding, IngestSourceRegistry
-from ..series_id import parse_series_id
+from ..core.series_id import parse_series_id
 
 
 @dataclass(frozen=True)

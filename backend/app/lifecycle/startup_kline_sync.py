@@ -4,8 +4,8 @@ import time
 from dataclasses import dataclass
 from typing import Mapping, Protocol
 
-from ..blocking import run_blocking
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..runtime.blocking import run_blocking
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 
 
 class _StoreLike(Protocol):
@@ -108,7 +108,7 @@ def _expected_latest_closed_time(*, now_time: int, timeframe_seconds: int) -> in
 def _target_time_for_series(*, series_id: str, now_time: int) -> int | None:
     try:
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
-    except Exception:
+    except (ValueError, KeyError):
         return None
     if int(tf_s) <= 0:
         return None
@@ -302,7 +302,7 @@ def _runtime_whitelist_series_ids(runtime: _RuntimeLike) -> tuple[str, ...]:
     if not isinstance(raw, tuple):
         try:
             raw = tuple(raw)
-        except Exception:
+        except (TypeError, ValueError):
             raw = tuple()
     return _safe_series_ids(raw)
 

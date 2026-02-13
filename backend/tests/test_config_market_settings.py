@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.config import load_settings
+from backend.app.core.config import load_settings
 
 
 def test_market_settings_defaults(monkeypatch) -> None:

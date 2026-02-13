@@ -89,7 +89,7 @@ class WorktreeProcessRuntime:
                     continue
             if pids:
                 time.sleep(0.5)
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             return
 
     def terminate_process_group(self, pid: int | None) -> None:

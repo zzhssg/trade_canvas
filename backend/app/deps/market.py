@@ -4,7 +4,7 @@ from typing import Annotated, Awaitable, Callable
 
 from fastapi import Depends
 
-from ..container import AppContainer
+from ..bootstrap.container import AppContainer
 from ..ingest.supervisor import IngestSupervisor
 from ..market_data import DefaultMarketDataOrchestrator, WsMessageParser, WsSubscriptionCoordinator
 from ..market.backfill_tracker import MarketBackfillProgressTracker
@@ -13,7 +13,7 @@ from ..market.ledger_warmup_service import MarketLedgerWarmupService
 from ..market.list import BinanceMarketListService, MinIntervalLimiter
 from ..market.query_service import MarketQueryService
 from ..market.runtime import MarketIngestContext, MarketReadContext, MarketRealtimeContext
-from ..whitelist import MarketWhitelist
+from ..market.whitelist import MarketWhitelist
 from .core import get_app_container
 
 MarketDerivedInitialBackfillHandler = Callable[..., Awaitable[None]]

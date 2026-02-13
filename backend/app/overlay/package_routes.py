@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 
-from ..dependencies import OverlayPackageServiceDep
-from ..service_errors import ServiceError, to_http_exception
+from ..deps import OverlayPackageServiceDep
+from ..core.service_errors import ServiceError, to_http_exception
 from .replay_protocol_v1 import (
     ReplayOverlayPackageBuildRequestV1,
     ReplayOverlayPackageBuildResponseV1,

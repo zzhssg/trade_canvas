@@ -10,7 +10,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
-from backend.app.schemas import CandleClosed
+from backend.app.core.schemas import CandleClosed
 from backend.app.ws_publishers import WsPubsubConsumer, WsPubsubMessage
 
 
@@ -209,8 +209,8 @@ class MarketScaleoutE2EUserStoryTests(unittest.TestCase):
 
         series_id = "binance:futures:BTC/USDT:1m"
         with (
-            patch("backend.app.container._maybe_bootstrap_postgres", return_value=object()),
-            patch("backend.app.container_builders.PostgresCandleRepository", _FakePgRepo),
+            patch("backend.app.bootstrap.container._maybe_bootstrap_postgres", return_value=object()),
+            patch("backend.app.bootstrap.container_builders.PostgresCandleRepository", _FakePgRepo),
         ):
             with TestClient(create_app()) as client:
                 for candle_time in (1700000000, 1700000060, 1700000120):

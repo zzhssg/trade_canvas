@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import time
 
-from ..ccxt_client import _make_exchange_client, ccxt_symbol_for_series
-from ..history_bootstrapper import backfill_tail_from_freqtrade
-from ..schemas import CandleClosed
-from ..series_id import parse_series_id
-from ..store import CandleStore
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..market.ccxt_client import _make_exchange_client, ccxt_symbol_for_series
+from ..market.history_bootstrapper import backfill_tail_from_freqtrade
+from ..core.schemas import CandleClosed
+from ..core.series_id import parse_series_id
+from ..storage.candle_store import CandleStore
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 
 
 def backfill_from_ccxt_range(
@@ -28,7 +28,7 @@ def backfill_from_ccxt_range(
 
     try:
         series = parse_series_id(series_id)
-    except Exception:
+    except ValueError:
         return 0
 
     tf_s = timeframe_to_seconds(series.timeframe)

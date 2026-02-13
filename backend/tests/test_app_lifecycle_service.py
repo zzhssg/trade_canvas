@@ -35,14 +35,10 @@ class _FakeHub:
 
 
 @dataclass(frozen=True)
-class _FakeFlags:
-    enable_ondemand_ingest: bool
-
-
-@dataclass(frozen=True)
 class _FakeRuntimeFlags:
     enable_startup_kline_sync: bool
     startup_kline_sync_target_candles: int
+    enable_ondemand_ingest: bool = False
 
 
 @dataclass(frozen=True)
@@ -52,7 +48,6 @@ class _FakeIngestCtx:
 
 @dataclass(frozen=True)
 class _FakeRuntime:
-    flags: _FakeFlags
     runtime_flags: _FakeRuntimeFlags
     ingest_ctx: _FakeIngestCtx
     hub: _FakeHub
@@ -69,7 +64,6 @@ def test_lifecycle_startup_delegates_sync_and_supervisor(monkeypatch) -> None:
     monkeypatch.setattr("backend.app.lifecycle.service.run_startup_kline_sync_for_runtime", _fake_sync)
     supervisor = _FakeSupervisor(whitelist_ingest_enabled=True)
     runtime = _FakeRuntime(
-        flags=_FakeFlags(enable_ondemand_ingest=False),
         runtime_flags=_FakeRuntimeFlags(enable_startup_kline_sync=True, startup_kline_sync_target_candles=700),
         ingest_ctx=_FakeIngestCtx(supervisor=supervisor),
         hub=_FakeHub(),
@@ -93,8 +87,11 @@ def test_lifecycle_startup_ondemand_can_start_reaper_without_whitelist(monkeypat
     monkeypatch.setattr("backend.app.lifecycle.service.run_startup_kline_sync_for_runtime", _fake_sync)
     supervisor = _FakeSupervisor(whitelist_ingest_enabled=False)
     runtime = _FakeRuntime(
-        flags=_FakeFlags(enable_ondemand_ingest=True),
-        runtime_flags=_FakeRuntimeFlags(enable_startup_kline_sync=False, startup_kline_sync_target_candles=2000),
+        runtime_flags=_FakeRuntimeFlags(
+            enable_startup_kline_sync=False,
+            startup_kline_sync_target_candles=2000,
+            enable_ondemand_ingest=True,
+        ),
         ingest_ctx=_FakeIngestCtx(supervisor=supervisor),
         hub=_FakeHub(),
     )
@@ -110,7 +107,6 @@ def test_lifecycle_shutdown_closes_supervisor_when_hub_close_fails() -> None:
     supervisor = _FakeSupervisor(whitelist_ingest_enabled=False)
     hub = _FakeHub(fail_close=True)
     runtime = _FakeRuntime(
-        flags=_FakeFlags(enable_ondemand_ingest=False),
         runtime_flags=_FakeRuntimeFlags(enable_startup_kline_sync=False, startup_kline_sync_target_candles=2000),
         ingest_ctx=_FakeIngestCtx(supervisor=supervisor),
         hub=hub,

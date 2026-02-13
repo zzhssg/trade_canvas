@@ -7,8 +7,8 @@ from typing import Literal
 from typing import TYPE_CHECKING, Protocol
 
 from .backfill_tracker import BackfillProgressSnapshot
-from ..series_id import parse_series_id
-from ..timeframe import timeframe_to_seconds
+from ..core.series_id import parse_series_id
+from ..core.timeframe import timeframe_to_seconds
 
 if TYPE_CHECKING:
     from ..market_data import FreshnessSnapshot

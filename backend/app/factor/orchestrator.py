@@ -28,7 +28,7 @@ from .runtime_config import (
 )
 from .store import FactorEventWrite, FactorStore
 from .pen import PivotMajorPoint
-from ..store import CandleStore
+from ..storage.candle_store import CandleStore
 
 
 @dataclass(frozen=True)

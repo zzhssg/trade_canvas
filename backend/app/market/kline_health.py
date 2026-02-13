@@ -4,9 +4,9 @@ from collections import deque
 import time
 from typing import Any, Iterator
 
-from ..series_id import SeriesId, parse_series_id
-from ..store import CandleStore
-from ..timeframe import timeframe_to_seconds
+from ..core.series_id import SeriesId, parse_series_id
+from ..storage.candle_store import CandleStore
+from ..core.timeframe import timeframe_to_seconds
 
 
 def _base_series_id(series: SeriesId) -> str:

@@ -7,8 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from backend.app.ingest.config import IngestRuntimeConfig
 from backend.app.ingest.supervisor import IngestSupervisor, _Job
-from backend.app.store import CandleStore
+from backend.app.storage.candle_store import CandleStore
 from backend.app.ws.hub import CandleHub
 
 
@@ -23,7 +24,7 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
     def test_capacity_denies_when_full_and_no_idle(self) -> None:
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
-        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), ondemand_max_jobs=1)
+        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), config=IngestRuntimeConfig(ondemand_max_jobs=1))
 
         def _fake_start_job(self, series_id: str, *, refcount: int) -> _Job:  # noqa: ANN001
             stop = asyncio.Event()
@@ -55,7 +56,7 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
     def test_capacity_evicts_idle_job(self) -> None:
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
-        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), ondemand_max_jobs=1)
+        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), config=IngestRuntimeConfig(ondemand_max_jobs=1))
 
         def _fake_start_job(self, series_id: str, *, refcount: int) -> _Job:  # noqa: ANN001
             stop = asyncio.Event()
@@ -95,9 +96,11 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
             store=store,
             hub=hub,
             whitelist_series_ids=(),
-            derived_enabled=True,
-            derived_base_timeframe="1m",
-            derived_timeframes=("5m",),
+            config=IngestRuntimeConfig(
+                derived_enabled=True,
+                derived_base_timeframe="1m",
+                derived_timeframes=("5m",),
+            ),
         )
         started: list[str] = []
 
@@ -229,9 +232,11 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
             store=store,
             hub=hub,
             whitelist_series_ids=(),
-            enable_loop_guardrail=True,
-            guardrail_crash_budget=1,
-            guardrail_open_cooldown_s=0.5,
+            config=IngestRuntimeConfig(
+                loop_guardrail_enabled=True,
+                guardrail_crash_budget=1,
+                guardrail_open_cooldown_s=0.5,
+            ),
         )
         series_id = "binance:spot:BTC/USDT:1m"
 

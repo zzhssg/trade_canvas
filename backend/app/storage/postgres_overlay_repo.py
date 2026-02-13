@@ -29,7 +29,7 @@ def _row_get(row: Any, *, index: int, key: str) -> Any:
     if hasattr(row, "keys"):
         try:
             return row[key]
-        except Exception:
+        except (KeyError, IndexError):
             pass
     return row[index]
 
@@ -40,12 +40,12 @@ def _json_load(value: Any) -> dict[str, Any]:
     if isinstance(value, (bytes, bytearray)):
         try:
             value = value.decode("utf-8")
-        except Exception:
+        except (UnicodeDecodeError, AttributeError):
             return {}
     if isinstance(value, str):
         try:
             parsed = json.loads(value)
-        except Exception:
+        except (json.JSONDecodeError, ValueError):
             return {}
         return parsed if isinstance(parsed, dict) else {}
     return {}

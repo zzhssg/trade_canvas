@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi import WebSocket
 
-from ..schemas import CandleClosed
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..core.schemas import CandleClosed
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from ..ws_publishers import WsPublisher, WsPubsubEventType
 from .hub_delivery import CandleHubDelivery, GapBackfillHandler
 from .hub_subscription_store import HubSubscriptionStore, Subscription

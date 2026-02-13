@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..schemas import (
+from ..core.schemas import (
     DrawDeltaV1,
     GetFactorSlicesResponseV1,
     WorldCursorV1,
@@ -12,7 +12,7 @@ from ..schemas import (
     WorldStateV1,
     WorldTimeV1,
 )
-from ..service_errors import ServiceError
+from ..core.service_errors import ServiceError
 
 
 class _StoreLike(Protocol):

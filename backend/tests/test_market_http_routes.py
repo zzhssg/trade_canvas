@@ -6,9 +6,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from backend.app.dependencies import get_market_ledger_warmup_service, get_market_query_service
+from backend.app.deps import get_market_ledger_warmup_service, get_market_query_service
 from backend.app.main import create_app
-from backend.app.schemas import GetCandlesResponse
+from backend.app.core.schemas import GetCandlesResponse
 
 
 class _QueryStub:

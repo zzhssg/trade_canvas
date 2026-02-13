@@ -8,8 +8,8 @@ from backend.app.ingest.binance_ws import (
     parse_binance_kline_payload,
 )
 from backend.app.pipelines import IngestPipelineResult, IngestSeriesBatch
-from backend.app.schemas import CandleClosed
-from backend.app.series_id import parse_series_id
+from backend.app.core.schemas import CandleClosed
+from backend.app.core.series_id import parse_series_id
 
 
 def test_build_binance_kline_ws_url_spot() -> None:

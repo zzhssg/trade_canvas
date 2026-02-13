@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from ..schemas import GetFactorSlicesResponseV1
+from ..core.schemas import GetFactorSlicesResponseV1
 from .store import OverlayInstructionVersionRow
 
 
@@ -31,14 +31,14 @@ class OverlayIntegrityPlugin(Protocol):
 def _to_int(value: Any) -> int:
     try:
         return int(value or 0)
-    except Exception:
+    except (ValueError, TypeError):
         return 0
 
 
 def _to_float(value: Any) -> float:
     try:
         return float(value or 0.0)
-    except Exception:
+    except (ValueError, TypeError):
         return 0.0
 
 
@@ -54,7 +54,7 @@ class AnchorCurrentStartIntegrityPlugin:
             current_ref = anchor_head.get("current_anchor_ref") if isinstance(anchor_head, dict) else None
             if isinstance(current_ref, dict):
                 expected_start = _to_int(current_ref.get("start_time"))
-        except Exception:
+        except (ValueError, TypeError):
             expected_start = 0
 
         if expected_start <= 0:
@@ -116,7 +116,7 @@ class ZhongshuSignatureIntegrityPlugin:
                     (isinstance(dead_items, list) and len(dead_items) > 0)
                     or (isinstance(alive_items, list) and len(alive_items) > 0)
                 )
-        except Exception:
+        except (ValueError, TypeError):
             expected_has = False
             expected_ids = set()
 

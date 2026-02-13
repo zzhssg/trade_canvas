@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from ..ledger.alignment import LedgerAlignedPoint, LedgerHeadTimes
-from ..schemas import RepairOverlayRequestV1, RepairOverlayResponseV1
-from ..shared_ports import DebugHubPort
-from ..service_errors import ServiceError
+from ..core.schemas import RepairOverlayRequestV1, RepairOverlayResponseV1
+from ..core.ports import DebugHubPort
+from ..core.service_errors import ServiceError
 
 
 class _OverlayOrchestratorLike(Protocol):

@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
-from backend.app.container import AppContainer
+from backend.app.bootstrap.container import AppContainer
 from backend.app.main import create_app
 
 

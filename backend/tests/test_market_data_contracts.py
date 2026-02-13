@@ -9,7 +9,7 @@ from backend.app.market_data.contracts import (
     WsSubscribeRequest,
     WsSubscribeResult,
 )
-from backend.app.schemas import CandleClosed
+from backend.app.core.schemas import CandleClosed
 
 
 def test_contract_dataclasses_basic_shape() -> None:

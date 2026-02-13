@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 
-from backend.app.blocking import _dispatch_future, run_blocking
+from backend.app.runtime.blocking import _dispatch_future, run_blocking
 
 
 class BlockingExecutorTests(unittest.TestCase):

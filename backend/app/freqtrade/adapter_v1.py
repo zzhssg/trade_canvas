@@ -10,10 +10,9 @@ from ..factor.orchestrator import FactorOrchestrator
 from ..factor.plugin_registry import FactorPluginRegistry
 from ..factor.runtime_config import FactorSettings
 from ..factor.store import FactorStore
-from ..flags import load_feature_flags
 from ..runtime.flags import load_runtime_flags
-from ..schemas import CandleClosed
-from ..store import CandleStore
+from ..core.schemas import CandleClosed
+from ..storage.candle_store import CandleStore
 from .signal_plugin_contract import FreqtradeSignalContext, FreqtradeSignalPlugin
 from .signal_plugins import build_default_freqtrade_signal_plugins
 
@@ -159,8 +158,7 @@ def annotate_factor_ledger(
         return LedgerAnnotateResult(ok=False, reason=f"missing_columns:{sorted(missing)}", dataframe=dataframe)
 
     db = _resolve_db_path(db_path)
-    base_flags = load_feature_flags()
-    runtime_flags = load_runtime_flags(base_flags=base_flags)
+    runtime_flags = load_runtime_flags()
     store = CandleStore(db_path=db)
     factor_store = FactorStore(db_path=db)
     orchestrator = FactorOrchestrator(

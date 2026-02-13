@@ -4,7 +4,7 @@ import time
 from typing import Any
 
 from .store import FactorEventWrite
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 
 
 def ingest_closed(

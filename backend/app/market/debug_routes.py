@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 
-from ..dependencies import CandleStoreDep, IngestSupervisorDep, RuntimeFlagsDep, RuntimeMetricsDep
+from ..deps import ApiGatesDep, CandleStoreDep, IngestSupervisorDep, RuntimeMetricsDep
 from .kline_health import analyze_series_health
 
 router = APIRouter()
 
 
 @router.get("/api/market/debug/ingest_state")
-async def get_market_ingest_state(runtime_flags: RuntimeFlagsDep, supervisor: IngestSupervisorDep) -> dict:
-    if not bool(runtime_flags.enable_debug_api):
+async def get_market_ingest_state(api_gates: ApiGatesDep, supervisor: IngestSupervisorDep) -> dict:
+    if not api_gates.debug_api:
         raise HTTPException(status_code=404, detail="not_found")
     return await supervisor.debug_snapshot()
 
@@ -21,10 +21,10 @@ def get_market_series_health(
     max_recent_gaps: int = Query(5, ge=1, le=50),
     recent_base_buckets: int = Query(8, ge=1, le=48),
     *,
-    runtime_flags: RuntimeFlagsDep,
+    api_gates: ApiGatesDep,
     store: CandleStoreDep,
 ) -> dict:
-    if not bool(runtime_flags.enable_debug_api):
+    if not api_gates.debug_api:
         raise HTTPException(status_code=404, detail="not_found")
     return analyze_series_health(
         store=store,
@@ -35,10 +35,10 @@ def get_market_series_health(
 
 
 @router.get("/api/market/debug/metrics")
-def get_market_runtime_metrics(runtime_flags: RuntimeFlagsDep, runtime_metrics: RuntimeMetricsDep) -> dict:
-    if not bool(runtime_flags.enable_debug_api):
+def get_market_runtime_metrics(api_gates: ApiGatesDep, runtime_metrics: RuntimeMetricsDep) -> dict:
+    if not api_gates.debug_api:
         raise HTTPException(status_code=404, detail="not_found")
-    if not bool(runtime_flags.enable_runtime_metrics):
+    if not api_gates.runtime_metrics:
         raise HTTPException(status_code=404, detail="not_found")
     return runtime_metrics.snapshot()
 

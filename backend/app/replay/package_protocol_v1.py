@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..overlay.replay_protocol_v1 import OverlayReplayCheckpointV1, OverlayReplayDiffV1
-from ..schemas import OverlayInstructionPatchItemV1
+from ..core.schemas import OverlayInstructionPatchItemV1
 
 
 class ReplayCoverageV1(BaseModel):

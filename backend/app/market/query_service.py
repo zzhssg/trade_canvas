@@ -6,7 +6,7 @@ from typing import Protocol
 
 from ..market_data import CatchupReadRequest, CatchupReadResult, FreshnessSnapshot
 from ..runtime.metrics import RuntimeMetrics
-from ..schemas import GetCandlesResponse
+from ..core.schemas import GetCandlesResponse
 
 
 class _MarketDataLike(Protocol):

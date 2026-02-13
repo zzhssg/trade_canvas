@@ -4,13 +4,13 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from ..container import AppContainer
+from ..bootstrap.container import AppContainer
 from ..debug.hub import DebugHub
 from ..factor.store import FactorStore
 from ..overlay.store import OverlayStore
 from ..read_models import DrawReadService, FactorReadService, ReadRepairService, WorldReadService
 from ..runtime.metrics import RuntimeMetrics
-from ..store import CandleStore
+from ..storage.candle_store import CandleStore
 from .core import get_app_container
 
 

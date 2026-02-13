@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from backend.app.factor.store import FactorEventWrite, FactorStore
 from backend.app.overlay.store import OverlayStore
-from backend.app.schemas import CandleClosed
-from backend.app.store import CandleStore
+from backend.app.core.schemas import CandleClosed
+from backend.app.storage.candle_store import CandleStore
 
 
 def test_local_store_instances_share_state_when_db_path_is_same(tmp_path) -> None:

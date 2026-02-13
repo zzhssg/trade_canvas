@@ -4,8 +4,8 @@ import unittest
 from types import SimpleNamespace
 
 from backend.app.replay.prepare_service import ReplayPrepareService
-from backend.app.schemas import ReplayPrepareRequestV1
-from backend.app.service_errors import ServiceError
+from backend.app.core.schemas import ReplayPrepareRequestV1
+from backend.app.core.service_errors import ServiceError
 
 
 class _LedgerSyncStub:

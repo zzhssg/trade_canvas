@@ -3,10 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
-from ..config import Settings
+from ..core.config import Settings
 from ..debug.hub import DebugHub
 from ..factor.orchestrator import FactorOrchestrator
-from ..flags import FeatureFlags, load_feature_flags
 from ..ingest.supervisor import IngestSupervisor
 from ..ledger.sync_service import LedgerSyncService
 from .runtime_components import build_ingest_context, build_read_context
@@ -23,7 +22,7 @@ from ..pipelines import IngestPipeline
 from ..overlay.orchestrator import OverlayOrchestrator
 from ..runtime.flags import RuntimeFlags, load_runtime_flags
 from ..runtime.metrics import RuntimeMetrics
-from ..store import CandleStore
+from ..storage.candle_store import CandleStore
 from ..ws.hub import CandleHub
 from ..ws_publishers import RedisWsPublisher, WsPublisher
 
@@ -36,7 +35,6 @@ class MarketRuntimeBuildResult:
 
 @dataclass(frozen=True)
 class _RuntimeBootstrap:
-    flags: FeatureFlags
     runtime_flags: RuntimeFlags
     hub: CandleHub
     ingest_pipeline: IngestPipeline
@@ -58,12 +56,10 @@ def _build_runtime_bootstrap(
     store: CandleStore,
     factor_orchestrator: FactorOrchestrator,
     overlay_orchestrator: OverlayOrchestrator,
-    flags: FeatureFlags | None,
     runtime_flags: RuntimeFlags | None,
     ingest_pipeline: IngestPipeline | None,
 ) -> _RuntimeBootstrap:
-    effective_flags = flags or load_feature_flags()
-    effective_runtime_flags = runtime_flags or load_runtime_flags(base_flags=effective_flags)
+    effective_runtime_flags = runtime_flags or load_runtime_flags()
     hub = CandleHub(
         publisher=_build_ws_publisher(
             settings=settings,
@@ -88,7 +84,6 @@ def _build_runtime_bootstrap(
         ingest_pipeline=pipeline,
     )
     return _RuntimeBootstrap(
-        flags=effective_flags,
         runtime_flags=effective_runtime_flags,
         hub=hub,
         ingest_pipeline=pipeline,
@@ -143,7 +138,6 @@ def build_market_runtime(
     overlay_orchestrator: OverlayOrchestrator,
     debug_hub: DebugHub,
     runtime_metrics: RuntimeMetrics,
-    flags: FeatureFlags | None = None,
     runtime_flags: RuntimeFlags | None = None,
     ingest_pipeline: IngestPipeline | None = None,
 ) -> MarketRuntimeBuildResult:
@@ -152,7 +146,6 @@ def build_market_runtime(
         store=store,
         factor_orchestrator=factor_orchestrator,
         overlay_orchestrator=overlay_orchestrator,
-        flags=flags,
         runtime_flags=runtime_flags,
         ingest_pipeline=ingest_pipeline,
     )
@@ -167,7 +160,6 @@ def build_market_runtime(
         ledger_sync_service=bootstrap.ledger_sync_service,
         runtime_flags=bootstrap.runtime_flags,
         runtime_metrics=runtime_metrics,
-        flags=bootstrap.flags,
     )
     derived_initial_backfill = _build_derived_initial_backfill(
         store=store,
@@ -183,7 +175,6 @@ def build_market_runtime(
         debug_hub=debug_hub,
         runtime_flags=bootstrap.runtime_flags,
         runtime_metrics=runtime_metrics,
-        flags=bootstrap.flags,
         whitelist_series_ids=read_build.context.whitelist.series_ids,
         whitelist_ingest_on=read_build.whitelist_ingest_on,
         ingest_pipeline=bootstrap.ingest_pipeline,
@@ -201,7 +192,6 @@ def build_market_runtime(
         overlay_orchestrator=overlay_orchestrator,
         debug_hub=debug_hub,
         hub=bootstrap.hub,
-        flags=bootstrap.flags,
         runtime_flags=bootstrap.runtime_flags,
         runtime_metrics=runtime_metrics,
         ledger_sync_service=bootstrap.ledger_sync_service,

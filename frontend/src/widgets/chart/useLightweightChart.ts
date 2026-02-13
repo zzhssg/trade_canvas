@@ -23,10 +23,18 @@ type Params = {
   onCleanup?: () => void;
 };
 
+/**
+ * lightweight-charts 实例管理 hook。
+ *
+ * 创建暗色主题 chart + CandlestickSeries + markers plugin。
+ * chartEpoch 每次 chart 重建时递增, 下游 effect 可依赖它感知图表就绪。
+ * onCreated/onCleanup 通过 callback ref 保持引用稳定, 不触发 effect 重跑。
+ */
 export function useLightweightChart({ containerRef, width, height, onCreated, onCleanup }: Params) {
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const markersApiRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  /** 每次 chart 实例重建递增, 用于通知下游 effect 图表已就绪 */
   const [chartEpoch, setChartEpoch] = useState(0);
 
   const onCreatedRef = useRef<Params["onCreated"]>(onCreated);

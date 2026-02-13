@@ -81,7 +81,7 @@ def test_market_ws_handler_does_not_depend_on_market_runtime_aggregate() -> None
 
 def test_dependencies_do_not_export_market_runtime_aggregate_dep() -> None:
     app_root = _backend_app_root()
-    target_file = app_root / "dependencies.py"
+    target_file = app_root / "deps" / "__init__.py"
     text = target_file.read_text(encoding="utf-8")
     assert "def get_market_runtime(" not in text
     assert "MarketRuntimeDep =" not in text
@@ -129,7 +129,7 @@ def test_runtime_services_do_not_read_env_flags_directly() -> None:
         app_root / "market/query_service.py",
         app_root / "ingest" / "supervisor.py",
         app_root / "ingest" / "binance_ws.py",
-        app_root / "history_bootstrapper.py",
+        app_root / "market" / "history_bootstrapper.py",
         app_root / "overlay" / "orchestrator.py",
         app_root / "replay" / "package_service_v1.py",
         app_root / "overlay" / "package_service_v1.py",
@@ -222,8 +222,8 @@ def test_market_runtime_path_does_not_depend_on_market_flags_module() -> None:
 def test_blocking_and_ccxt_client_do_not_read_env_directly() -> None:
     app_root = _backend_app_root()
     target_files = [
-        app_root / "blocking.py",
-        app_root / "ccxt_client.py",
+        app_root / "runtime" / "blocking.py",
+        app_root / "market" / "ccxt_client.py",
     ]
     pattern = re.compile(r"\bos\.environ\b|\bresolve_env_int\b")
 
@@ -473,3 +473,87 @@ def test_build_modules_are_packaged_under_build_directory() -> None:
     assert (build_pkg / "artifacts.py").exists()
     assert (build_pkg / "job_manager.py").exists()
     assert (build_pkg / "service_base.py").exists()
+
+
+def test_core_modules_are_packaged_under_core_directory() -> None:
+    app_root = _backend_app_root()
+    legacy_files = [
+        "config.py",
+        "flags.py",
+        "schemas.py",
+        "series_id.py",
+        "service_errors.py",
+        "timeframe.py",
+        "shared_ports.py",
+    ]
+    existing_legacy = sorted(name for name in legacy_files if (app_root / name).exists())
+    assert not existing_legacy, (
+        "core modules must live under backend/app/core/, "
+        f"found legacy flat files: {existing_legacy}"
+    )
+
+    core_pkg = app_root / "core"
+    assert (core_pkg / "__init__.py").exists()
+    assert (core_pkg / "config.py").exists()
+    assert (core_pkg / "flags.py").exists()
+    assert (core_pkg / "schemas.py").exists()
+    assert (core_pkg / "series_id.py").exists()
+    assert (core_pkg / "service_errors.py").exists()
+    assert (core_pkg / "timeframe.py").exists()
+    assert (core_pkg / "ports.py").exists()
+
+
+def test_storage_candle_store_modules_are_packaged_under_storage_directory() -> None:
+    app_root = _backend_app_root()
+    legacy_files = ["store.py", "local_store_runtime.py"]
+    existing_legacy = sorted(name for name in legacy_files if (app_root / name).exists())
+    assert not existing_legacy, (
+        "candle store modules must live under backend/app/storage/, "
+        f"found legacy flat files: {existing_legacy}"
+    )
+
+    storage_pkg = app_root / "storage"
+    assert (storage_pkg / "candle_store.py").exists()
+    assert (storage_pkg / "local_store_runtime.py").exists()
+
+
+def test_runtime_market_worktree_support_modules_are_packaged_under_domain_directories() -> None:
+    app_root = _backend_app_root()
+    legacy_files = [
+        "blocking.py",
+        "ccxt_client.py",
+        "derived_timeframes.py",
+        "history_bootstrapper.py",
+        "whitelist.py",
+        "port_allocator.py",
+    ]
+    existing_legacy = sorted(name for name in legacy_files if (app_root / name).exists())
+    assert not existing_legacy, (
+        "runtime/market/worktree support modules must be domain-packaged, "
+        f"found legacy flat files: {existing_legacy}"
+    )
+
+    assert (app_root / "runtime" / "blocking.py").exists()
+    assert (app_root / "market" / "ccxt_client.py").exists()
+    assert (app_root / "market" / "derived_timeframes.py").exists()
+    assert (app_root / "market" / "history_bootstrapper.py").exists()
+    assert (app_root / "market" / "whitelist.py").exists()
+    assert (app_root / "worktree" / "port_allocator.py").exists()
+
+
+def test_bootstrap_and_dependency_aggregation_modules_are_packaged() -> None:
+    app_root = _backend_app_root()
+    legacy_files = ["container.py", "container_builders.py", "dependencies.py"]
+    existing_legacy = sorted(name for name in legacy_files if (app_root / name).exists())
+    assert not existing_legacy, (
+        "bootstrap and dependency aggregation modules must be packaged, "
+        f"found legacy flat files: {existing_legacy}"
+    )
+
+    bootstrap_pkg = app_root / "bootstrap"
+    assert (bootstrap_pkg / "__init__.py").exists()
+    assert (bootstrap_pkg / "container.py").exists()
+    assert (bootstrap_pkg / "container_builders.py").exists()
+
+    deps_pkg = app_root / "deps"
+    assert (deps_pkg / "__init__.py").exists()

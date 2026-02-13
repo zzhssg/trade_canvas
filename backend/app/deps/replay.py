@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from ..container import AppContainer
+from ..bootstrap.container import AppContainer
 from ..overlay.package_service_v1 import OverlayReplayPackageServiceV1
 from ..replay.package_service_v1 import ReplayPackageServiceV1
 from ..replay.prepare_service import ReplayPrepareService

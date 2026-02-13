@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pandas as pd  # type: ignore[import-untyped]
 
-from backend.app.history_bootstrapper import maybe_bootstrap_from_freqtrade
-from backend.app.store import CandleStore
+from backend.app.market.history_bootstrapper import maybe_bootstrap_from_freqtrade
+from backend.app.storage.candle_store import CandleStore
 
 
 def _write_feather(path: Path, *, n: int) -> None:

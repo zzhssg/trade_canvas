@@ -72,7 +72,7 @@ def _resolve_dead_entry_direction(
 ) -> int:
     try:
         raw = int(zhongshu.get("entry_direction") or 0)
-    except Exception:
+    except (ValueError, TypeError):
         raw = 0
     if raw in {-1, 1}:
         return int(raw)
@@ -82,7 +82,7 @@ def _resolve_dead_entry_direction(
         if isinstance(matched, dict):
             try:
                 direction = int(matched.get("direction") or 0)
-            except Exception:
+            except (ValueError, TypeError):
                 direction = 0
             if direction in {-1, 1}:
                 return int(direction)

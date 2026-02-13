@@ -1,80 +1,76 @@
 from __future__ import annotations
 
-from backend.app.flags import FeatureFlags
 from backend.app.runtime.flags import load_runtime_flags
-
-
-def _base_flags(*, enable_market_auto_tail_backfill: bool) -> FeatureFlags:
-    return FeatureFlags(
-        enable_debug_api=False,
-        enable_whitelist_ingest=False,
-        enable_ondemand_ingest=False,
-        enable_market_auto_tail_backfill=bool(enable_market_auto_tail_backfill),
-        market_auto_tail_backfill_max_candles=None,
-        ondemand_idle_ttl_s=60,
-    )
 
 
 def test_runtime_flags_ccxt_backfill_on_read_defaults_to_auto_tail_backfill(monkeypatch) -> None:
     monkeypatch.delenv("TRADE_CANVAS_ENABLE_CCXT_BACKFILL_ON_READ", raising=False)
-    auto_tail_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=True))
-    auto_tail_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL", "1")
+    auto_tail_on = load_runtime_flags()
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL", "0")
+    auto_tail_off = load_runtime_flags()
 
     assert auto_tail_on.enable_ccxt_backfill_on_read is True
     assert auto_tail_off.enable_ccxt_backfill_on_read is False
 
 
 def test_runtime_flags_ccxt_backfill_on_read_env_override_takes_priority(monkeypatch) -> None:
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_CCXT_BACKFILL_ON_READ", "0")
-    override_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=True))
+    override_off = load_runtime_flags()
     assert override_off.enable_ccxt_backfill_on_read is False
 
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL", "0")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_CCXT_BACKFILL_ON_READ", "1")
-    override_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_on = load_runtime_flags()
     assert override_on.enable_ccxt_backfill_on_read is True
 
 
 def test_runtime_flags_read_ledger_warmup_defaults_follow_auto_tail_and_can_override(monkeypatch) -> None:
     monkeypatch.delenv("TRADE_CANVAS_ENABLE_READ_LEDGER_WARMUP", raising=False)
-    auto_tail_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=True))
-    auto_tail_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL", "1")
+    auto_tail_on = load_runtime_flags()
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL", "0")
+    auto_tail_off = load_runtime_flags()
     assert auto_tail_on.enable_read_ledger_warmup is True
     assert auto_tail_off.enable_read_ledger_warmup is False
 
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL", "0")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_READ_LEDGER_WARMUP", "1")
-    override_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_on = load_runtime_flags()
     assert override_on.enable_read_ledger_warmup is True
 
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_READ_LEDGER_WARMUP", "0")
-    override_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=True))
+    override_off = load_runtime_flags()
     assert override_off.enable_read_ledger_warmup is False
 
 
 def test_runtime_flags_dev_api_defaults_off_and_can_override(monkeypatch) -> None:
     monkeypatch.delenv("TRADE_CANVAS_ENABLE_DEV_API", raising=False)
-    defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    defaults = load_runtime_flags()
     assert defaults.enable_dev_api is False
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_DEV_API", "1")
-    override_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_on = load_runtime_flags()
     assert override_on.enable_dev_api is True
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_DEV_API", "0")
-    override_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_off = load_runtime_flags()
     assert override_off.enable_dev_api is False
 
 
 def test_runtime_flags_runtime_metrics_defaults_off_and_can_override(monkeypatch) -> None:
     monkeypatch.delenv("TRADE_CANVAS_ENABLE_RUNTIME_METRICS", raising=False)
-    defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    defaults = load_runtime_flags()
     assert defaults.enable_runtime_metrics is False
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_RUNTIME_METRICS", "1")
-    override_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_on = load_runtime_flags()
     assert override_on.enable_runtime_metrics is True
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_RUNTIME_METRICS", "0")
-    override_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_off = load_runtime_flags()
     assert override_off.enable_runtime_metrics is False
 
 
@@ -89,7 +85,7 @@ def test_runtime_flags_pg_and_ws_scaleout_flags_default_off_and_can_override(mon
     ):
         monkeypatch.delenv(name, raising=False)
 
-    defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    defaults = load_runtime_flags()
     assert defaults.enable_capacity_metrics is False
     assert defaults.enable_pg_store is False
     assert defaults.enable_pg_only is False
@@ -103,7 +99,7 @@ def test_runtime_flags_pg_and_ws_scaleout_flags_default_off_and_can_override(mon
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_WS_PUBSUB", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", "1")
     monkeypatch.setenv("TRADE_CANVAS_INGEST_ROLE", "read")
-    enabled = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    enabled = load_runtime_flags()
     assert enabled.enable_capacity_metrics is True
     assert enabled.enable_pg_store is True
     assert enabled.enable_pg_only is True
@@ -116,7 +112,7 @@ def test_runtime_flags_ingest_role_invalid_value_falls_back_to_hybrid(monkeypatc
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", "1")
     monkeypatch.setenv("TRADE_CANVAS_INGEST_ROLE", "invalid-role")
 
-    flags = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    flags = load_runtime_flags()
 
     assert flags.enable_ingest_role_guard is True
     assert flags.ingest_role == "hybrid"
@@ -124,43 +120,43 @@ def test_runtime_flags_ingest_role_invalid_value_falls_back_to_hybrid(monkeypatc
 
 def test_runtime_flags_backfill_progress_persistence_defaults_off_and_can_override(monkeypatch) -> None:
     monkeypatch.delenv("TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE", raising=False)
-    defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    defaults = load_runtime_flags()
     assert defaults.enable_market_backfill_progress_persistence is False
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE", "1")
-    override_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_on = load_runtime_flags()
     assert override_on.enable_market_backfill_progress_persistence is True
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE", "0")
-    override_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_off = load_runtime_flags()
     assert override_off.enable_market_backfill_progress_persistence is False
 
 
 def test_runtime_flags_ingest_loop_guardrail_defaults_off_and_can_override(monkeypatch) -> None:
     monkeypatch.delenv("TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL", raising=False)
-    defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    defaults = load_runtime_flags()
     assert defaults.enable_ingest_loop_guardrail is False
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL", "1")
-    override_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_on = load_runtime_flags()
     assert override_on.enable_ingest_loop_guardrail is True
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL", "0")
-    override_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_off = load_runtime_flags()
     assert override_off.enable_ingest_loop_guardrail is False
 
 
 def test_runtime_flags_strict_closed_only_defaults_off_and_can_override(monkeypatch) -> None:
     monkeypatch.delenv("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", raising=False)
-    defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    defaults = load_runtime_flags()
     assert defaults.enable_strict_closed_only is False
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", "1")
-    override_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_on = load_runtime_flags()
     assert override_on.enable_strict_closed_only is True
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", "0")
-    override_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    override_off = load_runtime_flags()
     assert override_off.enable_strict_closed_only is False
 
 
@@ -206,7 +202,7 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", "1")
     monkeypatch.setenv("TRADE_CANVAS_INGEST_ROLE", "INGEST")
 
-    flags = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    flags = load_runtime_flags()
 
     assert flags.enable_factor_ingest is False
     assert flags.enable_factor_fingerprint_rebuild is False

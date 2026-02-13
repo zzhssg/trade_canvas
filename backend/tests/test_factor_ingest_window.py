@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.app.factor.ingest_window import FactorIngestWindowPlan, FactorIngestWindowPlanner
-from backend.app.schemas import CandleClosed
+from backend.app.core.schemas import CandleClosed
 
 
 @dataclass

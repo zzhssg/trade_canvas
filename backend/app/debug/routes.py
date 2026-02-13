@@ -5,10 +5,10 @@ import asyncio
 from fastapi import WebSocket, WebSocketDisconnect
 
 from .hub import DebugHub
-from ..flags import FeatureFlags
+from ..runtime.flags import RuntimeFlags
 
 
-def _debug_enabled(*, flags: FeatureFlags) -> bool:
+def _debug_enabled(*, flags: RuntimeFlags) -> bool:
     return bool(flags.enable_debug_api)
 
 
@@ -16,7 +16,7 @@ async def handle_debug_ws(
     ws: WebSocket,
     *,
     debug_hub: DebugHub,
-    flags: FeatureFlags,
+    flags: RuntimeFlags,
 ) -> None:
     if not _debug_enabled(flags=flags):
         try:

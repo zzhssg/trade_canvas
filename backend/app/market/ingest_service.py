@@ -5,7 +5,7 @@ import time
 from ..debug.hub import DebugHub
 from ..pipelines import IngestPipeline, IngestPipelineError
 from ..runtime.metrics import RuntimeMetrics
-from ..schemas import (
+from ..core.schemas import (
     IngestCandleClosedRequest,
     IngestCandleClosedResponse,
     IngestCandlesClosedBatchRequest,
@@ -13,7 +13,7 @@ from ..schemas import (
     IngestCandleFormingRequest,
     IngestCandleFormingResponse,
 )
-from ..service_errors import ServiceError
+from ..core.service_errors import ServiceError
 from ..ws.hub import CandleHub
 
 

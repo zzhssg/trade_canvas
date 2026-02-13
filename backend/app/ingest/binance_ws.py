@@ -7,13 +7,13 @@ from typing import SupportsFloat, SupportsInt, cast
 
 from .loop_guardrail import IngestLoopGuardrail
 from ..pipelines import IngestPipeline, IngestPipelineResult
-from ..schemas import CandleClosed
-from ..series_id import SeriesId, parse_series_id
-from ..store import CandleStore
+from ..core.schemas import CandleClosed
+from ..core.series_id import SeriesId, parse_series_id
+from ..storage.candle_store import CandleStore
 from .ws_hotpath import flush_ws_buffer, publish_forming_with_derived, should_emit_forming
 from ..ws.hub import CandleHub
 from .settings import WhitelistIngestSettings
-from ..derived_timeframes import DerivedTimeframeFanout
+from ..market.derived_timeframes import DerivedTimeframeFanout
 
 
 def _coerce_int(value: object) -> int | None:
@@ -136,7 +136,7 @@ async def run_binance_ws_ingest_loop(
     history_source = str(market_history_source).strip().lower()
     if store.head_time(series_id) is None and history_source == "freqtrade":
         try:
-            from ..history_bootstrapper import maybe_bootstrap_from_freqtrade
+            from ..market.history_bootstrapper import maybe_bootstrap_from_freqtrade
 
             limit = int(getattr(settings, "bootstrap_backfill_count", 2000) or 2000)
             maybe_bootstrap_from_freqtrade(

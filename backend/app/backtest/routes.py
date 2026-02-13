@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, Query
 
-from ..dependencies import BacktestServiceDep
-from ..schemas import BacktestPairTimeframesResponse, BacktestRunRequest, BacktestRunResponse, StrategyListResponse
-from ..service_errors import ServiceError, to_http_exception
+from ..deps import BacktestServiceDep
+from ..core.schemas import BacktestPairTimeframesResponse, BacktestRunRequest, BacktestRunResponse, StrategyListResponse
+from ..core.service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 

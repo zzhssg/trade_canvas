@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from backend.app.market.kline_health import analyze_series_health
-from backend.app.schemas import CandleClosed
+from backend.app.core.schemas import CandleClosed
 
 
 def _candle(t: int, price: float) -> CandleClosed:

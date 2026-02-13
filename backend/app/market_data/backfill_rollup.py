@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from ..derived_timeframes import rollup_closed_candles
-from ..series_id import SeriesId, parse_series_id
-from ..store import CandleStore
-from ..timeframe import timeframe_to_seconds
+from ..market.derived_timeframes import rollup_closed_candles
+from ..core.series_id import SeriesId, parse_series_id
+from ..storage.candle_store import CandleStore
+from ..core.timeframe import timeframe_to_seconds
 
 
 def best_effort_backfill_from_base_1m(
@@ -15,7 +15,7 @@ def best_effort_backfill_from_base_1m(
 ) -> int:
     try:
         series = parse_series_id(series_id)
-    except Exception:
+    except ValueError:
         return 0
     if str(series.timeframe) == "1m":
         return 0

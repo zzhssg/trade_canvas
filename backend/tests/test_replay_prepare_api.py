@@ -9,7 +9,7 @@ from typing import Any, cast
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
-from backend.app.schemas import CandleClosed
+from backend.app.core.schemas import CandleClosed
 
 
 class ReplayPrepareApiTests(unittest.TestCase):

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from ..factor.read_freshness import read_factor_slices_with_freshness
-from ..schemas import GetFactorSlicesResponseV1
+from ..core.schemas import GetFactorSlicesResponseV1
 
 
 class _AlignedStoreLike(Protocol):

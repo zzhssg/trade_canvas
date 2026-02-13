@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .series_id import SeriesId
+from ..core.series_id import SeriesId
 
 
 def _make_exchange_client(series: SeriesId, *, timeout_ms: int = 10_000):

@@ -10,8 +10,8 @@ from ..factor.slices_service import FactorSlicesService
 from ..factor.store import FactorStore
 from ..overlay.package_builder_v1 import OverlayReplayBuildParamsV1, build_overlay_replay_package_v1
 from ..overlay.store import OverlayStore
-from ..store import CandleStore
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..storage.candle_store import CandleStore
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from .package_protocol_v1 import (
     ReplayFactorHeadSnapshotV1,
     ReplayHistoryDeltaV1,

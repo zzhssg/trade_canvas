@@ -82,7 +82,7 @@ class MarketBackfillProgressTracker:
             return
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             return
         if not isinstance(payload, dict):
             return
@@ -97,7 +97,7 @@ class MarketBackfillProgressTracker:
                 continue
             try:
                 loaded[series_id] = self._from_payload(state_payload)
-            except Exception:
+            except (KeyError, ValueError, TypeError):
                 continue
         with self._lock:
             self._states = loaded
@@ -136,7 +136,7 @@ class MarketBackfillProgressTracker:
                 encoding="utf-8",
             )
             tmp.replace(path)
-        except Exception:
+        except OSError:
             return
 
     @staticmethod

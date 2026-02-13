@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 
-from ..dependencies import ReplayPrepareServiceDep, ReplayServiceDep
-from ..schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
-from ..service_errors import ServiceError, to_http_exception
+from ..deps import ReplayPrepareServiceDep, ReplayServiceDep
+from ..core.schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
+from ..core.service_errors import ServiceError, to_http_exception
 from .package_protocol_v1 import (
     ReplayBuildRequestV1,
     ReplayBuildResponseV1,

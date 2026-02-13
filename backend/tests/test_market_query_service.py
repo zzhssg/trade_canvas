@@ -4,7 +4,7 @@ import unittest
 
 from backend.app.market_data import CatchupReadResult, FreshnessSnapshot
 from backend.app.market.query_service import MarketQueryService
-from backend.app.schemas import CandleClosed
+from backend.app.core.schemas import CandleClosed
 
 
 class _MarketDataStub:

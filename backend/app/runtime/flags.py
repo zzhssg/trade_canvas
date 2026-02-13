@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from ..derived_timeframes import DEFAULT_DERIVED_TIMEFRAMES, normalize_derived_timeframes
-from ..flags import FeatureFlags, env_bool, env_int, resolve_env_float, resolve_env_str
+from ..market.derived_timeframes import DEFAULT_DERIVED_TIMEFRAMES, normalize_derived_timeframes
+from ..core.flags import env_bool, env_int, resolve_env_float, resolve_env_str
 
 
 def _env_csv(name: str, *, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -75,17 +75,30 @@ class RuntimeFlags:
     binance_ws_flush_s: float
     market_forming_min_interval_ms: int
     enable_ingest_loop_guardrail: bool
+    enable_whitelist_ingest: bool
+    enable_ondemand_ingest: bool
+    ondemand_idle_ttl_s: int
 
 
-def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
+def load_runtime_flags() -> RuntimeFlags:
+    enable_market_auto_tail_backfill = env_bool("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL")
+    max_candles_raw = (os.environ.get("TRADE_CANVAS_MARKET_AUTO_TAIL_BACKFILL_MAX_CANDLES") or "").strip()
+    max_candles: int | None = None
+    if max_candles_raw:
+        try:
+            parsed = int(max_candles_raw)
+            if parsed > 0:
+                max_candles = parsed
+        except ValueError:
+            max_candles = None
     return RuntimeFlags(
-        enable_debug_api=bool(base_flags.enable_debug_api),
+        enable_debug_api=env_bool("TRADE_CANVAS_ENABLE_DEBUG_API"),
         enable_dev_api=env_bool("TRADE_CANVAS_ENABLE_DEV_API", default=False),
         enable_runtime_metrics=env_bool("TRADE_CANVAS_ENABLE_RUNTIME_METRICS", default=False),
         enable_capacity_metrics=env_bool("TRADE_CANVAS_ENABLE_CAPACITY_METRICS", default=False),
         enable_read_ledger_warmup=env_bool(
             "TRADE_CANVAS_ENABLE_READ_LEDGER_WARMUP",
-            default=bool(base_flags.enable_market_auto_tail_backfill),
+            default=enable_market_auto_tail_backfill,
         ),
         enable_pg_store=env_bool("TRADE_CANVAS_ENABLE_PG_STORE", default=False),
         enable_pg_only=env_bool("TRADE_CANVAS_ENABLE_PG_ONLY", default=False),
@@ -128,9 +141,9 @@ def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
         ),
         enable_ingest_compensate_overlay_error=env_bool("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_OVERLAY_ERROR"),
         enable_ingest_compensate_new_candles=env_bool("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES"),
-        enable_market_auto_tail_backfill=bool(base_flags.enable_market_auto_tail_backfill),
+        enable_market_auto_tail_backfill=enable_market_auto_tail_backfill,
         enable_strict_closed_only=env_bool("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", default=False),
-        market_auto_tail_backfill_max_candles=base_flags.market_auto_tail_backfill_max_candles,
+        market_auto_tail_backfill_max_candles=max_candles,
         enable_market_backfill_progress_persistence=env_bool(
             "TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE",
             default=False,
@@ -160,7 +173,7 @@ def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
         enable_ccxt_backfill=env_bool("TRADE_CANVAS_ENABLE_CCXT_BACKFILL"),
         enable_ccxt_backfill_on_read=env_bool(
             "TRADE_CANVAS_ENABLE_CCXT_BACKFILL_ON_READ",
-            default=bool(base_flags.enable_market_auto_tail_backfill),
+            default=enable_market_auto_tail_backfill,
         ),
         ondemand_max_jobs=env_int("TRADE_CANVAS_ONDEMAND_MAX_JOBS", default=0, minimum=0),
         enable_kline_health_v2=env_bool("TRADE_CANVAS_ENABLE_KLINE_HEALTH_V2"),
@@ -203,4 +216,7 @@ def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
             minimum=0,
         ),
         enable_ingest_loop_guardrail=env_bool("TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL", default=False),
+        enable_whitelist_ingest=env_bool("TRADE_CANVAS_ENABLE_WHITELIST_INGEST"),
+        enable_ondemand_ingest=env_bool("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST"),
+        ondemand_idle_ttl_s=env_int("TRADE_CANVAS_ONDEMAND_IDLE_TTL_S", default=60, minimum=1),
     )

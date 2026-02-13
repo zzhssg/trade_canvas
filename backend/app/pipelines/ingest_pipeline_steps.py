@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol, Sequence
 
-from ..schemas import CandleClosed
+from ..core.schemas import CandleClosed
 
 
 class FactorIngestResultLike(Protocol):

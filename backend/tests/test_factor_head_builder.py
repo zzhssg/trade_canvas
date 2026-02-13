@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from backend.app.factor.head_builder import build_pen_head_snapshot, build_zhongshu_alive_head
-from backend.app.schemas import CandleClosed
+from backend.app.core.schemas import CandleClosed
 
 
 def _candles() -> list[CandleClosed]:

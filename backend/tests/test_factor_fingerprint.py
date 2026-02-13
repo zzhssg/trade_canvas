@@ -7,7 +7,7 @@ from backend.app.factor.fingerprint import build_series_fingerprint
 from backend.app.factor.orchestrator import FactorOrchestrator
 from backend.app.factor.runtime_config import FactorSettings
 from backend.app.factor.store import FactorStore
-from backend.app.store import CandleStore
+from backend.app.storage.candle_store import CandleStore
 
 
 def _build_orchestrator(tmp_path: Path) -> FactorOrchestrator:

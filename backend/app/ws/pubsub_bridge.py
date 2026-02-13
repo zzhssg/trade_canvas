@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
-from ..schemas import CandleClosed
+from ..core.schemas import CandleClosed
 from ..ws_publishers import WsPublisher, WsPubsubEventType, WsPubsubMessage
 
 logger = logging.getLogger(__name__)

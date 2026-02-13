@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, HTTPException
 
-from ..dependencies import ReadRepairServiceDep, RuntimeFlagsDep
-from ..schemas import RepairOverlayRequestV1, RepairOverlayResponseV1
-from ..service_errors import ServiceError, to_http_exception
+from ..deps import ApiGatesDep, ReadRepairServiceDep
+from ..core.schemas import RepairOverlayRequestV1, RepairOverlayResponseV1
+from ..core.service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 
@@ -13,12 +13,12 @@ router = APIRouter()
 def repair_overlay_ledger(
     payload: RepairOverlayRequestV1,
     *,
-    runtime_flags: RuntimeFlagsDep,
+    api_gates: ApiGatesDep,
     repair_service: ReadRepairServiceDep,
 ) -> RepairOverlayResponseV1:
-    if not bool(runtime_flags.enable_dev_api):
+    if not api_gates.dev_api:
         raise HTTPException(status_code=404, detail="not_found")
-    if not bool(runtime_flags.enable_read_repair_api):
+    if not api_gates.read_repair_api:
         raise HTTPException(status_code=404, detail="not_found")
     try:
         return repair_service.repair_overlay(payload)

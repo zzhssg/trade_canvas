@@ -13,7 +13,7 @@ def normalize_anchor_ref(value: Any) -> dict[str, int | str] | None:
         start_time = int(value.get("start_time") or 0)
         end_time = int(value.get("end_time") or 0)
         direction = int(value.get("direction") or 0)
-    except Exception:
+    except (ValueError, TypeError):
         return None
     if start_time <= 0 or end_time <= 0:
         return None

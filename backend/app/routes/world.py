@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, Query
 
-from ..dependencies import WorldReadServiceDep
-from ..schemas import LimitQuery, WorldDeltaPollResponseV1, WorldStateV1
-from ..service_errors import ServiceError, to_http_exception
+from ..deps import WorldReadServiceDep
+from ..core.schemas import LimitQuery, WorldDeltaPollResponseV1, WorldStateV1
+from ..core.service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 

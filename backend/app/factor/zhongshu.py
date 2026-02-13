@@ -66,7 +66,7 @@ def _coerce_range(value: Any) -> tuple[float, float] | None:
     try:
         lo = float(value[0])
         hi = float(value[1])
-    except Exception:
+    except (ValueError, TypeError):
         return None
     return (float(lo), float(hi))
 
@@ -89,12 +89,12 @@ def _pending_from_dict(raw: Any) -> _PendingZhongshu | None:
         p3_extreme_price = float(raw.get("p3_extreme_price") or p3_start_price)
         p3_extreme_time = int(raw.get("p3_extreme_time") or p3_start_time)
         trigger_price = float(raw.get("trigger_price") or 0.0)
-    except Exception:
+    except (ValueError, TypeError):
         return None
     cross_time_raw = raw.get("cross_time")
     try:
         cross_time = int(cross_time_raw) if cross_time_raw is not None else None
-    except Exception:
+    except (ValueError, TypeError):
         cross_time = None
     if p3_direction not in {-1, 1} or p3_start_time <= 0:
         return None
@@ -149,7 +149,7 @@ def _alive_from_dict(raw: Any) -> _AliveZhongshu | None:
         last_seen_visible_time = int(raw.get("last_seen_visible_time") or 0)
         awaiting_p3_confirm = bool(raw.get("awaiting_p3_confirm"))
         p3_start_time = int(raw.get("p3_start_time") or 0)
-    except Exception:
+    except (ValueError, TypeError):
         return None
     if start_time <= 0 or end_time <= 0 or formed_time <= 0:
         return None
@@ -196,7 +196,7 @@ def _as_range(pen: dict) -> tuple[float, float] | None:
     try:
         a = float(sp)
         b = float(ep)
-    except Exception:
+    except (ValueError, TypeError):
         return None
     lo = a if a <= b else b
     hi = b if a <= b else a
@@ -222,7 +222,7 @@ def _build_zone_from_trio(r1: tuple[float, float], r2: tuple[float, float], r3: 
 def _entry_direction(pen: dict) -> int:
     try:
         direction = int(pen.get("direction") or 0)
-    except Exception:
+    except (ValueError, TypeError):
         direction = 0
     if direction in {-1, 1}:
         return int(direction)
@@ -237,7 +237,7 @@ def _entry_direction(pen: dict) -> int:
     try:
         sp = float(sp_raw)
         ep = float(ep_raw)
-    except Exception:
+    except (ValueError, TypeError):
         return 1
     return 1 if ep >= sp else -1
 
@@ -255,7 +255,7 @@ def _build_pending_from_tail(
     if min_entry_start_time is not None:
         try:
             entry_start_time = int(entry_pen.get("start_time") or 0)
-        except Exception:
+        except (ValueError, TypeError):
             entry_start_time = 0
         if entry_start_time <= 0 or entry_start_time < int(min_entry_start_time):
             return None
@@ -267,7 +267,7 @@ def _build_pending_from_tail(
 
     try:
         p2_direction = int(p2_pen.get("direction") or 0)
-    except Exception:
+    except (ValueError, TypeError):
         p2_direction = 0
     if p2_direction not in {-1, 1}:
         p2_direction = _entry_direction(p2_pen)
@@ -352,7 +352,7 @@ def _try_form_from_pending_with_confirmed(
         return None, None
     try:
         pen_start = int(pen.get("start_time") or 0)
-    except Exception:
+    except (ValueError, TypeError):
         pen_start = 0
     if pen_start <= 0 or pen_start != int(pending.p3_start_time):
         return None, None
@@ -434,7 +434,7 @@ def update_zhongshu_state(state: dict[str, Any], pen: dict) -> tuple[ZhongshuDea
     pending = _pending_from_dict(state.get("pending"))
     try:
         reseed_floor_start_time = int(state.get("reseed_floor_start_time") or 0)
-    except Exception:
+    except (ValueError, TypeError):
         reseed_floor_start_time = 0
     formed_entry_pen: dict | None = None
     dead_event: ZhongshuDead | None = None
@@ -451,7 +451,7 @@ def update_zhongshu_state(state: dict[str, Any], pen: dict) -> tuple[ZhongshuDea
         if pending is not None:
             try:
                 consumed_pending = int(pen.get("start_time") or 0) == int(pending.p3_start_time)
-            except Exception:
+            except (ValueError, TypeError):
                 consumed_pending = False
             alive, formed_entry_pen = _try_form_from_pending_with_confirmed(pending, pen)
             if alive is not None:
@@ -471,7 +471,7 @@ def update_zhongshu_state(state: dict[str, Any], pen: dict) -> tuple[ZhongshuDea
             alive.awaiting_p3_confirm = False
             try:
                 alive.end_time = max(int(alive.end_time), int(pen.get("end_time") or 0))
-            except Exception:
+            except (ValueError, TypeError):
                 pass
             alive.last_seen_visible_time = int(pen.get("visible_time") or alive.last_seen_visible_time or 0)
             state["alive"] = _alive_to_dict(alive)
@@ -495,12 +495,12 @@ def update_zhongshu_state(state: dict[str, Any], pen: dict) -> tuple[ZhongshuDea
             if len(tail) >= 2:
                 try:
                     reseed_floor_start_time = int(tail[-2].get("start_time") or 0)
-                except Exception:
+                except (ValueError, TypeError):
                     reseed_floor_start_time = 0
             else:
                 try:
                     reseed_floor_start_time = int(pen.get("start_time") or 0)
-                except Exception:
+                except (ValueError, TypeError):
                     reseed_floor_start_time = 0
             alive = None
             pending = None
@@ -511,7 +511,7 @@ def update_zhongshu_state(state: dict[str, Any], pen: dict) -> tuple[ZhongshuDea
         else:
             try:
                 alive.end_time = max(int(alive.end_time), int(pen.get("end_time") or 0))
-            except Exception:
+            except (ValueError, TypeError):
                 pass
             alive.last_seen_visible_time = int(pen.get("visible_time") or 0)
 
@@ -535,7 +535,7 @@ def update_zhongshu_state_on_closed_candle(state: dict[str, Any], candle: dict) 
         candle_time = int(candle.get("candle_time") or 0)
         high = float(candle.get("high") or 0.0)
         low = float(candle.get("low") or 0.0)
-    except Exception:
+    except (ValueError, TypeError):
         return None
     if candle_time <= 0:
         return None
@@ -594,7 +594,7 @@ def _collect_pen_items(
     for p in pens:
         try:
             vt = int(p.get("visible_time") or 0)
-        except Exception:
+        except (ValueError, TypeError):
             vt = 0
         if vt <= 0:
             continue
@@ -619,7 +619,7 @@ def _collect_candle_items(
             ct = int(getattr(c, "candle_time"))
             hi = float(getattr(c, "high"))
             lo = float(getattr(c, "low"))
-        except Exception:
+        except (ValueError, TypeError):
             continue
         if ct <= 0:
             continue
@@ -693,7 +693,7 @@ def build_alive_zhongshu_from_confirmed_pens(
         for p in pens:
             try:
                 vt = int(p.get("visible_time") or 0)
-            except Exception:
+            except (ValueError, TypeError):
                 vt = 0
             if vt <= 0 or vt > t:
                 continue
@@ -752,14 +752,14 @@ def build_dead_zhongshus_from_confirmed_pens(
         for p in pens:
             try:
                 max_pen_time = max(max_pen_time, int(p.get("visible_time") or 0))
-            except Exception:
+            except (ValueError, TypeError):
                 continue
         max_candle_time = 0
         if candles is not None:
             for c in candles:
                 try:
                     max_candle_time = max(max_candle_time, int(getattr(c, "candle_time")))
-                except Exception:
+                except (ValueError, TypeError):
                     continue
         t_limit = max(max_pen_time, max_candle_time)
 

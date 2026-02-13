@@ -12,7 +12,6 @@ class AppLifecycleService:
 
     async def startup(self) -> None:
         runtime_flags = self.market_runtime.runtime_flags
-        flags = self.market_runtime.flags
         hub = self.market_runtime.hub
         supervisor = self.market_runtime.ingest_ctx.supervisor
         start_pubsub = getattr(hub, "start_pubsub", None)
@@ -28,7 +27,7 @@ class AppLifecycleService:
         if bool(supervisor.whitelist_ingest_enabled):
             await supervisor.start_whitelist()
 
-        if bool(supervisor.whitelist_ingest_enabled) or bool(flags.enable_ondemand_ingest):
+        if bool(supervisor.whitelist_ingest_enabled) or bool(runtime_flags.enable_ondemand_ingest):
             await supervisor.start_reaper()
 
     async def shutdown(self) -> None:

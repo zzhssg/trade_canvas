@@ -112,7 +112,7 @@ class PivotProcessor:
                         pivot_idx=pivot_idx,
                     )
                 )
-            except Exception:
+            except (ValueError, TypeError):
                 continue
         items.sort(key=lambda i: (int(i.visible_time), int(i.pivot_time)))
 

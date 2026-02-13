@@ -10,8 +10,8 @@ from .components import BacktestPreflight, BacktestResultInspector
 from ..freqtrade.config import build_backtest_config, load_json, write_temp_config
 from ..freqtrade.data import list_available_timeframes
 from ..freqtrade.runner import FreqtradeExecResult, parse_strategy_list, validate_strategy_name
-from ..schemas import BacktestPairTimeframesResponse, BacktestRunRequest, BacktestRunResponse, StrategyListResponse
-from ..service_errors import ServiceError
+from ..core.schemas import BacktestPairTimeframesResponse, BacktestRunRequest, BacktestRunResponse, StrategyListResponse
+from ..core.service_errors import ServiceError
 
 
 class BacktestService:

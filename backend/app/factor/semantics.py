@@ -28,7 +28,7 @@ def is_more_extreme_pivot_dict(prev: dict, cur: dict) -> bool:
     try:
         prev_price = float(prev.get("pivot_price") or 0.0)
         cur_price = float(cur.get("pivot_price") or 0.0)
-    except Exception:
+    except (ValueError, TypeError):
         return False
     return is_more_extreme_direction(
         direction=direction,

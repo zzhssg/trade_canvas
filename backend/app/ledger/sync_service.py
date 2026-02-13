@@ -61,7 +61,7 @@ class LedgerSyncService:
             return None
         try:
             return int(head)
-        except Exception:
+        except (ValueError, TypeError):
             return None
 
     def resolve_aligned_point(

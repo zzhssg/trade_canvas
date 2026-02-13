@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 
 
 def truthy_flag(value: str | None) -> bool:
@@ -60,33 +59,3 @@ def env_int(name: str, *, default: int, minimum: int = 0) -> int:
         return max(int(minimum), int(raw))
     except ValueError:
         return max(int(minimum), int(default))
-
-
-@dataclass(frozen=True)
-class FeatureFlags:
-    enable_debug_api: bool
-    enable_whitelist_ingest: bool
-    enable_ondemand_ingest: bool
-    enable_market_auto_tail_backfill: bool
-    market_auto_tail_backfill_max_candles: int | None
-    ondemand_idle_ttl_s: int
-
-
-def load_feature_flags() -> FeatureFlags:
-    max_candles_raw = (os.environ.get("TRADE_CANVAS_MARKET_AUTO_TAIL_BACKFILL_MAX_CANDLES") or "").strip()
-    max_candles: int | None = None
-    if max_candles_raw:
-        try:
-            parsed = int(max_candles_raw)
-            if parsed > 0:
-                max_candles = parsed
-        except ValueError:
-            max_candles = None
-    return FeatureFlags(
-        enable_debug_api=env_bool("TRADE_CANVAS_ENABLE_DEBUG_API"),
-        enable_whitelist_ingest=env_bool("TRADE_CANVAS_ENABLE_WHITELIST_INGEST"),
-        enable_ondemand_ingest=env_bool("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST"),
-        enable_market_auto_tail_backfill=env_bool("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL"),
-        market_auto_tail_backfill_max_candles=max_candles,
-        ondemand_idle_ttl_s=env_int("TRADE_CANVAS_ONDEMAND_IDLE_TTL_S", default=60, minimum=1),
-    )

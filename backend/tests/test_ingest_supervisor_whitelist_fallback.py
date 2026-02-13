@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.app.ingest.supervisor import IngestSupervisor, _Job
-from backend.app.store import CandleStore
+from backend.app.storage.candle_store import CandleStore
 from backend.app.ws.hub import CandleHub
 
 

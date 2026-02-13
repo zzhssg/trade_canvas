@@ -6,7 +6,7 @@ from typing import Mapping
 import pytest
 
 from backend.app.ledger.sync_service import LedgerSyncService
-from backend.app.service_errors import ServiceError
+from backend.app.core.service_errors import ServiceError
 
 
 class _StoreStub:

@@ -32,6 +32,7 @@ function sortHistoryEvents(events: ReplayHistoryEventV1[]): ReplayHistoryEventV1
   return list;
 }
 
+/** 将后端 window 响应转换为按 time/idx 索引的 bundle, 方便 O(1) 查找 */
 function buildWindowBundle(resp: ReplayWindowResponseV1) {
   const headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>> = {};
   const historyDeltaByIdx: Record<number, ReplayHistoryDeltaV1> = {};
@@ -59,6 +60,19 @@ function buildWindowBundle(resp: ReplayWindowResponseV1) {
   };
 }
 
+/**
+ * 回放包生命周期管理 hook。
+ *
+ * 状态机: idle → checking → coverage → building → ready (或 error / out_of_sync)
+ *
+ * 流程:
+ * 1. checking — 调用 fetchReplayBuild 尝试构建
+ * 2. coverage — 若数据不足, 触发 ensureCoverage 轮询补数据
+ * 3. building — 数据就绪后重新 build, 轮询 loadStatus 等待完成
+ * 4. ready — 元数据 + historyEvents 就绪, 可按需加载 window
+ *
+ * 每次 seriesId / windowCandles / windowSize / snapshotInterval 变化都会重新触发。
+ */
 export function useReplayPackage(params: {
   seriesId: string;
   enabled: boolean;

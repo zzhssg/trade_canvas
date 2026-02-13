@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.request import Request, urlopen
 
-from ..flags import resolve_env_int, resolve_env_str
+from ..core.flags import resolve_env_int, resolve_env_str
 
 
 @dataclass(frozen=True)

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, Query
 
-from ..dependencies import FactorReadServiceDep
+from ..deps import FactorReadServiceDep
 from .catalog import build_factor_catalog_response
-from ..schemas import GetFactorCatalogResponseV1, GetFactorSlicesResponseV1, LimitQuery
-from ..service_errors import ServiceError, to_http_exception
+from ..core.schemas import GetFactorCatalogResponseV1, GetFactorSlicesResponseV1, LimitQuery
+from ..core.service_errors import ServiceError, to_http_exception
 
 router = APIRouter()
 

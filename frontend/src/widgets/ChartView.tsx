@@ -49,6 +49,7 @@ import type {
 } from "./chart/types";
 import { timeframeToSeconds } from "./chart/timeframe";
 import { useLightweightChart } from "./chart/useLightweightChart";
+import { useOverlayCanvas, type OverlayCanvasPath } from "./chart/useOverlayCanvas";
 import { useReplayBindings } from "./chart/useReplayBindings";
 import { useReplayController } from "./chart/useReplayController";
 import { useReplayPackage } from "./chart/useReplayPackage";
@@ -68,28 +69,7 @@ const REPLAY_WINDOW_SIZE = 500;
 const REPLAY_SNAPSHOT_INTERVAL = 25;
 type PenLinePoint = { time: UTCTimestamp; value: number };
 type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
-type OverlayPath = {
-  id: string;
-  feature: string;
-  points: PenLinePoint[];
-  color: string;
-  lineWidth: LineWidth;
-  lineStyle: LineStyle;
-};
-
-function resolveAnchorTopLayerStyle(path: OverlayPath): { color: string; lineWidth: number; lineStyle: LineStyle; haloWidth: number } {
-  const baseWidth = Math.max(1, Number(path.lineWidth) || 1);
-  if (path.feature === "anchor.current") {
-    const lineWidth = Math.max(3, baseWidth + 1);
-    return { color: "#f59e0b", lineWidth, lineStyle: path.lineStyle, haloWidth: lineWidth + 1 };
-  }
-  if (path.feature === "anchor.history") {
-    const lineWidth = Math.max(2.5, baseWidth + 0.5);
-    return { color: "#3b82f6", lineWidth, lineStyle: LineStyle.Solid, haloWidth: lineWidth + 0.8 };
-  }
-  const lineWidth = Math.max(2.5, baseWidth + 0.5);
-  return { color: path.color, lineWidth, lineStyle: path.lineStyle, haloWidth: lineWidth + 0.8 };
-}
+type OverlayPath = OverlayCanvasPath;
 
 export function ChartView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -352,8 +332,6 @@ export function ChartView() {
   const factorPullInFlightRef = useRef(false);
   const factorPullPendingTimeRef = useRef<number | null>(null);
   const lastFactorAtTimeRef = useRef<number | null>(null);
-  const zhongshuRectCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const anchorTopLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const anchorTopLayerPathsRef = useRef<OverlayPath[]>([]);
   const [overlayPaintEpoch, setOverlayPaintEpoch] = useState(0);
   const [anchorTopLayerPathCount, setAnchorTopLayerPathCount] = useState(0);
@@ -401,12 +379,7 @@ export function ChartView() {
       lastFactorAtTimeRef.current = null;
       entryEnabledRef.current = false;
       appliedRef.current = { len: 0, lastTime: null };
-      const rectCanvas = zhongshuRectCanvasRef.current;
-      if (rectCanvas && rectCanvas.parentElement) rectCanvas.parentElement.removeChild(rectCanvas);
-      zhongshuRectCanvasRef.current = null;
-      const anchorCanvas = anchorTopLayerCanvasRef.current;
-      if (anchorCanvas && anchorCanvas.parentElement) anchorCanvas.parentElement.removeChild(anchorCanvas);
-      anchorTopLayerCanvasRef.current = null;
+      cleanupCanvases();
       anchorTopLayerPathsRef.current = [];
     }
   });
@@ -692,6 +665,22 @@ export function ChartView() {
     },
     [parentBySubKey]
   );
+
+  const { cleanupCanvases } = useOverlayCanvas({
+    chartRef,
+    seriesRef,
+    containerRef,
+    overlayActiveIdsRef,
+    overlayCatalogRef,
+    anchorTopLayerPathsRef,
+    anchorPenPointsRef,
+    anchorPenIsDashedRef,
+    effectiveVisible,
+    chartEpoch,
+    overlayPaintEpoch,
+    anchorHighlightEpoch,
+    enableAnchorTopLayer: ENABLE_ANCHOR_TOP_LAYER,
+  });
 
   const updateReplayMask = useCallback(() => {
     if (!replayEnabled || replayFocusTime == null) {
@@ -1003,327 +992,6 @@ export function ChartView() {
     setAnchorCount(nextAnchor);
     setOverlayPaintEpoch((v) => v + 1);
   }, [chartEpoch, effectiveVisible]);
-
-  useEffect(() => {
-    const chart = chartRef.current;
-    const series = seriesRef.current;
-    const container = containerRef.current;
-    if (!chart || !series || !container) return;
-
-    const ensureCanvas = () => {
-      let canvas = zhongshuRectCanvasRef.current;
-      if (!canvas) {
-        canvas = document.createElement("canvas");
-        canvas.className = "pointer-events-none absolute inset-0 z-[5]";
-        container.appendChild(canvas);
-        zhongshuRectCanvasRef.current = canvas;
-      } else if (canvas.parentElement !== container) {
-        container.appendChild(canvas);
-      }
-      return canvas;
-    };
-
-    const resizeCanvas = (canvas: HTMLCanvasElement) => {
-      const dpr = window.devicePixelRatio || 1;
-      const widthPx = Math.max(1, Math.floor(container.clientWidth));
-      const heightPx = Math.max(1, Math.floor(container.clientHeight));
-      const nextWidth = Math.floor(widthPx * dpr);
-      const nextHeight = Math.floor(heightPx * dpr);
-      if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
-        canvas.width = nextWidth;
-        canvas.height = nextHeight;
-      }
-      canvas.style.width = `${widthPx}px`;
-      canvas.style.height = `${heightPx}px`;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      return ctx;
-    };
-
-    const draw = () => {
-      const canvas = ensureCanvas();
-      const ctx = resizeCanvas(canvas);
-      if (!ctx) return;
-      ctx.clearRect(0, 0, container.clientWidth, container.clientHeight);
-
-      const timeScale = chart.timeScale();
-      const visible = timeScale.getVisibleRange();
-      const visibleFrom = visible ? normalizeTimeToSec(visible.from as Time) : null;
-      const visibleTo = visible ? normalizeTimeToSec(visible.to as Time) : null;
-      const visibleFromX = visibleFrom != null ? timeScale.timeToCoordinate(visibleFrom as UTCTimestamp) : null;
-      const visibleToX = visibleTo != null ? timeScale.timeToCoordinate(visibleTo as UTCTimestamp) : null;
-
-      type Edge = { startTime: number; endTime: number; value: number };
-      type RectSeed = {
-        feature: string;
-        top?: Edge;
-        bottom?: Edge;
-        entryDirection?: number;
-      };
-      const rectMap = new Map<string, RectSeed>();
-      for (const instructionId of overlayActiveIdsRef.current) {
-        const item = overlayCatalogRef.current.get(instructionId);
-        if (!item || item.kind !== "polyline") continue;
-        const def = item.definition && typeof item.definition === "object" ? (item.definition as Record<string, unknown>) : {};
-        const feature = String(def["feature"] ?? "");
-        if (!(feature === "zhongshu.alive" || feature === "zhongshu.dead")) continue;
-        if (!effectiveVisible(feature)) continue;
-        const rawEntryDirection = Number(def["entryDirection"]);
-        const entryDirection = Number.isFinite(rawEntryDirection) && rawEntryDirection !== 0 ? (rawEntryDirection > 0 ? 1 : -1) : 0;
-        const isTop = instructionId.endsWith(":top");
-        const isBottom = instructionId.endsWith(":bottom");
-        if (!isTop && !isBottom) continue;
-        const pointsRaw = def["points"];
-        if (!Array.isArray(pointsRaw) || pointsRaw.length < 2) continue;
-        const p0 = pointsRaw[0];
-        const p1 = pointsRaw[pointsRaw.length - 1];
-        if (!p0 || typeof p0 !== "object" || !p1 || typeof p1 !== "object") continue;
-        const r0 = p0 as Record<string, unknown>;
-        const r1 = p1 as Record<string, unknown>;
-        const t0 = Number(r0["time"]);
-        const t1 = Number(r1["time"]);
-        const y0 = Number(r0["value"]);
-        if (!Number.isFinite(t0) || !Number.isFinite(t1) || !Number.isFinite(y0)) continue;
-        const edge: Edge = {
-          startTime: Math.min(Math.floor(t0), Math.floor(t1)),
-          endTime: Math.max(Math.floor(t0), Math.floor(t1)),
-          value: y0
-        };
-        const key = isTop ? instructionId.slice(0, -4) : instructionId.slice(0, -7);
-        const seed = rectMap.get(key) ?? { feature };
-        if (isTop) seed.top = edge;
-        else seed.bottom = edge;
-        if (entryDirection !== 0) seed.entryDirection = entryDirection;
-        rectMap.set(key, seed);
-      }
-
-      const clampTimeCoord = (t: number) => {
-        let x = timeScale.timeToCoordinate(t as UTCTimestamp);
-        if (x != null && Number.isFinite(x)) return x;
-        if (visibleFrom == null || visibleTo == null) return null;
-        if (t < visibleFrom && visibleFromX != null && Number.isFinite(visibleFromX)) return visibleFromX;
-        if (t > visibleTo && visibleToX != null && Number.isFinite(visibleToX)) return visibleToX;
-        return null;
-      };
-
-      for (const seed of rectMap.values()) {
-        if (!seed.top || !seed.bottom) continue;
-        const x0 = clampTimeCoord(Math.min(seed.top.startTime, seed.bottom.startTime));
-        const x1 = clampTimeCoord(Math.max(seed.top.endTime, seed.bottom.endTime));
-        const yTop = series.priceToCoordinate(seed.top.value);
-        const yBottom = series.priceToCoordinate(seed.bottom.value);
-        if (x0 == null || x1 == null || yTop == null || yBottom == null) continue;
-        const left = Math.min(x0, x1);
-        const right = Math.max(x0, x1);
-        const top = Math.min(yTop, yBottom);
-        const bottom = Math.max(yTop, yBottom);
-        const width = Math.max(0, right - left);
-        const height = Math.max(0, bottom - top);
-        if (width <= 0 || height <= 0) continue;
-
-        const isAlive = seed.feature === "zhongshu.alive";
-        const entryDirection = seed.entryDirection ?? (isAlive ? 1 : -1);
-        const isUpEntry = entryDirection >= 0;
-        const fillColor = isAlive
-          ? isUpEntry
-            ? "rgba(22, 163, 74, 0.2)"
-            : "rgba(220, 38, 38, 0.18)"
-          : isUpEntry
-            ? "rgba(74, 222, 128, 0.12)"
-            : "rgba(248, 113, 113, 0.1)";
-        const borderColor = isAlive
-          ? isUpEntry
-            ? "rgba(22, 163, 74, 0.72)"
-            : "rgba(220, 38, 38, 0.72)"
-          : isUpEntry
-            ? "rgba(74, 222, 128, 0.58)"
-            : "rgba(248, 113, 113, 0.58)";
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(left, top, width, height);
-        ctx.fillStyle = fillColor;
-        ctx.fill();
-        ctx.strokeStyle = borderColor;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([]);
-        ctx.stroke();
-        ctx.restore();
-      }
-    };
-
-    let rafId: number | null = null;
-    const scheduleDraw = () => {
-      if (rafId != null) return;
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        draw();
-      });
-    };
-
-    const ro = new ResizeObserver(() => scheduleDraw());
-    ro.observe(container);
-    const timeScale = chart.timeScale();
-    const onRangeChange = () => scheduleDraw();
-    const onLogicalRangeChange = () => scheduleDraw();
-    timeScale.subscribeVisibleTimeRangeChange(onRangeChange);
-    timeScale.subscribeVisibleLogicalRangeChange(onLogicalRangeChange);
-    scheduleDraw();
-
-    return () => {
-      ro.disconnect();
-      timeScale.unsubscribeVisibleTimeRangeChange(onRangeChange);
-      timeScale.unsubscribeVisibleLogicalRangeChange(onLogicalRangeChange);
-      if (rafId != null) window.cancelAnimationFrame(rafId);
-    };
-  }, [chartEpoch, chartRef, effectiveVisible, overlayPaintEpoch, seriesRef]);
-
-  useEffect(() => {
-    if (!ENABLE_ANCHOR_TOP_LAYER) return;
-
-    const chart = chartRef.current;
-    const series = seriesRef.current;
-    const container = containerRef.current;
-    if (!chart || !series || !container) return;
-
-    const ensureCanvas = () => {
-      let canvas = anchorTopLayerCanvasRef.current;
-      if (!canvas) {
-        canvas = document.createElement("canvas");
-        canvas.className = "pointer-events-none absolute inset-0 z-[8]";
-        container.appendChild(canvas);
-        anchorTopLayerCanvasRef.current = canvas;
-      } else if (canvas.parentElement !== container) {
-        container.appendChild(canvas);
-      }
-      return canvas;
-    };
-
-    const resizeCanvas = (canvas: HTMLCanvasElement) => {
-      const dpr = window.devicePixelRatio || 1;
-      const widthPx = Math.max(1, Math.floor(container.clientWidth));
-      const heightPx = Math.max(1, Math.floor(container.clientHeight));
-      const nextWidth = Math.floor(widthPx * dpr);
-      const nextHeight = Math.floor(heightPx * dpr);
-      if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
-        canvas.width = nextWidth;
-        canvas.height = nextHeight;
-      }
-      canvas.style.width = `${widthPx}px`;
-      canvas.style.height = `${heightPx}px`;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      return ctx;
-    };
-
-    const draw = () => {
-      const canvas = ensureCanvas();
-      const ctx = resizeCanvas(canvas);
-      if (!ctx) return;
-      ctx.clearRect(0, 0, container.clientWidth, container.clientHeight);
-
-      const paths = anchorTopLayerPathsRef.current;
-      if (!paths.length) return;
-
-      const timeScale = chart.timeScale();
-      const visible = timeScale.getVisibleRange();
-      const visibleFrom = visible ? normalizeTimeToSec(visible.from as Time) : null;
-      const visibleTo = visible ? normalizeTimeToSec(visible.to as Time) : null;
-      const visibleFromX = visibleFrom != null ? timeScale.timeToCoordinate(visibleFrom as UTCTimestamp) : null;
-      const visibleToX = visibleTo != null ? timeScale.timeToCoordinate(visibleTo as UTCTimestamp) : null;
-
-      const clampTimeCoord = (t: number) => {
-        let x = timeScale.timeToCoordinate(t as UTCTimestamp);
-        if (x != null && Number.isFinite(x)) return x;
-        if (visibleFrom == null || visibleTo == null) return null;
-        if (t < visibleFrom && visibleFromX != null && Number.isFinite(visibleFromX)) return visibleFromX;
-        if (t > visibleTo && visibleToX != null && Number.isFinite(visibleToX)) return visibleToX;
-        return null;
-      };
-
-      const drawPath = (points: PenLinePoint[], style: { color: string; lineWidth: number; lineStyle: LineStyle; haloWidth: number }) => {
-        if (points.length < 2) return;
-        ctx.save();
-        ctx.beginPath();
-        let hasPoint = false;
-        for (const point of points) {
-          const x = clampTimeCoord(Number(point.time));
-          const y = series.priceToCoordinate(point.value);
-          if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) {
-            hasPoint = false;
-            continue;
-          }
-          if (!hasPoint) {
-            ctx.moveTo(x, y);
-            hasPoint = true;
-          } else {
-            ctx.lineTo(x, y);
-          }
-        }
-        if (!hasPoint) {
-          ctx.restore();
-          return;
-        }
-        const dashed = style.lineStyle === LineStyle.Dashed;
-        ctx.lineJoin = "round";
-        ctx.lineCap = "round";
-        ctx.strokeStyle = "rgba(255,255,255,0.35)";
-        ctx.lineWidth = style.haloWidth;
-        ctx.setLineDash(dashed ? [6, 6] : []);
-        ctx.stroke();
-        ctx.strokeStyle = style.color;
-        ctx.lineWidth = style.lineWidth;
-        ctx.setLineDash(dashed ? [6, 6] : []);
-        ctx.stroke();
-        ctx.restore();
-      };
-
-      for (const item of paths) {
-        if (!effectiveVisible(item.feature)) continue;
-        const style = resolveAnchorTopLayerStyle(item);
-        drawPath(item.points, style);
-      }
-
-      if (effectiveVisible("anchor.current")) {
-        const highlightPoints = anchorPenPointsRef.current;
-        if (highlightPoints && highlightPoints.length >= 2) {
-          drawPath(highlightPoints, {
-            color: "#f59e0b",
-            lineWidth: anchorPenIsDashedRef.current ? 3 : 4,
-            lineStyle: anchorPenIsDashedRef.current ? LineStyle.Dashed : LineStyle.Solid,
-            haloWidth: anchorPenIsDashedRef.current ? 4 : 5
-          });
-        }
-      }
-    };
-
-    let rafId: number | null = null;
-    const scheduleDraw = () => {
-      if (rafId != null) return;
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        draw();
-      });
-    };
-
-    const ro = new ResizeObserver(() => scheduleDraw());
-    ro.observe(container);
-    const timeScale = chart.timeScale();
-    const onRangeChange = () => scheduleDraw();
-    const onLogicalRangeChange = () => scheduleDraw();
-    timeScale.subscribeVisibleTimeRangeChange(onRangeChange);
-    timeScale.subscribeVisibleLogicalRangeChange(onLogicalRangeChange);
-    scheduleDraw();
-
-    return () => {
-      ro.disconnect();
-      timeScale.unsubscribeVisibleTimeRangeChange(onRangeChange);
-      timeScale.unsubscribeVisibleLogicalRangeChange(onLogicalRangeChange);
-      if (rafId != null) window.cancelAnimationFrame(rafId);
-    };
-  }, [anchorHighlightEpoch, chartEpoch, chartRef, effectiveVisible, overlayPaintEpoch, seriesRef]);
 
   const applyPenAndAnchorFromFactorSlices = useCallback(
     (slices: GetFactorSlicesResponseV1) => {

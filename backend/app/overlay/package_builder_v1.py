@@ -4,9 +4,9 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ..schemas import OverlayInstructionPatchItemV1
-from ..store import CandleStore
-from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from ..core.schemas import OverlayInstructionPatchItemV1
+from ..storage.candle_store import CandleStore
+from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from .replay_protocol_v1 import (
     OverlayReplayCheckpointV1,
     OverlayReplayDeltaMetaV1,
@@ -46,7 +46,7 @@ def _marker_time(defn: dict[str, Any]) -> int | None:
         return None
     try:
         tt = int(t)
-    except Exception:
+    except (ValueError, TypeError):
         return None
     return tt if tt >= 0 else None
 
@@ -65,7 +65,7 @@ def _polyline_min_max(defn: dict[str, Any]) -> tuple[int | None, int | None]:
             continue
         try:
             tt = int(t)
-        except Exception:
+        except (ValueError, TypeError):
             continue
         if tt < 0:
             continue

@@ -9,7 +9,7 @@ from typing import Any, Awaitable, Callable
 from ..freqtrade.config import load_json
 from ..freqtrade.data import check_history_available
 from ..freqtrade.runner import FreqtradeExecResult, parse_strategy_list
-from ..service_errors import ServiceError
+from ..core.service_errors import ServiceError
 
 
 @dataclass(frozen=True)

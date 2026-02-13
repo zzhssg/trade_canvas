@@ -120,7 +120,6 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             runtime = container.market_runtime
             pipeline = runtime.ingest_ctx.ingest_pipeline
             self.assertIs(runtime.ingest_ctx.ingest_pipeline, pipeline)
-            self.assertIs(runtime.flags, container.flags)
             self.assertIs(runtime.runtime_flags, container.runtime_flags)
             self.assertIs(getattr(pipeline, "_hub", None), runtime.hub)
             self.assertIs(container.lifecycle.market_runtime, runtime)
@@ -133,7 +132,7 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_POSTGRES_DSN"] = "postgresql://tc:tc@127.0.0.1:5432/tc"
         os.environ["TRADE_CANVAS_POSTGRES_SCHEMA"] = "trade_canvas"
         fake_pool = object()
-        with patch("backend.app.container._maybe_bootstrap_postgres", return_value=fake_pool):
+        with patch("backend.app.bootstrap.container._maybe_bootstrap_postgres", return_value=fake_pool):
             client = self._build_client()
         try:
             app = cast(Any, client.app)

@@ -25,7 +25,7 @@ class PostgresPoolSettings:
 def _load_postgres_driver() -> _PostgresDriver | None:
     try:
         module = importlib.import_module("psycopg")
-    except Exception:
+    except ImportError:
         return None
     return module if hasattr(module, "connect") else None
 
