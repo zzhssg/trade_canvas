@@ -8,6 +8,12 @@ from pathlib import Path
 @dataclass(frozen=True)
 class Settings:
     db_path: Path
+    postgres_dsn: str
+    postgres_schema: str
+    postgres_connect_timeout_s: float
+    postgres_pool_min_size: int
+    postgres_pool_max_size: int
+    redis_url: str
     whitelist_path: Path
     freqtrade_root: Path
     freqtrade_userdir: Path | None
@@ -27,6 +33,19 @@ def load_settings() -> Settings:
 
     db_path = Path(os.environ.get("TRADE_CANVAS_DB_PATH", "backend/data/market.db"))
     whitelist_path = Path(os.environ.get("TRADE_CANVAS_WHITELIST_PATH", "backend/config/market_whitelist.json"))
+
+    postgres_dsn = (os.environ.get("TRADE_CANVAS_POSTGRES_DSN") or "").strip()
+    postgres_schema = (os.environ.get("TRADE_CANVAS_POSTGRES_SCHEMA") or "public").strip() or "public"
+    redis_url = (os.environ.get("TRADE_CANVAS_REDIS_URL") or "").strip()
+
+    def _env_float(name: str, default: float, *, minimum: float) -> float:
+        raw = (os.environ.get(name) or "").strip()
+        if not raw:
+            return max(float(minimum), float(default))
+        try:
+            return max(float(minimum), float(raw))
+        except ValueError:
+            return max(float(minimum), float(default))
 
     # Defaults: prefer sibling ../trade_system when present (dev convenience),
     # otherwise fall back to in-repo user_data_test.
@@ -111,9 +130,30 @@ def load_settings() -> Settings:
         5,
         minimum=market_fresh_window_candles + 1,
     )
+    postgres_connect_timeout_s = _env_float(
+        "TRADE_CANVAS_POSTGRES_CONNECT_TIMEOUT_S",
+        5.0,
+        minimum=0.1,
+    )
+    postgres_pool_min_size = _env_int(
+        "TRADE_CANVAS_POSTGRES_POOL_MIN_SIZE",
+        1,
+        minimum=1,
+    )
+    postgres_pool_max_size = _env_int(
+        "TRADE_CANVAS_POSTGRES_POOL_MAX_SIZE",
+        10,
+        minimum=postgres_pool_min_size,
+    )
 
     return Settings(
         db_path=db_path,
+        postgres_dsn=postgres_dsn,
+        postgres_schema=postgres_schema,
+        postgres_connect_timeout_s=float(postgres_connect_timeout_s),
+        postgres_pool_min_size=int(postgres_pool_min_size),
+        postgres_pool_max_size=int(postgres_pool_max_size),
+        redis_url=redis_url,
         whitelist_path=whitelist_path,
         freqtrade_root=freqtrade_root,
         freqtrade_userdir=freqtrade_userdir,

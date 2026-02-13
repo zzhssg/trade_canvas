@@ -2,7 +2,7 @@
 title: trade_canvas 架构总览
 status: done
 created: 2026-02-02
-updated: 2026-02-11
+updated: 2026-02-12
 ---
 
 # trade_canvas 架构总览
@@ -53,6 +53,7 @@ updated: 2026-02-11
 - 通过依赖注入传入 service/orchestrator，避免运行期散读 env。
 - `TRADE_CANVAS_ENABLE_DEV_API`（默认 `0`）统一控制 `/api/dev/**` 调试/运维入口；关闭时返回 `404 not_found`。
 - `TRADE_CANVAS_ENABLE_RUNTIME_METRICS`（默认 `0`）控制运行时指标采集与 `/api/market/debug/metrics` 可见性。
+- `TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY`（默认 `0`）控制 read-side tail coverage 在 `to_time=None` 时是否强制只补到“上一根已收盘 K 线”（避免把 forming 桶写进 closed store）。
 - SQLite store 统一使用 schema migrations 初始化，无 legacy `CREATE TABLE IF NOT EXISTS` 兼容分支。
 - `TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE`（默认 `0`）控制 backfill 进度状态落盘（单机重启可恢复最近快照）。
 

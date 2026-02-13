@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
+from backend.app.storage import DualWriteCandleRepository
 
 
 class BackendArchitectureFlagsTests(unittest.TestCase):
@@ -32,14 +35,26 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             "TRADE_CANVAS_ENABLE_DEV_API",
             "TRADE_CANVAS_ENABLE_RUNTIME_METRICS",
             "TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE",
-            "TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE",
             "TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL",
             "TRADE_CANVAS_ENABLE_WHITELIST_INGEST",
             "TRADE_CANVAS_ENABLE_ONDEMAND_INGEST",
+            "TRADE_CANVAS_ENABLE_PG_STORE",
+            "TRADE_CANVAS_ENABLE_DUAL_WRITE",
+            "TRADE_CANVAS_ENABLE_PG_READ",
+            "TRADE_CANVAS_ENABLE_WS_PUBSUB",
+            "TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD",
+            "TRADE_CANVAS_INGEST_ROLE",
+            "TRADE_CANVAS_POSTGRES_DSN",
+            "TRADE_CANVAS_POSTGRES_SCHEMA",
+            "TRADE_CANVAS_POSTGRES_CONNECT_TIMEOUT_S",
+            "TRADE_CANVAS_POSTGRES_POOL_MIN_SIZE",
+            "TRADE_CANVAS_POSTGRES_POOL_MAX_SIZE",
+            "TRADE_CANVAS_REDIS_URL",
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
             "TRADE_CANVAS_OVERLAY_WINDOW_CANDLES",
+            "TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY",
         ):
             os.environ.pop(name, None)
 
@@ -105,10 +120,36 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             self.assertIs(runtime.flags, container.flags)
             self.assertIs(runtime.runtime_flags, container.runtime_flags)
             self.assertIs(getattr(pipeline, "_hub", None), runtime.hub)
+            self.assertIsNone(getattr(pipeline, "_candle_mirror", None))
             self.assertIs(container.lifecycle.market_runtime, runtime)
             self.assertFalse(hasattr(container.lifecycle, "supervisor"))
         finally:
             client.close()
+
+    def test_dual_write_flag_wires_dual_write_store_without_pipeline_mirror(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_PG_STORE"] = "1"
+        os.environ["TRADE_CANVAS_ENABLE_DUAL_WRITE"] = "1"
+        os.environ["TRADE_CANVAS_POSTGRES_DSN"] = "postgresql://tc:tc@127.0.0.1:5432/tc"
+        os.environ["TRADE_CANVAS_POSTGRES_SCHEMA"] = "trade_canvas"
+        fake_pool = object()
+        with patch("backend.app.container._maybe_bootstrap_postgres", return_value=fake_pool):
+            client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertIsInstance(container.store, DualWriteCandleRepository)
+            self.assertTrue(container.store.dual_write_enabled)
+            pipeline = container.market_runtime.ingest_ctx.ingest_pipeline
+            self.assertIsNone(getattr(pipeline, "_candle_mirror", None))
+        finally:
+            client.close()
+
+    def test_ws_pubsub_flag_requires_redis_url(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_PG_STORE"] = "0"
+        os.environ["TRADE_CANVAS_ENABLE_WS_PUBSUB"] = "1"
+        os.environ["TRADE_CANVAS_REDIS_URL"] = ""
+        with self.assertRaisesRegex(ValueError, "redis_url_required_when_ws_pubsub_enabled"):
+            create_app()
 
     def test_read_path_requires_strict_fresh_ledger(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "0"
@@ -147,7 +188,7 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             query_service = container.market_runtime.read_ctx.query
             warmup_service = container.market_runtime.read_ctx.ledger_warmup
             self.assertFalse(hasattr(query_service, "ingest_pipeline"))
-            self.assertTrue(hasattr(warmup_service, "ingest_pipeline"))
+            self.assertTrue(hasattr(warmup_service, "ledger_sync_service"))
         finally:
             client.close()
 
@@ -235,6 +276,28 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
         finally:
             client.close()
 
+    def test_strict_closed_only_flag_is_wired_to_backfill_service(self) -> None:
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertFalse(container.runtime_flags.enable_strict_closed_only)
+            backfill = container.market_runtime.read_ctx.backfill
+            self.assertFalse(bool(getattr(backfill, "_enable_strict_closed_only", None)))
+        finally:
+            client.close()
+
+        os.environ["TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY"] = "1"
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertTrue(container.runtime_flags.enable_strict_closed_only)
+            backfill = container.market_runtime.read_ctx.backfill
+            self.assertTrue(bool(getattr(backfill, "_enable_strict_closed_only", None)))
+        finally:
+            client.close()
+
     def test_ingest_supervisor_uses_single_publish_path(self) -> None:
         client = self._build_client()
         try:
@@ -246,25 +309,15 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
         finally:
             client.close()
 
-    def test_ledger_sync_service_flag_wires_single_instance(self) -> None:
+    def test_ledger_sync_service_wires_single_instance_without_compat_flag(self) -> None:
         client = self._build_client()
         try:
             app = cast(Any, client.app)
             container = app.state.container
-            self.assertFalse(container.runtime_flags.enable_ledger_sync_service)
+            self.assertIs(container.market_runtime.ledger_sync_service, container.ledger_sync_service)
             self.assertIs(container.read_repair_service.ledger_sync_service, container.ledger_sync_service)
             self.assertIs(container.replay_prepare_service.ledger_sync_service, container.ledger_sync_service)
-        finally:
-            client.close()
-
-        os.environ["TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE"] = "1"
-        client = self._build_client()
-        try:
-            app = cast(Any, client.app)
-            container = app.state.container
-            self.assertTrue(container.runtime_flags.enable_ledger_sync_service)
-            self.assertTrue(container.read_repair_service.enable_ledger_sync_service)
-            self.assertTrue(container.replay_prepare_service.enable_ledger_sync_service)
+            self.assertFalse(hasattr(container.runtime_flags, "enable_ledger_sync_service"))
         finally:
             client.close()
 
@@ -278,6 +331,32 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             app = cast(Any, client.app)
             container = app.state.container
             self.assertIsNotNone(getattr(container.market_runtime.ingest_ctx.supervisor, "_reaper_task", None))
+
+    def test_ingest_role_guard_read_mode_disables_local_ingest_jobs(self) -> None:
+        os.environ["TRADE_CANVAS_DB_PATH"] = str(self.db_path)
+        os.environ["TRADE_CANVAS_WHITELIST_PATH"] = str(self.whitelist_path)
+        os.environ["TRADE_CANVAS_ENABLE_WHITELIST_INGEST"] = "1"
+        os.environ["TRADE_CANVAS_ENABLE_ONDEMAND_INGEST"] = "1"
+        os.environ["TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD"] = "1"
+        os.environ["TRADE_CANVAS_INGEST_ROLE"] = "read"
+
+        with TestClient(create_app()) as client:
+            app = cast(Any, client.app)
+            container = app.state.container
+            supervisor = container.market_runtime.ingest_ctx.supervisor
+            self.assertFalse(supervisor.ingest_jobs_enabled)
+            self.assertIsNone(getattr(supervisor, "_reaper_task", None))
+            self.assertTrue(asyncio.run(supervisor.subscribe(self.series_id)))
+            snapshot = asyncio.run(supervisor.debug_snapshot())
+            self.assertFalse(bool(snapshot.get("ingest_jobs_enabled")))
+            self.assertEqual(snapshot.get("ingest_role"), "read")
+            self.assertEqual(snapshot.get("jobs"), [])
+
+    def test_pg_store_flag_requires_postgres_dsn(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_PG_STORE"] = "1"
+        os.environ["TRADE_CANVAS_POSTGRES_DSN"] = ""
+        with self.assertRaisesRegex(ValueError, "postgres_dsn_required_when_pg_store_enabled"):
+            create_app()
 
 
 if __name__ == "__main__":

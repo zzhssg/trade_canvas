@@ -69,7 +69,7 @@ export function useLightweightChart({ containerRef, width, height, onCreated, on
       crosshair: {
         mode: 0,
         horzLine: {
-          labelVisible: false
+          labelVisible: true
         }
       },
       handleScroll: {

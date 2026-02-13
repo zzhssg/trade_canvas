@@ -13,12 +13,12 @@
 - `验收`：一句话验收 worktree（纯 git review + merge main + 删除 worktree；不依赖 dev panel）
 - `tc-acceptance-e2e`：最终验收（宣称 done/已上线 前必须跑通 `scripts/e2e_acceptance.sh` 并交付证据）
 - `tc-agent-browser`：浏览器自动化（`agent-browser`；用于截图/流程复现/证据）
-- `tc-debug`：调试流程（可复现→定位→根因→最小修复→回归保护）
-- `tc-e2e-gate`：E2E 用户故事门禁（规划阶段必须给完整 E2E 用户故事；开发结束必须验证通过并给证据；API 变更必须同步维护 `docs/core/api/v1/` 并通过 `doc_audit`）
+- `tc-debug`：调试流程（可复现→定位→根因→最小修复→回归保护；优先“定义错误不存在”）
+- `tc-e2e-gate`：E2E 用户故事门禁（规划阶段必须给完整 E2E 用户故事；开发结束必须验证通过并给证据；强制 Post-Dev Review 与“交付三问”；API 变更必须同步维护 `docs/core/api/v1/` 并通过 `doc_audit`）
 - `tc-fupan`：复盘（每次必输出 3 个主题；必要时同步 `docs/core/`）
 - `tc-knowledge-storytelling`：知识写作（用白话叙事拆解硬核系统知识，保留逻辑链与术语锚点）
 - `tc-market-kline-fastpath-v2`：市场 K 线 Fastpath v2（保持 HTTP/WS 契约稳定，可回滚可验收）
-- `tc-planning`：任务拆解与计划（每步可验收/可回滚；大改动落盘 `docs/plan/`）
+- `tc-planning`：任务拆解与计划（每步可验收/可回滚；强制 A/B 方案取舍、新增文件理由卡、复杂度预算卡；大改动落盘 `docs/plan/`）
 - `tc-skill-authoring`：本项目 skill 编写指南（新增/修改 skills，并与文档索引联动）
 - `tc-worktree-lifecycle`：Worktree 生命周期管理（创建→开发→验收→删除门禁，配合 `/dev` 与 `.worktree-meta/`）
 

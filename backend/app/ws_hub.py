@@ -15,6 +15,8 @@ from .ws_protocol import (
 )
 from .schemas import CandleClosed
 from .timeframe import series_id_timeframe, timeframe_to_seconds
+from .ws_pubsub_bridge import WsPubsubBridge, WsPubsubCallbacks
+from .ws_publishers import WsPublisher, WsPubsubEventType
 
 
 @dataclass
@@ -29,13 +31,78 @@ GapBackfillHandler = Callable[[str, int, int], Awaitable[list[CandleClosed]]]
 
 
 class CandleHub:
-    def __init__(self, *, gap_backfill_handler: GapBackfillHandler | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        gap_backfill_handler: GapBackfillHandler | None = None,
+        publisher: WsPublisher | None = None,
+        instance_id: str | None = None,
+    ) -> None:
         self._lock = asyncio.Lock()
         self._subs_by_ws: dict[WebSocket, dict[str, _Subscription]] = {}
         self._gap_backfill_handler = gap_backfill_handler
+        self._pubsub = WsPubsubBridge(
+            publisher=publisher,
+            instance_id=instance_id,
+            callbacks=WsPubsubCallbacks(
+                on_closed=self._consume_closed,
+                on_batch=self._consume_batch,
+                on_forming=self._consume_forming,
+                on_system=self._consume_system,
+            ),
+        )
 
     def set_gap_backfill_handler(self, handler: GapBackfillHandler | None) -> None:
         self._gap_backfill_handler = handler
+
+    async def start_pubsub(self) -> None:
+        await self._pubsub.start()
+
+    async def close_pubsub(self) -> None:
+        await self._pubsub.close()
+
+    async def _publish_external(
+        self,
+        *,
+        series_id: str,
+        event_type: WsPubsubEventType,
+        payload: dict[str, object],
+    ) -> None:
+        await self._pubsub.publish(
+            series_id=series_id,
+            event_type=event_type,
+            payload=payload,
+        )
+
+    async def _consume_closed(self, series_id: str, candle: CandleClosed) -> None:
+        await self.publish_closed(
+            series_id=series_id,
+            candle=candle,
+            replicate=False,
+        )
+
+    async def _consume_batch(self, series_id: str, candles: list[CandleClosed]) -> None:
+        await self.publish_closed_batch(
+            series_id=series_id,
+            candles=candles,
+            replicate=False,
+        )
+
+    async def _consume_forming(self, series_id: str, candle: CandleClosed) -> None:
+        await self.publish_forming(
+            series_id=series_id,
+            candle=candle,
+            replicate=False,
+        )
+
+    async def _consume_system(self, series_id: str, event: str, message: str, data: dict) -> None:
+        await self.publish_system(
+            series_id=series_id,
+            event=event,
+            message=message,
+            data=data,
+            replicate=False,
+        )
 
     async def close_all(self, *, code: int = 1001, reason: str = "server_shutdown") -> None:
         """
@@ -308,7 +375,13 @@ class CandleHub:
             )
         return merged, None
 
-    async def publish_closed_batch(self, *, series_id: str, candles: list[CandleClosed]) -> None:
+    async def publish_closed_batch(
+        self,
+        *,
+        series_id: str,
+        candles: list[CandleClosed],
+        replicate: bool = True,
+    ) -> None:
         if not candles:
             return
 
@@ -330,6 +403,12 @@ class CandleHub:
                 )
             except Exception:
                 await self.remove_ws(ws)
+        if bool(replicate):
+            await self._publish_external(
+                series_id=series_id,
+                event_type="candles_batch",
+                payload={"candles": [c.model_dump() for c in candles_sorted]},
+            )
 
     async def set_last_sent(self, ws: WebSocket, *, series_id: str, candle_time: int) -> None:
         async with self._lock:
@@ -373,7 +452,13 @@ class CandleHub:
             subs = self._subs_by_ws.pop(ws, None) or {}
             return list(subs.keys())
 
-    async def publish_closed(self, *, series_id: str, candle: CandleClosed) -> None:
+    async def publish_closed(
+        self,
+        *,
+        series_id: str,
+        candle: CandleClosed,
+        replicate: bool = True,
+    ) -> None:
         targets = await self._collect_targets(series_id=series_id)
 
         for ws, sub in targets:
@@ -387,8 +472,20 @@ class CandleHub:
                 )
             except Exception:
                 await self.remove_ws(ws)
+        if bool(replicate):
+            await self._publish_external(
+                series_id=series_id,
+                event_type="candle_closed",
+                payload={"candle": candle.model_dump()},
+            )
 
-    async def publish_forming(self, *, series_id: str, candle: CandleClosed) -> None:
+    async def publish_forming(
+        self,
+        *,
+        series_id: str,
+        candle: CandleClosed,
+        replicate: bool = True,
+    ) -> None:
         targets = await self._collect_targets(series_id=series_id)
 
         for ws, sub in targets:
@@ -404,8 +501,22 @@ class CandleHub:
                 )
             except Exception:
                 await self.remove_ws(ws)
+        if bool(replicate):
+            await self._publish_external(
+                series_id=series_id,
+                event_type="candle_forming",
+                payload={"candle": candle.model_dump()},
+            )
 
-    async def publish_system(self, *, series_id: str, event: str, message: str, data: dict | None = None) -> None:
+    async def publish_system(
+        self,
+        *,
+        series_id: str,
+        event: str,
+        message: str,
+        data: dict | None = None,
+        replicate: bool = True,
+    ) -> None:
         targets = [ws for ws, _ in await self._collect_targets(series_id=series_id)]
         payload = {
             "type": WS_MSG_SYSTEM,
@@ -419,3 +530,13 @@ class CandleHub:
                 await ws.send_json(payload)
             except Exception:
                 await self.remove_ws(ws)
+        if bool(replicate):
+            await self._publish_external(
+                series_id=series_id,
+                event_type="system",
+                payload={
+                    "event": str(event),
+                    "message": str(message),
+                    "data": dict(data or {}),
+                },
+            )

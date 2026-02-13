@@ -3,7 +3,7 @@ title: backend architecture hardening r5-r7 three round
 status: 待验收
 owner: codex
 created: 2026-02-11
-updated: 2026-02-11
+updated: 2026-02-12
 ---
 
 ## 背景
@@ -35,7 +35,7 @@ updated: 2026-02-11
   - refresh_series_sync 调度
   - factor/overlay head 就绪校验
 - 将 `ReplayPrepareService`、`ReadRepairService`、`MarketLedgerWarmupService`、`startup_kline_sync` 的同类流程改为复用该服务。
-- 新增开关：`TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE`（默认 `0`，灰度后可置 `1`）。
+- 首轮灰度曾引入开关：`TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE`；后续已在 2026-02-12 收口为强制单路径并移除。
 
 ### R2（ingest 循环熔断与退避）
 - 抽取 supervisor/job 重试策略对象，统一 crash 计数、退避间隔、最大重试预算。
@@ -58,7 +58,7 @@ updated: 2026-02-11
 
 ## 任务拆解
 - [x] R1 新增 ledger sync 服务并替换重复逻辑调用点
-- [x] R1 新增 `TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE` 并接入 runtime/container
+- [x] R1 新增并接入 `TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE`（历史阶段）
 - [x] R2 抽取 ingest loop 重试/熔断策略并接入 supervisor + ws ingest
 - [x] R2 新增 `TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL` 与 debug snapshot 输出
 - [x] R3 删除 factor 兼容别名/包装，测试与文档全部切换最终口径
@@ -74,7 +74,6 @@ updated: 2026-02-11
   - R3 去兼容层会影响存量 import 路径与测试引用。
 - 回滚：
   - 运行时回滚：
-    - `TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE=0`
     - `TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL=0`
   - 代码回滚：三轮分别独立 commit，支持 `git revert <sha>` 单轮回退。
 
@@ -146,3 +145,4 @@ updated: 2026-02-11
 - 2026-02-11: R1 完成（LedgerSyncService 接入 replay/repair/warmup/startup，增加 `TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE`）
 - 2026-02-11: R2 完成（ingest loop guardrail 接入 supervisor + binance ws + debug snapshot，增加 `TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL`）
 - 2026-02-11: R3 完成（移除 processor 兼容层、抽 shared ports、拆分 dependencies 模块）
+- 2026-02-12: R1/R3 收口（移除 `TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE`，read/repair/warmup/startup 固定使用 LedgerSyncService 单路径）

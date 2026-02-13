@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import time
 from typing import SupportsFloat, SupportsInt, cast
 
@@ -11,11 +10,10 @@ from .pipelines import IngestPipeline, IngestPipelineResult
 from .schemas import CandleClosed
 from .series_id import SeriesId, parse_series_id
 from .store import CandleStore
+from .ingest_ws_hotpath import flush_ws_buffer, publish_forming_with_derived, should_emit_forming
 from .ws_hub import CandleHub
 from .ingest_settings import WhitelistIngestSettings
 from .derived_timeframes import DerivedTimeframeFanout
-
-logger = logging.getLogger(__name__)
 
 
 def _coerce_int(value: object) -> int | None:
@@ -192,66 +190,6 @@ async def run_binance_ws_ingest_loop(
         except Exception:
             fanout = None
 
-    async def flush(reason: str) -> None:
-        nonlocal buf, last_flush_at, last_emitted_time
-        if not buf:
-            return
-        buf.sort(key=lambda c: c.candle_time)
-
-        deduped: list[CandleClosed] = []
-        last_time: int | None = None
-        for candle in buf:
-            if candle.candle_time <= last_emitted_time:
-                continue
-            if last_time is not None and candle.candle_time == last_time:
-                deduped[-1] = candle
-            else:
-                deduped.append(candle)
-                last_time = candle.candle_time
-
-        buf = []
-        last_flush_at = time.time()
-        if not deduped:
-            return
-
-        up_to_time = int(deduped[-1].candle_time)
-        derived_batches: dict[str, list[CandleClosed]] = {}
-        if fanout is not None:
-            try:
-                derived_batches = fanout.on_base_closed_batch(base_series_id=series_id, candles=deduped)
-            except Exception:
-                derived_batches = {}
-
-        all_batches: dict[str, list[CandleClosed]] = {series_id: deduped}
-        for derived_series_id, derived in derived_batches.items():
-            if derived:
-                all_batches[derived_series_id] = derived
-
-        pipeline_result = await ingest_pipeline.run(
-            batches=all_batches,
-            publish=False,
-        )
-        db_ms = int(pipeline_result.duration_ms)
-
-        t1 = time.perf_counter()
-        await _publish_pipeline_result_from_ws(
-            ingest_pipeline=ingest_pipeline,
-            pipeline_result=pipeline_result,
-        )
-        publish_ms = int((time.perf_counter() - t1) * 1000)
-
-        last_emitted_time = max(last_emitted_time, up_to_time)
-
-        logger.info(
-            "market_ingest_batch source=binance_ws series_id=%s rows=%d db_ms=%d publish_ms=%d head_time=%d reason=%s",
-            series_id,
-            len(deduped),
-            db_ms,
-            publish_ms,
-            last_emitted_time,
-            reason,
-        )
-
     while not stop.is_set():
         if loop_guardrail is not None:
             wait_s = float(loop_guardrail.before_attempt())
@@ -278,7 +216,16 @@ async def run_binance_ws_ingest_loop(
                         raw = await asyncio.wait_for(upstream.recv(), timeout=1.0)
                     except asyncio.TimeoutError:
                         if buf and (time.time() - last_flush_at) >= flush_s:
-                            await flush("timeout")
+                            last_emitted_time, last_flush_at = await flush_ws_buffer(
+                                series_id=series_id,
+                                ingest_pipeline=ingest_pipeline,
+                                fanout=fanout,
+                                buf=buf,
+                                reason="timeout",
+                                last_emitted_time=int(last_emitted_time),
+                                last_flush_at=float(last_flush_at),
+                                publish_pipeline_result=_publish_pipeline_result_from_ws,
+                            )
                         continue
 
                     try:
@@ -292,32 +239,48 @@ async def run_binance_ws_ingest_loop(
                     candle, is_final = parsed
 
                     if not is_final:
-                        if candle.candle_time > last_emitted_time:
-                            now = time.monotonic()
-                            if (
-                                candle.candle_time != last_forming_candle_time
-                                or (now - last_forming_emit_at) >= forming_min_interval_s
-                            ):
-                                await hub.publish_forming(series_id=series_id, candle=candle)
-                                if fanout is not None:
-                                    try:
-                                        derived_forming = fanout.on_base_forming(
-                                            base_series_id=series_id,
-                                            candle=candle,
-                                            now=now,
-                                        )
-                                        for derived_series_id, derived_candle in derived_forming:
-                                            await hub.publish_forming(series_id=derived_series_id, candle=derived_candle)
-                                    except Exception:
-                                        pass
-                                last_forming_emit_at = now
-                                last_forming_candle_time = candle.candle_time
+                        now = time.monotonic()
+                        if should_emit_forming(
+                            candle_time=int(candle.candle_time),
+                            last_emitted_time=int(last_emitted_time),
+                            last_forming_candle_time=last_forming_candle_time,
+                            last_forming_emit_at=float(last_forming_emit_at),
+                            now=float(now),
+                            forming_min_interval_s=float(forming_min_interval_s),
+                        ):
+                            await publish_forming_with_derived(
+                                hub=hub,
+                                series_id=series_id,
+                                candle=candle,
+                                fanout=fanout,
+                                now=float(now),
+                            )
+                            last_forming_emit_at = float(now)
+                            last_forming_candle_time = int(candle.candle_time)
                         continue
 
                     buf.append(candle)
                     if len(buf) >= batch_max or (time.time() - last_flush_at) >= flush_s:
-                        await flush("threshold")
-                await flush("disconnect")
+                        last_emitted_time, last_flush_at = await flush_ws_buffer(
+                            series_id=series_id,
+                            ingest_pipeline=ingest_pipeline,
+                            fanout=fanout,
+                            buf=buf,
+                            reason="threshold",
+                            last_emitted_time=int(last_emitted_time),
+                            last_flush_at=float(last_flush_at),
+                            publish_pipeline_result=_publish_pipeline_result_from_ws,
+                        )
+                last_emitted_time, last_flush_at = await flush_ws_buffer(
+                    series_id=series_id,
+                    ingest_pipeline=ingest_pipeline,
+                    fanout=fanout,
+                    buf=buf,
+                    reason="disconnect",
+                    last_emitted_time=int(last_emitted_time),
+                    last_flush_at=float(last_flush_at),
+                    publish_pipeline_result=_publish_pipeline_result_from_ws,
+                )
                 if loop_guardrail is not None:
                     loop_guardrail.on_success()
         except asyncio.CancelledError:

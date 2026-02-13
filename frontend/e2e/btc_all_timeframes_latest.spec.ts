@@ -286,4 +286,26 @@ test("btc all timeframes reach latest candles and factor drawings within 10s aft
   }
 
   expect(Date.now()).toBeLessThanOrEqual(deadlineMs);
+
+  const fourHourSeed = seeds.find((seed) => seed.timeframe === "4h");
+  expect(fourHourSeed).toBeTruthy();
+  if (!fourHourSeed) return;
+
+  const chart = page.locator('[data-testid="chart-view"]');
+  const fourHourTag = page.getByTestId("timeframe-tag-4h");
+  await fourHourTag.click();
+  await expect(chart).toHaveAttribute("data-series-id", fourHourSeed.seriesId);
+
+  const fourHourNextTime = fourHourSeed.latestTime + timeframeToSeconds("4h");
+  const fourHourNextClose = fourHourSeed.latestClose + 1;
+  await ingestClosedCandlePrice(request, {
+    apiBase,
+    seriesId: fourHourSeed.seriesId,
+    candleTime: fourHourNextTime,
+    price: fourHourNextClose,
+    timeoutMs: 120_000,
+  });
+  await expect(chart).toHaveAttribute("data-last-ws-candle-time", String(fourHourNextTime));
+  await expect(chart).toHaveAttribute("data-last-time", String(fourHourNextTime));
+  await expect(chart).toHaveAttribute("data-last-close", String(fourHourNextClose));
 });

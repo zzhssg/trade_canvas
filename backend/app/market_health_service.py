@@ -139,6 +139,9 @@ def build_market_health_snapshot(
     if head_time is None:
         status = "red"
         status_reason = "missing_head"
+    elif int(head_time) > int(expected_latest_closed_time):
+        status = "yellow"
+        status_reason = "head_ahead_of_closed_window"
     elif int(missing_seconds or 0) <= 0:
         status = "green"
         status_reason = "up_to_date"

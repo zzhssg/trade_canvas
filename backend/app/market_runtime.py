@@ -25,6 +25,7 @@ from .market_backfill_tracker import MarketBackfillProgressTracker
 
 if TYPE_CHECKING:
     from .flags import FeatureFlags
+    from .ledger_sync_service import LedgerSyncService
     from .pipelines import IngestPipeline
     from .runtime_flags import RuntimeFlags
     from .runtime_metrics import RuntimeMetrics
@@ -68,6 +69,7 @@ class MarketRuntime:
     flags: FeatureFlags
     runtime_flags: RuntimeFlags
     runtime_metrics: RuntimeMetrics
+    ledger_sync_service: LedgerSyncService
     read_ctx: MarketReadContext
     ingest_ctx: MarketIngestContext
     realtime_ctx: MarketRealtimeContext

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Awaitable, Callable, Literal, Protocol
 
 from ..schemas import CandleClosed
 
@@ -48,26 +48,23 @@ class CatchupReadResult:
 
 
 @dataclass(frozen=True)
-class WsCatchupRequest:
+class WsSubscribeRequest:
     series_id: str
     since: int | None
-    last_sent: int | None
-    limit: int
-    candles: list[CandleClosed] | None = None
-
-
-@dataclass(frozen=True)
-class WsEmitRequest:
-    series_id: str
     supports_batch: bool
-    catchup: list[CandleClosed]
-    gap_payload: dict | None
+    limit: int
+    get_last_sent: Callable[[], Awaitable[int | None]]
 
 
 @dataclass(frozen=True)
-class WsEmitResult:
+class WsSubscribeResult:
+    series_id: str
+    effective_since: int | None
+    read_count: int
+    catchup_count: int
     payloads: list[dict]
     last_sent_time: int | None
+    gap_emitted: bool
 
 
 @dataclass(frozen=True)
@@ -117,14 +114,4 @@ class MarketDataOrchestrator(Protocol):
 
     def read_candles(self, req: CatchupReadRequest) -> CatchupReadResult: ...
 
-    async def build_ws_catchup(self, req: WsCatchupRequest) -> CatchupReadResult: ...
-
-    def build_ws_emit(self, req: WsEmitRequest) -> WsEmitResult: ...
-
-    async def heal_ws_gap(
-        self,
-        *,
-        series_id: str,
-        effective_since: int | None,
-        catchup: list[CandleClosed],
-    ) -> tuple[list[CandleClosed], dict | None]: ...
+    async def build_ws_subscribe(self, req: WsSubscribeRequest) -> WsSubscribeResult: ...

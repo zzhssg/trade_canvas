@@ -78,6 +78,54 @@ def test_runtime_flags_runtime_metrics_defaults_off_and_can_override(monkeypatch
     assert override_off.enable_runtime_metrics is False
 
 
+def test_runtime_flags_pg_and_ws_scaleout_flags_default_off_and_can_override(monkeypatch) -> None:
+    for name in (
+        "TRADE_CANVAS_ENABLE_CAPACITY_METRICS",
+        "TRADE_CANVAS_ENABLE_PG_STORE",
+        "TRADE_CANVAS_ENABLE_DUAL_WRITE",
+        "TRADE_CANVAS_ENABLE_PG_READ",
+        "TRADE_CANVAS_ENABLE_WS_PUBSUB",
+        "TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD",
+        "TRADE_CANVAS_INGEST_ROLE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    assert defaults.enable_capacity_metrics is False
+    assert defaults.enable_pg_store is False
+    assert defaults.enable_dual_write is False
+    assert defaults.enable_pg_read is False
+    assert defaults.enable_ws_pubsub is False
+    assert defaults.enable_ingest_role_guard is False
+    assert defaults.ingest_role == "hybrid"
+
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_CAPACITY_METRICS", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_PG_STORE", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_DUAL_WRITE", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_PG_READ", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_WS_PUBSUB", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", "1")
+    monkeypatch.setenv("TRADE_CANVAS_INGEST_ROLE", "read")
+    enabled = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    assert enabled.enable_capacity_metrics is True
+    assert enabled.enable_pg_store is True
+    assert enabled.enable_dual_write is True
+    assert enabled.enable_pg_read is True
+    assert enabled.enable_ws_pubsub is True
+    assert enabled.enable_ingest_role_guard is True
+    assert enabled.ingest_role == "read"
+
+
+def test_runtime_flags_ingest_role_invalid_value_falls_back_to_hybrid(monkeypatch) -> None:
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", "1")
+    monkeypatch.setenv("TRADE_CANVAS_INGEST_ROLE", "invalid-role")
+
+    flags = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+
+    assert flags.enable_ingest_role_guard is True
+    assert flags.ingest_role == "hybrid"
+
+
 def test_runtime_flags_backfill_progress_persistence_defaults_off_and_can_override(monkeypatch) -> None:
     monkeypatch.delenv("TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE", raising=False)
     defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
@@ -92,20 +140,6 @@ def test_runtime_flags_backfill_progress_persistence_defaults_off_and_can_overri
     assert override_off.enable_market_backfill_progress_persistence is False
 
 
-def test_runtime_flags_ledger_sync_service_defaults_off_and_can_override(monkeypatch) -> None:
-    monkeypatch.delenv("TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE", raising=False)
-    defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
-    assert defaults.enable_ledger_sync_service is False
-
-    monkeypatch.setenv("TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE", "1")
-    override_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
-    assert override_on.enable_ledger_sync_service is True
-
-    monkeypatch.setenv("TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE", "0")
-    override_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
-    assert override_off.enable_ledger_sync_service is False
-
-
 def test_runtime_flags_ingest_loop_guardrail_defaults_off_and_can_override(monkeypatch) -> None:
     monkeypatch.delenv("TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL", raising=False)
     defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
@@ -118,6 +152,20 @@ def test_runtime_flags_ingest_loop_guardrail_defaults_off_and_can_override(monke
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL", "0")
     override_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
     assert override_off.enable_ingest_loop_guardrail is False
+
+
+def test_runtime_flags_strict_closed_only_defaults_off_and_can_override(monkeypatch) -> None:
+    monkeypatch.delenv("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", raising=False)
+    defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    assert defaults.enable_strict_closed_only is False
+
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", "1")
+    override_on = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    assert override_on.enable_strict_closed_only is True
+
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", "0")
+    override_off = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
+    assert override_off.enable_strict_closed_only is False
 
 
 def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
@@ -137,7 +185,6 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_DEV_API", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_READ_LEDGER_WARMUP", "1")
-    monkeypatch.setenv("TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_READ_REPAIR_API", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_STARTUP_KLINE_SYNC", "1")
     monkeypatch.setenv("TRADE_CANVAS_STARTUP_KLINE_SYNC_TARGET_CANDLES", "9")
@@ -155,6 +202,14 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     monkeypatch.setenv("TRADE_CANVAS_BINANCE_WS_FLUSH_S", "0.01")
     monkeypatch.setenv("TRADE_CANVAS_MARKET_FORMING_MIN_INTERVAL_MS", "-10")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_CAPACITY_METRICS", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_PG_STORE", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_DUAL_WRITE", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_PG_READ", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_WS_PUBSUB", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", "1")
+    monkeypatch.setenv("TRADE_CANVAS_INGEST_ROLE", "INGEST")
 
     flags = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
 
@@ -171,10 +226,16 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     assert flags.enable_ingest_compensate_overlay_error is True
     assert flags.enable_ingest_compensate_new_candles is True
     assert flags.enable_runtime_metrics is True
+    assert flags.enable_capacity_metrics is True
+    assert flags.enable_pg_store is True
+    assert flags.enable_dual_write is True
+    assert flags.enable_pg_read is True
+    assert flags.enable_ws_pubsub is True
+    assert flags.enable_ingest_role_guard is True
+    assert flags.ingest_role == "ingest"
     assert flags.enable_dev_api is True
     assert flags.enable_market_backfill_progress_persistence is True
     assert flags.enable_read_ledger_warmup is True
-    assert flags.enable_ledger_sync_service is True
     assert flags.enable_read_repair_api is True
     assert flags.enable_startup_kline_sync is True
     assert flags.startup_kline_sync_target_candles == 100
@@ -192,3 +253,4 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     assert abs(flags.binance_ws_flush_s - 0.05) < 1e-9
     assert flags.market_forming_min_interval_ms == 0
     assert flags.enable_ingest_loop_guardrail is True
+    assert flags.enable_strict_closed_only is True

@@ -178,8 +178,11 @@ class OverlayRendererPluginTests(unittest.TestCase):
                 },
             )
         )
-        ids = [row[0] for row in rendered.polyline_defs]
-        self.assertIn("anchor.current", ids)
+        anchor_current = next((row for row in rendered.polyline_defs if row[0] == "anchor.current"), None)
+        self.assertIsNotNone(anchor_current)
+        if anchor_current is None:
+            return
+        self.assertEqual(str(anchor_current[2].get("lineStyle") or "solid"), "solid")
 
     def test_structure_renderer_prefers_candidate_anchor_when_switch_pointer_is_stale(self) -> None:
         renderer = StructureOverlayRenderer()
@@ -225,6 +228,7 @@ class OverlayRendererPluginTests(unittest.TestCase):
             self.fail("anchor.current points should include candidate start/end")
         self.assertEqual(int(points[0]["time"]), 180)
         self.assertEqual(int(points[1]["time"]), 240)
+        self.assertEqual(str(anchor_current[2].get("lineStyle")), "dashed")
 
 
 if __name__ == "__main__":

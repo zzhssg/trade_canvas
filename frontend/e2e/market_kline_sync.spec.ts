@@ -18,6 +18,22 @@ const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
 const apiBase =
   process.env.E2E_API_BASE_URL ?? process.env.VITE_API_BASE ?? process.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
+type FactorSlicesApiResponse = {
+  candle_id: string | null;
+};
+
+type WorldFrameAtTimeApiResponse = {
+  time: {
+    candle_id: string;
+  };
+  factor_slices: {
+    candle_id: string | null;
+  };
+  draw_state: {
+    to_candle_time: number | null;
+  };
+};
+
 async function ingestFormingCandleForSeries(request: APIRequestContext, sid: string, candle_time: number, price: number) {
   const res = await request.post(`${apiBase}/api/market/ingest/candle_forming`, {
     data: {
@@ -151,8 +167,44 @@ test("live chart loads catchup and follows WS", async ({ page, request }) => {
     candleTime: base * (total + 1),
     price: 1,
   });
+  const followupTime = base * (total + 1);
   const chart = page.locator('[data-testid="chart-view"]');
-  await expect(chart).toHaveAttribute("data-last-ws-candle-time", String(base * (total + 1)));
+  await expect(chart).toHaveAttribute("data-last-ws-candle-time", String(followupTime));
+
+  const factorFirstRes = await request.get(`${apiBase}/api/factor/slices`, {
+    params: {
+      series_id: liveSeriesId,
+      at_time: followupTime,
+      window_candles: 2000,
+    },
+  });
+  expect(factorFirstRes.ok()).toBeTruthy();
+  const factorFirst = (await factorFirstRes.json()) as FactorSlicesApiResponse;
+  expect(factorFirst.candle_id).toBe(`${liveSeriesId}:${followupTime}`);
+
+  const factorSecondRes = await request.get(`${apiBase}/api/factor/slices`, {
+    params: {
+      series_id: liveSeriesId,
+      at_time: followupTime,
+      window_candles: 2000,
+    },
+  });
+  expect(factorSecondRes.ok()).toBeTruthy();
+  const factorSecond = (await factorSecondRes.json()) as FactorSlicesApiResponse;
+  expect(factorSecond).toEqual(factorFirst);
+
+  const worldAtTimeRes = await request.get(`${apiBase}/api/frame/at_time`, {
+    params: {
+      series_id: liveSeriesId,
+      at_time: followupTime,
+      window_candles: 2000,
+    },
+  });
+  expect(worldAtTimeRes.ok()).toBeTruthy();
+  const worldAtTime = (await worldAtTimeRes.json()) as WorldFrameAtTimeApiResponse;
+  expect(worldAtTime.time.candle_id).toBe(`${liveSeriesId}:${followupTime}`);
+  expect(worldAtTime.factor_slices.candle_id).toBe(`${liveSeriesId}:${followupTime}`);
+  expect(worldAtTime.draw_state.to_candle_time).toBe(followupTime);
 });
 
 test("@smoke live backfill burst does not hammer delta/slices", async ({ page, request }) => {
@@ -258,9 +310,11 @@ test("live chart loads history once and forming candle jumps", async ({ page, re
   });
 
   const sent: string[] = [];
+  const received: string[] = [];
   page.on("websocket", (ws) => {
     if (!ws.url().includes("/ws/market")) return;
     ws.on("framesent", (evt) => sent.push(evt.payload));
+    ws.on("framereceived", (evt) => received.push(String(evt.payload)));
   });
 
   let candleGets = 0;
@@ -291,6 +345,12 @@ test("live chart loads history once and forming candle jumps", async ({ page, re
   await ingestFormingCandleForSeries(request, formingSeriesId, 2700, 10);
   await expect(chart).toHaveAttribute("data-last-time", "2700");
   await expect(chart).toHaveAttribute("data-last-close", "10");
+  await expect
+    .poll(
+      () => received.some((f) => f.includes('"type":"candle_forming"') && f.includes(formingSeriesId) && f.includes('"candle_time":2700')),
+      { timeout: 10_000 }
+    )
+    .toBeTruthy();
 
   await ingestFormingCandleForSeries(request, formingSeriesId, 2700, 11);
   await expect(chart).toHaveAttribute("data-last-time", "2700");
@@ -308,6 +368,12 @@ test("live chart loads history once and forming candle jumps", async ({ page, re
   });
   await expect(chart).toHaveAttribute("data-last-ws-candle-time", "2700");
   await expect(chart).toHaveAttribute("data-last-close", "13");
+  await expect
+    .poll(
+      () => received.some((f) => f.includes('"type":"candle_closed"') && f.includes(formingSeriesId) && f.includes('"candle_time":2700')),
+      { timeout: 10_000 }
+    )
+    .toBeTruthy();
 
   expect(candleGets).toBe(1);
 });

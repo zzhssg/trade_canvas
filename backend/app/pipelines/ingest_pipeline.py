@@ -1,27 +1,26 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from typing import Mapping, Protocol, Sequence
 
 from ..blocking import run_blocking
 from ..schemas import CandleClosed
 from ..store import CandleStore
-
-
-class _FactorIngestResultLike(Protocol):
-    @property
-    def rebuilt(self) -> bool: ...
-
-
-class _FactorOrchestratorLike(Protocol):
-    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> _FactorIngestResultLike: ...
-
-
-class _OverlayOrchestratorLike(Protocol):
-    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None: ...
-
-    def reset_series(self, *, series_id: str) -> None: ...
+from .ingest_pipeline_steps import (
+    CandleMirrorLike,
+    FactorOrchestratorLike,
+    IngestPipelineError,
+    IngestPipelineResult,
+    IngestSeriesBatch,
+    IngestStepResult,
+    OverlayOrchestratorLike,
+    merge_up_to_times,
+    normalize_batches,
+    persist_closed_batch,
+    rollback_new_candles,
+    run_factor_step,
+    run_overlay_step,
+)
 
 
 class _HubLike(Protocol):
@@ -32,66 +31,15 @@ class _HubLike(Protocol):
     async def publish_system(self, *, series_id: str, event: str, message: str, data: dict) -> None: ...
 
 
-@dataclass(frozen=True)
-class IngestStepResult:
-    name: str
-    ok: bool
-    duration_ms: int
-    error: str | None = None
-
-
-@dataclass(frozen=True)
-class IngestSeriesBatch:
-    series_id: str
-    candles: tuple[CandleClosed, ...]
-    up_to_candle_time: int
-
-
-@dataclass(frozen=True)
-class IngestPipelineResult:
-    series_batches: tuple[IngestSeriesBatch, ...]
-    rebuilt_series: tuple[str, ...]
-    steps: tuple[IngestStepResult, ...]
-    duration_ms: int
-
-
-class IngestPipelineError(RuntimeError):
-    def __init__(
-        self,
-        *,
-        step: str,
-        series_id: str,
-        cause: BaseException,
-        compensated: bool = False,
-        compensation_error: BaseException | None = None,
-        overlay_compensated: bool = False,
-        candle_compensated_rows: int = 0,
-    ) -> None:
-        self.step = str(step)
-        self.series_id = str(series_id)
-        self.cause = cause
-        self.compensated = bool(compensated)
-        self.compensation_error = compensation_error
-        self.overlay_compensated = bool(overlay_compensated)
-        self.candle_compensated_rows = max(0, int(candle_compensated_rows))
-        suffix = ":compensated" if self.compensated else ""
-        if self.overlay_compensated:
-            suffix = f"{suffix}:overlay_reset"
-        if self.candle_compensated_rows > 0:
-            suffix = f"{suffix}:candle_rows:{self.candle_compensated_rows}"
-        if compensation_error is not None:
-            suffix = f"{suffix}:compensation_error:{compensation_error}"
-        super().__init__(f"ingest_pipeline_failed:{self.step}:{self.series_id}:{cause}{suffix}")
-
-
 class IngestPipeline:
     def __init__(
         self,
         *,
         store: CandleStore,
-        factor_orchestrator: _FactorOrchestratorLike | None,
-        overlay_orchestrator: _OverlayOrchestratorLike | None,
+        factor_orchestrator: FactorOrchestratorLike | None,
+        overlay_orchestrator: OverlayOrchestratorLike | None,
         hub: _HubLike | None,
+        candle_mirror: CandleMirrorLike | None = None,
         overlay_compensate_on_error: bool = False,
         candle_compensate_on_error: bool = False,
     ) -> None:
@@ -99,44 +47,22 @@ class IngestPipeline:
         self._factor_orchestrator = factor_orchestrator
         self._overlay_orchestrator = overlay_orchestrator
         self._hub = hub
+        self._candle_mirror = candle_mirror
         self._overlay_compensate_on_error = bool(overlay_compensate_on_error)
         self._candle_compensate_on_error = bool(candle_compensate_on_error)
 
     def _rollback_new_candles(self, *, series_id: str, new_candle_times: list[int]) -> tuple[int, BaseException | None]:
-        if not self._candle_compensate_on_error:
-            return 0, None
-        if not new_candle_times:
-            return 0, None
-        try:
-            with self._store.connect() as conn:
-                deleted = self._store.delete_closed_times_in_conn(
-                    conn,
-                    series_id=series_id,
-                    candle_times=list(new_candle_times),
-                )
-                conn.commit()
-            return int(deleted), None
-        except Exception as exc:
-            return 0, exc
+        return rollback_new_candles(
+            store=self._store,
+            candle_mirror=self._candle_mirror,
+            enabled=bool(self._candle_compensate_on_error),
+            series_id=series_id,
+            new_candle_times=new_candle_times,
+        )
 
     @staticmethod
     def _normalize_batches(*, batches: Mapping[str, Sequence[CandleClosed]]) -> tuple[IngestSeriesBatch, ...]:
-        out: list[IngestSeriesBatch] = []
-        for series_id, candles in sorted((batches or {}).items(), key=lambda item: str(item[0])):
-            dedup: dict[int, CandleClosed] = {}
-            for candle in candles or ():
-                dedup[int(candle.candle_time)] = candle
-            ordered = tuple(dedup[t] for t in sorted(dedup.keys()))
-            if not ordered:
-                continue
-            out.append(
-                IngestSeriesBatch(
-                    series_id=str(series_id),
-                    candles=ordered,
-                    up_to_candle_time=int(ordered[-1].candle_time),
-                )
-            )
-        return tuple(out)
+        return normalize_batches(batches=batches)
 
     def run_sync(
         self,
@@ -174,16 +100,10 @@ class IngestPipeline:
         steps: list[IngestStepResult] = []
         rebuilt_series: set[str] = set()
 
-        up_to_by_series: dict[str, int] = {}
-        for batch in series_batches:
-            up_to_by_series[batch.series_id] = int(batch.up_to_candle_time)
-        for series_id, up_to in (refresh_up_to_times or {}).items():
-            sid = str(series_id)
-            t = int(up_to)
-            if t <= 0:
-                continue
-            current = up_to_by_series.get(sid)
-            up_to_by_series[sid] = t if current is None else max(int(current), t)
+        up_to_by_series = merge_up_to_times(
+            series_batches=series_batches,
+            refresh_up_to_times=refresh_up_to_times,
+        )
         series_batch_by_id = {batch.series_id: batch for batch in series_batches}
 
         for series_id in sorted(up_to_by_series.keys()):
@@ -191,101 +111,36 @@ class IngestPipeline:
             matched_batch = series_batch_by_id.get(series_id)
             new_candle_times: list[int] = []
             if matched_batch is not None and matched_batch.candles:
-                t_step = time.perf_counter()
-                try:
-                    candle_times = [int(c.candle_time) for c in matched_batch.candles]
-                    with self._store.connect() as conn:
-                        existing_times = self._store.existing_closed_times_in_conn(
-                            conn,
-                            series_id=matched_batch.series_id,
-                            candle_times=candle_times,
-                        )
-                        self._store.upsert_many_closed_in_conn(conn, matched_batch.series_id, list(matched_batch.candles))
-                        conn.commit()
-                    new_candle_times = [t for t in candle_times if int(t) not in existing_times]
-                except Exception as exc:
-                    raise IngestPipelineError(step="store.upsert_many_closed", series_id=series_id, cause=exc) from exc
-                steps.append(
-                    IngestStepResult(
-                        name=f"store.upsert_many_closed:{series_id}",
-                        ok=True,
-                        duration_ms=int((time.perf_counter() - t_step) * 1000),
-                    )
+                new_candle_times, store_steps = persist_closed_batch(
+                    store=self._store,
+                    candle_mirror=self._candle_mirror,
+                    batch=matched_batch,
                 )
+                steps.extend(store_steps)
 
             if self._factor_orchestrator is not None:
-                t_step = time.perf_counter()
-                try:
-                    result = self._factor_orchestrator.ingest_closed(
-                        series_id=series_id,
-                        up_to_candle_time=int(up_to_time),
-                    )
-                except Exception as exc:
-                    candle_rows, candle_error = self._rollback_new_candles(
-                        series_id=series_id,
-                        new_candle_times=new_candle_times,
-                    )
-                    raise IngestPipelineError(
-                        step="factor.ingest_closed",
-                        series_id=series_id,
-                        cause=exc,
-                        compensated=bool(candle_rows > 0),
-                        compensation_error=candle_error,
-                        candle_compensated_rows=int(candle_rows),
-                    ) from exc
-                if bool(getattr(result, "rebuilt", False)):
-                    rebuilt_series.add(series_id)
-                steps.append(
-                    IngestStepResult(
-                        name=f"factor.ingest_closed:{series_id}",
-                        ok=True,
-                        duration_ms=int((time.perf_counter() - t_step) * 1000),
-                    )
+                rebuilt, factor_step = run_factor_step(
+                    factor_orchestrator=self._factor_orchestrator,
+                    rollback_new_candles=self._rollback_new_candles,
+                    series_id=series_id,
+                    up_to_time=int(up_to_time),
+                    new_candle_times=new_candle_times,
                 )
+                if rebuilt:
+                    rebuilt_series.add(series_id)
+                steps.append(factor_step)
 
             if self._overlay_orchestrator is not None:
-                t_step = time.perf_counter()
-                try:
-                    if series_id in rebuilt_series:
-                        self._overlay_orchestrator.reset_series(series_id=series_id)
-                    self._overlay_orchestrator.ingest_closed(
-                        series_id=series_id,
-                        up_to_candle_time=int(up_to_time),
-                    )
-                except Exception as exc:
-                    overlay_compensated = False
-                    candle_rows = 0
-                    compensation_error: BaseException | None = None
-                    if self._overlay_compensate_on_error:
-                        try:
-                            self._overlay_orchestrator.reset_series(series_id=series_id)
-                            overlay_compensated = True
-                        except Exception as rollback_exc:
-                            compensation_error = rollback_exc
-                    candle_rows, candle_error = self._rollback_new_candles(
-                        series_id=series_id,
-                        new_candle_times=new_candle_times,
-                    )
-                    if compensation_error is None:
-                        compensation_error = candle_error
-                    elif candle_error is not None:
-                        compensation_error = RuntimeError(f"{compensation_error}; {candle_error}")
-                    raise IngestPipelineError(
-                        step="overlay.ingest_closed",
-                        series_id=series_id,
-                        cause=exc,
-                        compensated=bool(overlay_compensated or candle_rows > 0),
-                        compensation_error=compensation_error,
-                        overlay_compensated=bool(overlay_compensated),
-                        candle_compensated_rows=int(candle_rows),
-                    ) from exc
-                steps.append(
-                    IngestStepResult(
-                        name=f"overlay.ingest_closed:{series_id}",
-                        ok=True,
-                        duration_ms=int((time.perf_counter() - t_step) * 1000),
-                    )
+                overlay_step = run_overlay_step(
+                    overlay_orchestrator=self._overlay_orchestrator,
+                    rollback_new_candles=self._rollback_new_candles,
+                    overlay_compensate_on_error=bool(self._overlay_compensate_on_error),
+                    series_id=series_id,
+                    up_to_time=int(up_to_time),
+                    rebuilt=bool(series_id in rebuilt_series),
+                    new_candle_times=new_candle_times,
                 )
+                steps.append(overlay_step)
 
         return IngestPipelineResult(
             series_batches=series_batches,

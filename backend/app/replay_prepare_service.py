@@ -3,10 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from .ledger_alignment import require_aligned_point, require_ledger_heads_ready
 from .ledger_sync_service import LedgerAlignedPoint, LedgerHeadTimes
 from .schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
-from .shared_ports import AlignedStorePort, DebugHubPort, HeadStorePort, IngestPipelineSyncPort
+from .shared_ports import DebugHubPort
 
 
 class _LedgerSyncLike(Protocol):
@@ -35,13 +34,8 @@ class _LedgerSyncLike(Protocol):
 
 @dataclass(frozen=True)
 class ReplayPrepareService:
-    store: AlignedStorePort
-    factor_store: HeadStorePort
-    overlay_store: HeadStorePort
-    ingest_pipeline: IngestPipelineSyncPort
+    ledger_sync_service: _LedgerSyncLike
     debug_hub: DebugHubPort
-    ledger_sync_service: _LedgerSyncLike | None = None
-    enable_ledger_sync_service: bool = False
     debug_api_enabled: bool = False
 
     @staticmethod
@@ -52,65 +46,29 @@ class ReplayPrepareService:
     def prepare(self, payload: ReplayPrepareRequestV1) -> ReplayPrepareResponseV1:
         series_id = payload.series_id
         ledger_sync = self.ledger_sync_service
-        use_ledger_sync = bool(self.enable_ledger_sync_service and ledger_sync is not None)
-        if use_ledger_sync and ledger_sync is not None:
-            point = ledger_sync.resolve_aligned_point(
-                series_id=series_id,
-                to_time=payload.to_time,
-                no_data_code="replay_prepare.no_data",
-                no_data_detail="no_data",
-            )
-        else:
-            point = require_aligned_point(
-                store=self.store,
-                series_id=series_id,
-                to_time=payload.to_time,
-                no_data_code="replay_prepare.no_data",
-                no_data_detail="no_data",
-            )
+        point = ledger_sync.resolve_aligned_point(
+            series_id=series_id,
+            to_time=payload.to_time,
+            no_data_code="replay_prepare.no_data",
+            no_data_detail="no_data",
+        )
         requested_time = int(point.requested_time)
         aligned = int(point.aligned_time)
         window_candles = self._clamp_window_candles(payload.window_candles)
 
-        computed = False
-        if use_ledger_sync and ledger_sync is not None:
-            refresh_outcome = ledger_sync.refresh_if_needed(
-                series_id=series_id,
-                up_to_time=int(aligned),
-            )
-            computed = bool(refresh_outcome.refreshed)
-            heads = ledger_sync.require_heads_ready(
-                series_id=series_id,
-                aligned_time=int(aligned),
-                factor_out_of_sync_code="replay_prepare.ledger_out_of_sync.factor",
-                overlay_out_of_sync_code="replay_prepare.ledger_out_of_sync.overlay",
-                factor_out_of_sync_detail="ledger_out_of_sync:factor",
-                overlay_out_of_sync_detail="ledger_out_of_sync:overlay",
-            )
-        else:
-            factor_head = self.factor_store.head_time(series_id)
-            overlay_head = self.overlay_store.head_time(series_id)
-            if (
-                factor_head is None
-                or int(factor_head) < int(aligned)
-                or overlay_head is None
-                or int(overlay_head) < int(aligned)
-            ):
-                pipeline_result = self.ingest_pipeline.refresh_series_sync(
-                    up_to_times={series_id: int(aligned)}
-                )
-                computed = bool(pipeline_result.steps)
-
-            heads = require_ledger_heads_ready(
-                factor_store=self.factor_store,
-                overlay_store=self.overlay_store,
-                series_id=series_id,
-                aligned_time=int(aligned),
-                factor_out_of_sync_code="replay_prepare.ledger_out_of_sync.factor",
-                overlay_out_of_sync_code="replay_prepare.ledger_out_of_sync.overlay",
-                factor_out_of_sync_detail="ledger_out_of_sync:factor",
-                overlay_out_of_sync_detail="ledger_out_of_sync:overlay",
-            )
+        refresh_outcome = ledger_sync.refresh_if_needed(
+            series_id=series_id,
+            up_to_time=int(aligned),
+        )
+        computed = bool(refresh_outcome.refreshed)
+        heads = ledger_sync.require_heads_ready(
+            series_id=series_id,
+            aligned_time=int(aligned),
+            factor_out_of_sync_code="replay_prepare.ledger_out_of_sync.factor",
+            overlay_out_of_sync_code="replay_prepare.ledger_out_of_sync.overlay",
+            factor_out_of_sync_detail="ledger_out_of_sync:factor",
+            overlay_out_of_sync_detail="ledger_out_of_sync:overlay",
+        )
         factor_head = int(heads.factor_head_time)
         overlay_head = int(heads.overlay_head_time)
 

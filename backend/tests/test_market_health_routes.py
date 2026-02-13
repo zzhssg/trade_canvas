@@ -124,6 +124,17 @@ class MarketHealthRouteTests(unittest.TestCase):
         self.assertEqual(payload["status"], "green")
         self.assertEqual(payload["missing_seconds"], 0)
 
+    def test_market_health_yellow_when_head_ahead_of_latest_closed(self) -> None:
+        series_id = "binance:futures:BTC/USDT:5m"
+        self._ingest_closed(self.client, series_id, candle_time=900)
+        resp = self.client.get("/api/market/health", params={"series_id": series_id, "now_time": 960})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        self.assertEqual(payload["status"], "yellow")
+        self.assertEqual(payload["status_reason"], "head_ahead_of_closed_window")
+        self.assertEqual(payload["expected_latest_closed_time"], 600)
+        self.assertEqual(payload["head_time"], 900)
+
 
 if __name__ == "__main__":
     unittest.main()

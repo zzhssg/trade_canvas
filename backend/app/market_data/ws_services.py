@@ -21,7 +21,7 @@ from ..ws_protocol import (
     WS_MSG_ERROR,
     ws_err_msg_unknown_type,
 )
-from .contracts import CatchupReadRequest, MarketDataOrchestrator, WsCatchupRequest, WsEmitRequest, WsSubscribeCommand
+from .contracts import MarketDataOrchestrator, WsSubscribeCommand, WsSubscribeRequest
 
 logger = logging.getLogger(__name__)
 
@@ -232,35 +232,19 @@ class WsSubscriptionCoordinator:
             )
             return err_payload, []
 
-        read_result = market_data.read_candles(
-            CatchupReadRequest(
+        result = await market_data.build_ws_subscribe(
+            WsSubscribeRequest(
                 series_id=series_id,
                 since=since,
-                limit=int(catchup_limit),
-            )
-        )
-        current_last = await self._hub.get_last_sent(ws, series_id=series_id)
-        catchup_result = await market_data.build_ws_catchup(
-            WsCatchupRequest(
-                series_id=series_id,
-                since=since,
-                last_sent=current_last,
-                limit=int(catchup_limit),
-                candles=read_result.candles,
-            )
-        )
-        emit_result = market_data.build_ws_emit(
-            WsEmitRequest(
-                series_id=series_id,
                 supports_batch=bool(supports_batch),
-                catchup=catchup_result.candles,
-                gap_payload=catchup_result.gap_payload,
+                limit=int(catchup_limit),
+                get_last_sent=lambda: self._hub.get_last_sent(ws, series_id=series_id),
             )
         )
-        if emit_result.last_sent_time is not None:
-            await self._hub.set_last_sent(ws, series_id=series_id, candle_time=int(emit_result.last_sent_time))
-        catchup_count = len(catchup_result.candles)
-        payload_count = len(emit_result.payloads)
+        if result.last_sent_time is not None:
+            await self._hub.set_last_sent(ws, series_id=series_id, candle_time=int(result.last_sent_time))
+        catchup_count = int(result.catchup_count)
+        payload_count = len(result.payloads)
         self._metrics_set_gauge(
             "market_ws_last_catchup_count",
             value=float(catchup_count),
@@ -285,14 +269,14 @@ class WsSubscriptionCoordinator:
             series_id,
             since,
             bool(supports_batch),
-            len(read_result.candles),
+            int(result.read_count),
             catchup_count,
             payload_count,
-            bool(catchup_result.gap_payload),
-            emit_result.last_sent_time,
+            bool(result.gap_emitted),
+            result.last_sent_time,
             elapsed_ms,
         )
-        return None, emit_result.payloads
+        return None, result.payloads
 
     async def unsubscribe(
         self,

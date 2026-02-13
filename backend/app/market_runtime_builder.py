@@ -40,6 +40,7 @@ from .runtime_metrics import RuntimeMetrics
 from .store import CandleStore
 from .whitelist import load_market_whitelist
 from .ws_hub import CandleHub
+from .ws_publishers import RedisWsPublisher, WsPublisher
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,86 @@ class MarketRuntimeBuildResult:
 class _ReadBuildResult:
     context: MarketReadContext
     whitelist_ingest_on: bool
+
+
+@dataclass(frozen=True)
+class _RuntimeBootstrap:
+    flags: FeatureFlags
+    runtime_flags: RuntimeFlags
+    hub: CandleHub
+    ingest_pipeline: IngestPipeline
+    ledger_sync_service: LedgerSyncService
+
+
+def _build_ws_publisher(*, settings: Settings, runtime_flags: RuntimeFlags) -> WsPublisher | None:
+    if not bool(runtime_flags.enable_ws_pubsub):
+        return None
+    redis_url = str(settings.redis_url or "").strip()
+    if not redis_url:
+        raise ValueError("redis_url_required_when_ws_pubsub_enabled")
+    return RedisWsPublisher(redis_url=redis_url)
+
+
+def _build_runtime_bootstrap(
+    *,
+    settings: Settings,
+    store: CandleStore,
+    factor_orchestrator: FactorOrchestrator,
+    overlay_orchestrator: OverlayOrchestrator,
+    flags: FeatureFlags | None,
+    runtime_flags: RuntimeFlags | None,
+    ingest_pipeline: IngestPipeline | None,
+) -> _RuntimeBootstrap:
+    effective_flags = flags or load_feature_flags()
+    effective_runtime_flags = runtime_flags or load_runtime_flags(base_flags=effective_flags)
+    hub = CandleHub(
+        publisher=_build_ws_publisher(
+            settings=settings,
+            runtime_flags=effective_runtime_flags,
+        )
+    )
+    if ingest_pipeline is None:
+        pipeline = IngestPipeline(
+            store=store,
+            factor_orchestrator=factor_orchestrator,
+            overlay_orchestrator=overlay_orchestrator,
+            hub=hub,
+            overlay_compensate_on_error=bool(effective_runtime_flags.enable_ingest_compensate_overlay_error),
+            candle_compensate_on_error=bool(effective_runtime_flags.enable_ingest_compensate_new_candles),
+        )
+    else:
+        pipeline = ingest_pipeline
+    ledger_sync_service = LedgerSyncService(
+        store=store,
+        factor_store=factor_orchestrator,
+        overlay_store=overlay_orchestrator,
+        ingest_pipeline=pipeline,
+    )
+    return _RuntimeBootstrap(
+        flags=effective_flags,
+        runtime_flags=effective_runtime_flags,
+        hub=hub,
+        ingest_pipeline=pipeline,
+        ledger_sync_service=ledger_sync_service,
+    )
+
+
+def _build_derived_initial_backfill(
+    *,
+    store: CandleStore,
+    factor_orchestrator: FactorOrchestrator,
+    overlay_orchestrator: OverlayOrchestrator,
+    runtime_flags: RuntimeFlags,
+) -> Callable[..., Awaitable[None]]:
+    return build_derived_initial_backfill_handler(
+        store=store,
+        factor_orchestrator=factor_orchestrator,
+        overlay_orchestrator=overlay_orchestrator,
+        derived_enabled=bool(runtime_flags.enable_derived_timeframes),
+        derived_base_timeframe=str(runtime_flags.derived_base_timeframe),
+        derived_timeframes=tuple(runtime_flags.derived_timeframes),
+        derived_backfill_base_candles=int(runtime_flags.derived_backfill_base_candles),
+    )
 
 
 def _build_read_context(
@@ -91,6 +172,7 @@ def _build_read_context(
         progress_tracker=backfill_progress,
         enable_ccxt_backfill=bool(runtime_flags.enable_ccxt_backfill),
         enable_ccxt_backfill_on_read=bool(runtime_flags.enable_ccxt_backfill_on_read),
+        enable_strict_closed_only=bool(runtime_flags.enable_strict_closed_only),
         ccxt_timeout_ms=int(runtime_flags.ccxt_timeout_ms),
     )
     hub.set_gap_backfill_handler(
@@ -111,9 +193,6 @@ def _build_read_context(
         ws_delivery=HubWsDeliveryService(hub=hub),
     )
     ledger_warmup_service = MarketLedgerWarmupService(
-        factor_store=factor_orchestrator,
-        overlay_store=overlay_orchestrator,
-        ingest_pipeline=ingest_pipeline,
         runtime_flags=runtime_flags,
         debug_hub=debug_hub,
         ledger_sync_service=ledger_sync_service,
@@ -181,6 +260,8 @@ def _build_ingest_context(
         binance_ws_flush_s=float(runtime_flags.binance_ws_flush_s),
         forming_min_interval_ms=int(runtime_flags.market_forming_min_interval_ms),
         enable_loop_guardrail=bool(runtime_flags.enable_ingest_loop_guardrail),
+        enable_role_guard=bool(runtime_flags.enable_ingest_role_guard),
+        ingest_role=str(runtime_flags.ingest_role),
     )
     ingest_service = MarketIngestService(
         hub=hub,
@@ -229,60 +310,49 @@ def build_market_runtime(
     runtime_flags: RuntimeFlags | None = None,
     ingest_pipeline: IngestPipeline | None = None,
 ) -> MarketRuntimeBuildResult:
-    effective_flags = flags or load_feature_flags()
-    effective_runtime_flags = runtime_flags or load_runtime_flags(base_flags=effective_flags)
-    hub = CandleHub()
-    pipeline = ingest_pipeline or IngestPipeline(
+    bootstrap = _build_runtime_bootstrap(
+        settings=settings,
         store=store,
         factor_orchestrator=factor_orchestrator,
         overlay_orchestrator=overlay_orchestrator,
-        hub=hub,
-        overlay_compensate_on_error=bool(effective_runtime_flags.enable_ingest_compensate_overlay_error),
-        candle_compensate_on_error=bool(effective_runtime_flags.enable_ingest_compensate_new_candles),
-    )
-    ledger_sync_service = LedgerSyncService(
-        store=store,
-        factor_store=factor_orchestrator,
-        overlay_store=overlay_orchestrator,
-        ingest_pipeline=pipeline,
+        flags=flags,
+        runtime_flags=runtime_flags,
+        ingest_pipeline=ingest_pipeline,
     )
     read_build = _build_read_context(
         settings=settings,
         store=store,
-        hub=hub,
+        hub=bootstrap.hub,
         debug_hub=debug_hub,
         factor_orchestrator=factor_orchestrator,
         overlay_orchestrator=overlay_orchestrator,
-        ingest_pipeline=pipeline,
-        ledger_sync_service=ledger_sync_service,
-        runtime_flags=effective_runtime_flags,
+        ingest_pipeline=bootstrap.ingest_pipeline,
+        ledger_sync_service=bootstrap.ledger_sync_service,
+        runtime_flags=bootstrap.runtime_flags,
         runtime_metrics=runtime_metrics,
-        flags=effective_flags,
+        flags=bootstrap.flags,
     )
-    derived_initial_backfill = build_derived_initial_backfill_handler(
+    derived_initial_backfill = _build_derived_initial_backfill(
         store=store,
         factor_orchestrator=factor_orchestrator,
         overlay_orchestrator=overlay_orchestrator,
-        derived_enabled=bool(effective_runtime_flags.enable_derived_timeframes),
-        derived_base_timeframe=str(effective_runtime_flags.derived_base_timeframe),
-        derived_timeframes=tuple(effective_runtime_flags.derived_timeframes),
-        derived_backfill_base_candles=int(effective_runtime_flags.derived_backfill_base_candles),
+        runtime_flags=bootstrap.runtime_flags,
     )
     ingest_context = _build_ingest_context(
         store=store,
-        hub=hub,
+        hub=bootstrap.hub,
         factor_orchestrator=factor_orchestrator,
         overlay_orchestrator=overlay_orchestrator,
         debug_hub=debug_hub,
-        runtime_flags=effective_runtime_flags,
+        runtime_flags=bootstrap.runtime_flags,
         runtime_metrics=runtime_metrics,
-        flags=effective_flags,
+        flags=bootstrap.flags,
         whitelist_series_ids=read_build.context.whitelist.series_ids,
         whitelist_ingest_on=read_build.whitelist_ingest_on,
-        ingest_pipeline=pipeline,
+        ingest_pipeline=bootstrap.ingest_pipeline,
     )
     realtime_context = _build_realtime_context(
-        hub=hub,
+        hub=bootstrap.hub,
         settings=settings,
         supervisor=ingest_context.supervisor,
         derived_initial_backfill=derived_initial_backfill,
@@ -293,13 +363,14 @@ def build_market_runtime(
         factor_orchestrator=factor_orchestrator,
         overlay_orchestrator=overlay_orchestrator,
         debug_hub=debug_hub,
-        hub=hub,
-        flags=effective_flags,
-        runtime_flags=effective_runtime_flags,
+        hub=bootstrap.hub,
+        flags=bootstrap.flags,
+        runtime_flags=bootstrap.runtime_flags,
         runtime_metrics=runtime_metrics,
+        ledger_sync_service=bootstrap.ledger_sync_service,
         read_ctx=read_build.context,
         ingest_ctx=ingest_context,
         realtime_ctx=realtime_context,
     )
 
-    return MarketRuntimeBuildResult(runtime=market_runtime, ledger_sync_service=ledger_sync_service)
+    return MarketRuntimeBuildResult(runtime=market_runtime, ledger_sync_service=bootstrap.ledger_sync_service)

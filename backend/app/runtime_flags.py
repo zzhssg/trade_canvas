@@ -14,13 +14,26 @@ def _env_csv(name: str, *, default: tuple[str, ...]) -> tuple[str, ...]:
     return normalize_derived_timeframes(part.strip() for part in raw.split(","))
 
 
+def _normalize_ingest_role(raw: str) -> str:
+    role = str(raw or "").strip().lower()
+    if role in {"hybrid", "ingest", "read"}:
+        return role
+    return "hybrid"
+
+
 @dataclass(frozen=True)
 class RuntimeFlags:
     enable_debug_api: bool
     enable_dev_api: bool
     enable_runtime_metrics: bool
+    enable_capacity_metrics: bool
     enable_read_ledger_warmup: bool
-    enable_ledger_sync_service: bool
+    enable_pg_store: bool
+    enable_dual_write: bool
+    enable_pg_read: bool
+    enable_ws_pubsub: bool
+    enable_ingest_role_guard: bool
+    ingest_role: str
     enable_factor_ingest: bool
     enable_factor_fingerprint_rebuild: bool
     factor_pivot_window_major: int
@@ -34,6 +47,7 @@ class RuntimeFlags:
     enable_ingest_compensate_overlay_error: bool
     enable_ingest_compensate_new_candles: bool
     enable_market_auto_tail_backfill: bool
+    enable_strict_closed_only: bool
     market_auto_tail_backfill_max_candles: int | None
     enable_market_backfill_progress_persistence: bool
     enable_market_gap_backfill: bool
@@ -69,11 +83,17 @@ def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
         enable_debug_api=bool(base_flags.enable_debug_api),
         enable_dev_api=env_bool("TRADE_CANVAS_ENABLE_DEV_API", default=False),
         enable_runtime_metrics=env_bool("TRADE_CANVAS_ENABLE_RUNTIME_METRICS", default=False),
+        enable_capacity_metrics=env_bool("TRADE_CANVAS_ENABLE_CAPACITY_METRICS", default=False),
         enable_read_ledger_warmup=env_bool(
             "TRADE_CANVAS_ENABLE_READ_LEDGER_WARMUP",
             default=bool(base_flags.enable_market_auto_tail_backfill),
         ),
-        enable_ledger_sync_service=env_bool("TRADE_CANVAS_ENABLE_LEDGER_SYNC_SERVICE", default=False),
+        enable_pg_store=env_bool("TRADE_CANVAS_ENABLE_PG_STORE", default=False),
+        enable_dual_write=env_bool("TRADE_CANVAS_ENABLE_DUAL_WRITE", default=False),
+        enable_pg_read=env_bool("TRADE_CANVAS_ENABLE_PG_READ", default=False),
+        enable_ws_pubsub=env_bool("TRADE_CANVAS_ENABLE_WS_PUBSUB", default=False),
+        enable_ingest_role_guard=env_bool("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", default=False),
+        ingest_role=_normalize_ingest_role(resolve_env_str("TRADE_CANVAS_INGEST_ROLE", fallback="hybrid")),
         enable_factor_ingest=env_bool("TRADE_CANVAS_ENABLE_FACTOR_INGEST", default=True),
         enable_factor_fingerprint_rebuild=env_bool("TRADE_CANVAS_ENABLE_FACTOR_FINGERPRINT_REBUILD", default=True),
         factor_pivot_window_major=env_int(
@@ -111,6 +131,7 @@ def load_runtime_flags(*, base_flags: FeatureFlags) -> RuntimeFlags:
         enable_ingest_compensate_overlay_error=env_bool("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_OVERLAY_ERROR"),
         enable_ingest_compensate_new_candles=env_bool("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES"),
         enable_market_auto_tail_backfill=bool(base_flags.enable_market_auto_tail_backfill),
+        enable_strict_closed_only=env_bool("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", default=False),
         market_auto_tail_backfill_max_candles=base_flags.market_auto_tail_backfill_max_candles,
         enable_market_backfill_progress_persistence=env_bool(
             "TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE",

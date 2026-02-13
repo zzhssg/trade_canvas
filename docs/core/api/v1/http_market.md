@@ -2,7 +2,7 @@
 title: API v1 · Market（HTTP + SSE）
 status: done
 created: 2026-02-03
-updated: 2026-02-11
+updated: 2026-02-13
 ---
 
 # API v1 · Market（HTTP + SSE）
@@ -33,6 +33,7 @@ curl --noproxy '*' -sS \
 - 本接口只返回 **closed candles**（append-only 的 history）。
 - `since` 为增量游标（当前实现返回 `> since` 的闭合蜡烛，避免重复消费最后一根）。
 - `server_head_time` 是服务端已落库的 closed head（用于“前端 catchup 是否追到头”的判断）。
+- 当 `TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY=1` 时，自动 tail coverage（`to_time=None`）会只补到“上一根已收盘 K 线”；不会把当前 forming 桶写入 closed store。
 
 ## POST /api/market/ingest/candle_closed
 
@@ -229,6 +230,57 @@ curl --noproxy '*' -sS \
 - 用于排查 K 线链路健康度：给出 head 滞后、间隙统计、以及高周期相对 1m 基准桶的完整性。
 - `max_recent_gaps` 控制返回最近 gap 条数；`recent_base_buckets` 控制最近多少个高周期桶做基准分钟完整性检查。
 
+## GET /api/market/debug/reconcile
+
+### 示例（curl）
+
+```bash
+curl --noproxy '*' -sS \
+  "http://127.0.0.1:8000/api/market/debug/reconcile?series_id=binance:futures:BTC/USDT:1m&start_time=1700000000&end_time=1700000600"
+```
+
+### 示例响应（json）
+
+```json
+{
+  "series_id": "binance:futures:BTC/USDT:1m",
+  "range_start": 1700000000,
+  "range_end": 1700000600,
+  "sqlite": {
+    "head_time": 1700000600,
+    "first_time": 1700000000,
+    "count": 11,
+    "candle_time_sum": 18700003300,
+    "close_micro_sum": 1123400000
+  },
+  "postgres": {
+    "head_time": 1700000600,
+    "first_time": 1700000000,
+    "count": 11,
+    "candle_time_sum": 18700003300,
+    "close_micro_sum": 1123400000
+  },
+  "diff": {
+    "head_match": true,
+    "count_match": true,
+    "checksum_match": true,
+    "match": true
+  }
+}
+```
+
+### 语义
+
+- 仅在以下条件满足时可用：
+  - `TRADE_CANVAS_ENABLE_DEBUG_API=1`
+  - `TRADE_CANVAS_ENABLE_PG_STORE=1`
+- 用于 dual-write 阶段对拍 SQLite 与 PostgreSQL 的同一时间窗口：
+  - `head_time`
+  - `count`
+  - 聚合校验（`candle_time_sum` + `close_micro_sum`）
+- `start_time/end_time` 可选；未传时自动使用双端已有数据推导窗口。
+- 若传入窗口非法（`start_time > end_time`）返回 `400 reconcile_range_invalid`。
+
 ## GET /api/market/health
 
 ### 示例（curl）
@@ -277,6 +329,12 @@ curl --noproxy '*' -sS \
   - `red`：至少缺 1 根 K，且近期没有回补动作；
   - `yellow`：存在延迟，但近期已触发后端回补（含 `progress_pct`）；
   - `gray`：保留态（当前实现主要用于前端请求失败降级）。
+- `status_reason` 常见取值：
+  - `up_to_date`
+  - `backfill_recent`
+  - `backfill_running`
+  - `lagging_no_recent_backfill`
+  - `head_ahead_of_closed_window`（head 超过“最新已收盘时间”，常用于识别历史数据口径前冲）
 - `missing_seconds` / `missing_candles` 表示 DB 相对“最新闭合 K”的差距。
 - `backfill.progress_pct` 是 best-effort 回补进度估算（0~100），只作为运维可观测信号，不承诺严格线性。
 

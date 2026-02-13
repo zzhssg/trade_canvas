@@ -11,12 +11,10 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useResizeObserver from "use-resize-observer";
 
-import { apiWsBase } from "../lib/api";
 import { logDebugEvent } from "../debug/debug";
 import { CENTER_SCROLL_SELECTOR, chartWheelZoomRatio, normalizeWheelDeltaY } from "../lib/wheelContract";
 import { getFactorParentsBySubKey, useFactorCatalog } from "../services/factorCatalog";
 import { useFactorStore } from "../state/factorStore";
-import { useReplayStore } from "../state/replayStore";
 import { useUiStore } from "../state/uiStore";
 
 import { FibTool } from "./chart/draw_tools/FibTool";
@@ -32,8 +30,7 @@ import {
   fetchFactorSlices,
   fetchWorldFrameAtTime,
   fetchWorldFrameLive,
-  pollWorldDelta,
-  prepareReplay
+  pollWorldDelta
 } from "./chart/api";
 import { MAX_BAR_SPACING_ON_FIT_CONTENT, clampBarSpacing } from "./chart/barSpacing";
 import { mergeCandlesWindow, mergeCandleWindow, toChartCandle } from "./chart/candles";
@@ -52,8 +49,11 @@ import type {
 } from "./chart/types";
 import { timeframeToSeconds } from "./chart/timeframe";
 import { useLightweightChart } from "./chart/useLightweightChart";
-import { parseMarketWsMessage } from "./chart/ws";
+import { useReplayBindings } from "./chart/useReplayBindings";
+import { useReplayController } from "./chart/useReplayController";
 import { useReplayPackage } from "./chart/useReplayPackage";
+import { useReplayPackageWindowSync } from "./chart/useReplayPackageWindowSync";
+import { useWsSync } from "./chart/useWsSync";
 
 const INITIAL_TAIL_LIMIT = 2000;
 const ENABLE_REPLAY_V1 = String(import.meta.env.VITE_ENABLE_REPLAY_V1 ?? "1") === "1";
@@ -107,28 +107,30 @@ export function ChartView() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const { exchange, market, symbol, timeframe, activeChartTool, setActiveChartTool } = useUiStore();
-  const replayMode = useReplayStore((s) => s.mode);
-  const replayPlaying = useReplayStore((s) => s.playing);
-  const replaySpeedMs = useReplayStore((s) => s.speedMs);
-  const replayIndex = useReplayStore((s) => s.index);
-  const replayTotal = useReplayStore((s) => s.total);
-  const replayFocusTime = useReplayStore((s) => s.focusTime);
-  const replayPrepareStatus = useReplayStore((s) => s.prepareStatus);
-  const replayPreparedAlignedTime = useReplayStore((s) => s.preparedAlignedTime);
-  const setReplayPlaying = useReplayStore((s) => s.setPlaying);
-  const setReplayIndex = useReplayStore((s) => s.setIndex);
-  const setReplayTotal = useReplayStore((s) => s.setTotal);
-  const setReplayFocusTime = useReplayStore((s) => s.setFocusTime);
-  const setReplayFrame = useReplayStore((s) => s.setFrame);
-  const setReplayFrameLoading = useReplayStore((s) => s.setFrameLoading);
-  const setReplayFrameError = useReplayStore((s) => s.setFrameError);
-  const setReplayPrepareStatus = useReplayStore((s) => s.setPrepareStatus);
-  const setReplayPrepareError = useReplayStore((s) => s.setPrepareError);
-  const setReplayPreparedAlignedTime = useReplayStore((s) => s.setPreparedAlignedTime);
-  const setReplaySlices = useReplayStore((s) => s.setCurrentSlices);
-  const setReplayCandle = useReplayStore((s) => s.setCurrentCandle);
-  const setReplayDrawInstructions = useReplayStore((s) => s.setCurrentDrawInstructions);
-  const resetReplayData = useReplayStore((s) => s.resetData);
+  const {
+    replayMode,
+    replayPlaying,
+    replaySpeedMs,
+    replayIndex,
+    replayTotal,
+    replayFocusTime,
+    replayPrepareStatus,
+    replayPreparedAlignedTime,
+    setReplayPlaying,
+    setReplayIndex,
+    setReplayTotal,
+    setReplayFocusTime,
+    setReplayFrame,
+    setReplayFrameLoading,
+    setReplayFrameError,
+    setReplayPrepareStatus,
+    setReplayPrepareError,
+    setReplayPreparedAlignedTime,
+    setReplaySlices,
+    setReplayCandle,
+    setReplayDrawInstructions,
+    resetReplayData
+  } = useReplayBindings();
   const seriesId = useMemo(() => `${exchange}:${market}:${symbol}:${timeframe}`, [exchange, market, symbol, timeframe]);
 
   const { visibleFeatures } = useFactorStore();
@@ -192,6 +194,22 @@ export function ChartView() {
   const replayPackageHistory = replayPackage.historyEvents;
   const replayPackageWindows = replayPackage.windows;
   const replayEnsureWindowRange = replayPackage.ensureWindowRange;
+  const { setReplayIndexAndFocus } = useReplayController({
+    seriesId,
+    replayEnabled,
+    replayPlaying,
+    replaySpeedMs,
+    replayIndex,
+    replayTotal,
+    windowCandles: INITIAL_TAIL_LIMIT,
+    resetReplayData,
+    setReplayPlaying,
+    setReplayIndex,
+    setReplayPrepareStatus,
+    setReplayPrepareError,
+    setReplayPreparedAlignedTime
+  });
+  const { openMarketWs } = useWsSync({ seriesId });
 
   // --- Draw tools (pure in-memory, per ChartView instance) ---
   const [positionTools, setPositionTools] = useState<PositionInst[]>([]);
@@ -240,17 +258,6 @@ export function ChartView() {
     return idx;
   }, []);
 
-  const setReplayIndexAndFocus = useCallback(
-    (nextIndex: number, opts?: { pause?: boolean }) => {
-      const total = replayTotal;
-      if (total <= 0) return;
-      const clamped = Math.max(0, Math.min(nextIndex, total - 1));
-      if (opts?.pause) setReplayPlaying(false);
-      setReplayIndex(clamped);
-    },
-    [replayTotal, setReplayIndex, setReplayPlaying]
-  );
-
   const genId = useCallback(() => Math.random().toString(36).substring(2, 9), []);
 
   const clearDrawTools = useCallback(() => {
@@ -268,46 +275,6 @@ export function ChartView() {
     clearDrawTools();
     setActiveChartTool("cursor");
   }, [clearDrawTools, seriesId, setActiveChartTool]);
-
-  useEffect(() => {
-    resetReplayData();
-  }, [resetReplayData, seriesId]);
-
-  useEffect(() => {
-    if (!replayEnabled) resetReplayData();
-  }, [replayEnabled, resetReplayData]);
-
-  useEffect(() => {
-    if (!replayEnabled) {
-      setReplayPrepareStatus("idle");
-      setReplayPrepareError(null);
-      setReplayPreparedAlignedTime(null);
-      return;
-    }
-
-    let cancelled = false;
-    setReplayPrepareStatus("loading");
-    setReplayPrepareError(null);
-    setReplayPreparedAlignedTime(null);
-
-    const run = async () => {
-      try {
-        const prep = await prepareReplay({ seriesId, windowCandles: INITIAL_TAIL_LIMIT });
-        if (cancelled) return;
-        setReplayPreparedAlignedTime(prep.aligned_time);
-        setReplayPrepareStatus("ready");
-      } catch (e: unknown) {
-        if (cancelled) return;
-        setReplayPrepareStatus("error");
-        setReplayPrepareError(e instanceof Error ? e.message : "Replay prepare failed");
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [replayEnabled, seriesId, setReplayPrepareError, setReplayPrepareStatus, setReplayPreparedAlignedTime]);
 
   useEffect(() => {
     if (ENABLE_DRAW_TOOLS) return;
@@ -2321,22 +2288,6 @@ export function ChartView() {
           }
         }
 
-        const wsUrl = `${apiWsBase()}/ws/market`;
-        ws = new WebSocket(wsUrl);
-        ws.onopen = () => {
-          logDebugEvent({
-            pipe: "read",
-            event: "read.ws.market_subscribe",
-            series_id: seriesId,
-            level: "info",
-            message: "ws market subscribe",
-            data: { since: cursor > 0 ? cursor : null }
-          });
-          ws?.send(
-            JSON.stringify({ type: "subscribe", series_id: seriesId, since: cursor > 0 ? cursor : null, supports_batch: true })
-          );
-        };
-
         const FOLLOW_DEBOUNCE_MS = 1000;
 
         function scheduleOverlayFollow(t: number) {
@@ -2428,12 +2379,10 @@ export function ChartView() {
 
           void fetchAndApplyAnchorHighlightAtTime(t);
         }
-
-        ws.onmessage = (evt) => {
-          const msg = typeof evt.data === "string" ? parseMarketWsMessage(evt.data) : null;
-          if (!msg) return;
-
-          if (msg.type === "candles_batch") {
+        ws = openMarketWs({
+          since: cursor > 0 ? cursor : null,
+          isActive: () => isActive,
+          onCandlesBatch: (msg) => {
             const last = msg.candles.length > 0 ? msg.candles[msg.candles.length - 1] : null;
             const t = last ? last.candle_time : null;
             if (t != null) {
@@ -2459,32 +2408,25 @@ export function ChartView() {
             }
 
             if (t != null) scheduleOverlayFollow(t);
-            return;
-          }
-
-          if (msg.type === "system") {
-            if (msg.event === "factor.rebuild") {
-              showToast(msg.message || "因子已自动重算");
-              logDebugEvent({
-                pipe: "read",
-                event: "read.ws.system.factor_rebuild",
-                series_id: seriesId,
-                level: "warn",
-                message: msg.message || "factor rebuild",
-                data: msg.data
-              });
-            }
-            return;
-          }
-
-          if (msg.type === "candle_forming") {
+          },
+          onSystem: (msg) => {
+            if (msg.event !== "factor.rebuild") return;
+            showToast(msg.message || "因子已自动重算");
+            logDebugEvent({
+              pipe: "read",
+              event: "read.ws.system.factor_rebuild",
+              series_id: seriesId,
+              level: "warn",
+              message: msg.message || "factor rebuild",
+              data: msg.data
+            });
+          },
+          onCandleForming: (msg) => {
             const next = toChartCandle(msg.candle);
             candlesRef.current = mergeCandleWindow(candlesRef.current, next, INITIAL_TAIL_LIMIT);
             setCandles((prev) => mergeCandleWindow(prev, next, INITIAL_TAIL_LIMIT));
-            return;
-          }
-
-          if (msg.type === "candle_closed") {
+          },
+          onCandleClosed: (msg) => {
             const t = msg.candle.candle_time;
             lastWsCandleTimeRef.current = t;
             setLastWsCandleTime(t);
@@ -2501,10 +2443,8 @@ export function ChartView() {
               data: { candle_time: t }
             });
             scheduleOverlayFollow(t);
-            return;
-          }
-
-          if (msg.type === "gap") {
+          },
+          onGap: (msg) => {
             logDebugEvent({
               pipe: "read",
               event: "read.ws.market_gap",
@@ -2586,12 +2526,12 @@ export function ChartView() {
                 void fetchAndApplyAnchorHighlightAtTime(last.time as number);
               }
             }
+          },
+          onSocketError: () => {
+            if (!isActive) return;
+            setError("WS error");
           }
-        };
-        ws.onerror = () => {
-          if (!isActive) return;
-          setError("WS error");
-        };
+        });
       } catch (e: unknown) {
         if (!isActive) return;
         setError(e instanceof Error ? e.message : "Failed to load market candles");
@@ -2618,6 +2558,7 @@ export function ChartView() {
     fetchOverlayLikeDelta,
     fetchWorldFrameAtTime,
     fetchWorldFrameLive,
+    openMarketWs,
     requestReplayFrameAtTime,
     rebuildOverlayPolylinesFromOverlay,
     rebuildPenPointsFromOverlay,
@@ -2679,95 +2620,30 @@ export function ChartView() {
     setReplayTotal
   ]);
 
-  useEffect(() => {
-    if (!replayPackageEnabled) return;
-    if (replayPackageStatus !== "ready") return;
-    const meta = replayPackageMeta;
-    if (!meta || meta.total_candles <= 0) return;
-    const metaValue = meta;
-    const total = metaValue.total_candles;
-    setReplayTotal(total);
-    const desiredIndex = replayFocusTime == null ? total - 1 : replayIndex;
-    const clamped = Math.max(0, Math.min(desiredIndex, total - 1));
-    if (clamped !== replayIndex) {
-      setReplayIndex(clamped);
-      return;
-    }
-
-    let cancelled = false;
-
-    async function run() {
-      await replayEnsureWindowRange(0, total - 1);
-      if (cancelled) return;
-
-      if (replayAllCandlesRef.current.length !== total) {
-        replayAllCandlesRef.current = Array.from({ length: total }, () => null);
-      }
-      for (const bundle of Object.values(replayPackageWindows)) {
-        const startIdx = bundle.window.start_idx;
-        const kline = bundle.window.kline ?? [];
-        kline.forEach((bar, i) => {
-          replayAllCandlesRef.current[startIdx + i] = toReplayCandle(bar);
-        });
-      }
-
-      const filled = replayAllCandlesRef.current.filter(Boolean) as Candle[];
-      if (filled.length === total) {
-        const all = replayAllCandlesRef.current as Candle[];
-        candlesRef.current = all;
-        setCandles(all);
-      } else if (filled.length > 0) {
-        candlesRef.current = filled;
-        setCandles(filled);
-      }
-
-      const windowIndex = Math.floor(clamped / metaValue.window_size);
-      const bundle = replayPackageWindows[windowIndex];
-      if (!bundle) return;
-
-      const activeIds = applyReplayPackageWindow(bundle, clamped);
-      const candle = replayAllCandlesRef.current[clamped];
-      if (!candle) return;
-      const toTime = candle.time as number;
-      setReplayFocusTime(toTime);
-      const delta = bundle.historyDeltaByIdx[clamped];
-      const toEventId = delta ? delta.to_event_id : 0;
-      const slices = buildReplayFactorSlices({
-        atTime: toTime,
-        toEventId,
-        historyEvents: replayPackageHistory,
-        headByTime: bundle.headByTime
-      });
-      lastFactorAtTimeRef.current = toTime;
-      applyPenAndAnchorFromFactorSlices(slices);
-      setReplaySlices(slices);
-      setReplayCandle({ candleId: slices.candle_id ?? `${seriesId}:${toTime}`, atTime: toTime, activeIds });
-    }
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    applyPenAndAnchorFromFactorSlices,
-    applyReplayPackageWindow,
-    buildReplayFactorSlices,
+  useReplayPackageWindowSync({
+    enabled: replayPackageEnabled,
+    status: replayPackageStatus,
+    metadata: replayPackageMeta,
+    windows: replayPackageWindows,
+    historyEvents: replayPackageHistory,
+    ensureWindowRange: replayEnsureWindowRange,
     replayIndex,
     replayFocusTime,
-    replayEnsureWindowRange,
-    replayPackageHistory,
-    replayPackageEnabled,
-    replayPackageMeta,
-    replayPackageStatus,
-    replayPackageWindows,
     seriesId,
-    setReplayCandle,
-    setReplayFocusTime,
-    setReplayIndex,
-    setReplaySlices,
+    replayAllCandlesRef,
+    lastFactorAtTimeRef,
+    candlesRef,
+    toReplayCandle,
+    applyReplayPackageWindow,
+    buildReplayFactorSlices,
+    applyPenAndAnchorFromFactorSlices,
     setReplayTotal,
-    toReplayCandle
-  ]);
+    setReplayIndex,
+    setReplayFocusTime,
+    setReplaySlices,
+    setReplayCandle,
+    setCandles
+  });
 
   useEffect(() => {
     if (!replayEnabled) return;
@@ -2795,17 +2671,6 @@ export function ChartView() {
     setReplayFocusTime,
     setReplayIndex
   ]);
-
-  useEffect(() => {
-    if (!replayEnabled) return;
-    if (!replayPlaying) return;
-    if (replayTotal <= 0) return;
-    if (replayIndex >= replayTotal - 1) return;
-    const id = window.setTimeout(() => {
-      setReplayIndexAndFocus(replayIndex + 1);
-    }, replaySpeedMs);
-    return () => window.clearTimeout(id);
-  }, [replayEnabled, replayIndex, replayPlaying, replaySpeedMs, replayTotal, setReplayIndexAndFocus]);
 
   return (
     <div

@@ -244,36 +244,42 @@ class StructureOverlayRenderer:
             if current_ref is None or candidate_start == current_start or candidate_strength > current_strength:
                 current_ref = dict(candidate_ref)
 
-        def resolve_points(ref: dict[str, Any] | None) -> list[dict[str, Any]]:
+        def resolve_points(ref: dict[str, Any] | None) -> tuple[list[dict[str, Any]], bool]:
             if not ref:
-                return []
+                return [], False
             kind = str(ref.get("kind") or "")
             start_time = int(ref.get("start_time") or 0)
             end_time = int(ref.get("end_time") or 0)
             direction = int(ref.get("direction") or 0)
             if start_time <= 0 or end_time <= 0:
-                return []
+                return [], False
             if kind == "candidate" and isinstance(pen_candidate, dict):
                 if (
                     int(pen_candidate.get("start_time") or 0) == start_time
                     and int(pen_candidate.get("end_time") or 0) == end_time
                     and int(pen_candidate.get("direction") or 0) == direction
                 ):
-                    return [
-                        {"time": start_time, "value": float(pen_candidate.get("start_price") or 0.0)},
-                        {"time": end_time, "value": float(pen_candidate.get("end_price") or 0.0)},
-                    ]
+                    return (
+                        [
+                            {"time": start_time, "value": float(pen_candidate.get("start_price") or 0.0)},
+                            {"time": end_time, "value": float(pen_candidate.get("end_price") or 0.0)},
+                        ],
+                        True,
+                    )
             match = pen_lookup.get((start_time, end_time, direction))
             if match is None:
                 match = pen_latest_by_start_dir.get((start_time, direction))
             if match is None:
-                return []
-            return [
-                {"time": int(match.get("start_time") or 0), "value": float(match.get("start_price") or 0.0)},
-                {"time": int(match.get("end_time") or 0), "value": float(match.get("end_price") or 0.0)},
-            ]
+                return [], False
+            return (
+                [
+                    {"time": int(match.get("start_time") or 0), "value": float(match.get("start_price") or 0.0)},
+                    {"time": int(match.get("end_time") or 0), "value": float(match.get("end_price") or 0.0)},
+                ],
+                False,
+            )
 
-        anchor_points = resolve_points(current_ref)
+        anchor_points, anchor_from_candidate = resolve_points(current_ref)
         if anchor_points:
             add_polyline(
                 "anchor.current",
@@ -281,13 +287,14 @@ class StructureOverlayRenderer:
                 feature="anchor.current",
                 points=anchor_points,
                 color="#f59e0b",
+                line_style="dashed" if anchor_from_candidate else None,
             )
 
         current_pointer_start = int(current_ref.get("start_time") or 0) if isinstance(current_ref, dict) else 0
         for idx, anchor_ref in enumerate(history_anchors):
             if current_pointer_start > 0 and int(anchor_ref.get("start_time") or 0) == current_pointer_start:
                 continue
-            history_points = resolve_points(anchor_ref)
+            history_points, _ = resolve_points(anchor_ref)
             if not history_points:
                 continue
             switch_payload = history_switches[idx]

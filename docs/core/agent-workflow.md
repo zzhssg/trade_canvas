@@ -2,7 +2,7 @@
 title: Agent 工作流（入口 / 门禁 / 证据 / 验收 SOP）
 status: draft
 created: 2026-02-05
-updated: 2026-02-10
+updated: 2026-02-13
 ---
 
 # Agent 工作流（入口 / 门禁 / 证据 / 验收 SOP）
@@ -80,6 +80,24 @@ flowchart TD
 - E2E：`bash scripts/e2e_acceptance.sh`（退出码 0）
 - 文档审计：`bash docs/scripts/doc_audit.sh`（退出码 0）
 - 证据产物：`output/playwright/` 与运行日志（失败时必须有 trace/screenshot）
+
+### 1.3 容量证据落盘约定（output/capacity）
+
+用于“只读看盘容量 smoke”的统一证据目录，避免每次人工拼接日志：
+
+- 运行命令：`bash scripts/load/ws_readonly_smoke.sh`
+- 默认产物根目录：`output/capacity/<run_id>/`
+- 必备产物：
+  - `summary.json`（连接数、送达率、p50/p95、gate 结论）
+  - `clients.jsonl`（每个 watcher 的连接/送达明细）
+  - `metrics_snapshot.json`（`/api/market/debug/metrics` 快照；若未开启会记录失败原因）
+  - `connect_latency_histogram.txt` 与 `delivery_latency_histogram.txt`（文本图）
+  - `run.log`（完整执行日志）
+
+建议在交付汇报中固定引用：
+- `命令`：脚本完整调用参数
+- `关键输出`：`summary.json` 的 `delivery_ratio / p95 / gate_ok`
+- `产物路径`：对应 run 目录绝对路径
 
 ---
 

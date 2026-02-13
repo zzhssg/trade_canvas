@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import Mapping, Protocol
 
 from .blocking import run_blocking
-from .ledger_sync_service import LedgerSyncService
 from .timeframe import series_id_timeframe, timeframe_to_seconds
 
 
@@ -19,15 +18,6 @@ class _AlignedStoreLike(_StoreLike, Protocol):
 
 class _BackfillLike(Protocol):
     def ensure_tail_coverage(self, *, series_id: str, target_candles: int, to_time: int | None) -> int: ...
-
-
-class _IngestPipelineLike(Protocol):
-    def refresh_series_sync(self, *, up_to_times: Mapping[str, int]): ...
-
-
-class _RuntimeFlagsLike(Protocol):
-    @property
-    def enable_ledger_sync_service(self) -> bool: ...
 
 
 class _LedgerRefreshOutcomeLike(Protocol):
@@ -57,19 +47,10 @@ class _RuntimeLike(Protocol):
     def store(self) -> _AlignedStoreLike: ...
 
     @property
-    def factor_orchestrator(self) -> _StoreLike: ...
-
-    @property
-    def overlay_orchestrator(self) -> _StoreLike: ...
-
-    @property
     def read_ctx(self) -> _RuntimeReadCtxLike: ...
 
     @property
-    def ingest_ctx(self) -> _RuntimeIngestCtxLike: ...
-
-    @property
-    def runtime_flags(self) -> _RuntimeFlagsLike: ...
+    def ledger_sync_service(self) -> _LedgerSyncLike: ...
 
     @property
     def debug_hub(self) -> _DebugHubLike: ...
@@ -83,31 +64,12 @@ class _RuntimeReadCtxLike(Protocol):
     def whitelist(self) -> object: ...
 
 
-class _RuntimeIngestCtxLike(Protocol):
-    @property
-    def ingest_pipeline(self) -> _IngestPipelineLike | None: ...
-
-
 def _runtime_backfill(runtime: _RuntimeLike) -> _BackfillLike:
     return runtime.read_ctx.backfill
 
 
-def _runtime_ingest_pipeline(runtime: _RuntimeLike) -> _IngestPipelineLike | None:
-    return runtime.ingest_ctx.ingest_pipeline
-
-
-def _runtime_ledger_sync(runtime: _RuntimeLike) -> _LedgerSyncLike | None:
-    if not bool(runtime.runtime_flags.enable_ledger_sync_service):
-        return None
-    ingest_pipeline = _runtime_ingest_pipeline(runtime)
-    if ingest_pipeline is None:
-        return None
-    return LedgerSyncService(
-        store=runtime.store,
-        factor_store=runtime.factor_orchestrator,
-        overlay_store=runtime.overlay_orchestrator,
-        ingest_pipeline=ingest_pipeline,
-    )
+def _runtime_ledger_sync(runtime: _RuntimeLike) -> _LedgerSyncLike:
+    return runtime.ledger_sync_service
 
 
 @dataclass(frozen=True)
@@ -157,9 +119,7 @@ def _sync_one_series(
     *,
     store: _StoreLike,
     backfill: _BackfillLike,
-    ingest_pipeline: _IngestPipelineLike | None,
-    ledger_sync: _LedgerSyncLike | None,
-    enable_ledger_sync_service: bool,
+    ledger_sync: _LedgerSyncLike,
     series_id: str,
     target_candles: int,
     now_time: int,
@@ -195,16 +155,11 @@ def _sync_one_series(
         )
     )
 
-    refreshed = False
-    if bool(enable_ledger_sync_service) and ledger_sync is not None:
-        refresh_outcome = ledger_sync.refresh_if_needed(
-            series_id=str(series_id),
-            up_to_time=int(target_time),
-        )
-        refreshed = bool(refresh_outcome.refreshed)
-    elif ingest_pipeline is not None:
-        ingest_pipeline.refresh_series_sync(up_to_times={str(series_id): int(target_time)})
-        refreshed = True
+    refresh_outcome = ledger_sync.refresh_if_needed(
+        series_id=str(series_id),
+        up_to_time=int(target_time),
+    )
+    refreshed = bool(refresh_outcome.refreshed)
 
     after_head_time = store.head_time(series_id)
     return StartupKlineSyncSeriesResult(
@@ -247,12 +202,10 @@ async def run_startup_kline_sync(
     *,
     store: _StoreLike,
     backfill: _BackfillLike,
-    ingest_pipeline: _IngestPipelineLike | None,
+    ledger_sync: _LedgerSyncLike,
     series_ids: tuple[str, ...] | list[str] | None,
     enabled: bool,
     target_candles: int,
-    ledger_sync: _LedgerSyncLike | None = None,
-    enable_ledger_sync_service: bool = False,
     debug_hub: _DebugHubLike | None = None,
     now_time: int | None = None,
 ) -> StartupKlineSyncResult:
@@ -279,9 +232,7 @@ async def run_startup_kline_sync(
                 _sync_one_series,
                 store=store,
                 backfill=backfill,
-                ingest_pipeline=ingest_pipeline,
                 ledger_sync=ledger_sync,
-                enable_ledger_sync_service=bool(enable_ledger_sync_service),
                 series_id=str(series_id),
                 target_candles=int(effective_target_candles),
                 now_time=int(fixed_now_time),
@@ -366,9 +317,7 @@ async def run_startup_kline_sync_for_runtime(
     return await run_startup_kline_sync(
         store=runtime.store,
         backfill=_runtime_backfill(runtime),
-        ingest_pipeline=_runtime_ingest_pipeline(runtime),
         ledger_sync=ledger_sync,
-        enable_ledger_sync_service=bool(runtime.runtime_flags.enable_ledger_sync_service),
         series_ids=_runtime_whitelist_series_ids(runtime),
         enabled=bool(enabled),
         target_candles=int(target_candles),

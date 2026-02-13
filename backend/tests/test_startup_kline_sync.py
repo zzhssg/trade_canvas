@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Mapping
 
+from backend.app.ledger_sync_service import LedgerSyncService
 from backend.app.startup_kline_sync import run_startup_kline_sync, run_startup_kline_sync_for_runtime
 
 
@@ -38,7 +40,7 @@ class _FakePipeline:
 
     def refresh_series_sync(self, *, up_to_times: Mapping[str, int]):
         self.calls.append({str(k): int(v) for k, v in dict(up_to_times).items()})
-        return object()
+        return SimpleNamespace(steps=(SimpleNamespace(name="refresh"),))
 
 
 class _FakeDebugHub:
@@ -73,24 +75,21 @@ class _FakeReadCtx:
     whitelist: _FakeWhitelist
 
 
-@dataclass(frozen=True)
-class _FakeIngestCtx:
-    ingest_pipeline: _FakePipeline
+class _LedgerSyncSpy:
+    def __init__(self, *, refreshed: bool = False) -> None:
+        self.refreshed = bool(refreshed)
+        self.calls: list[tuple[str, int]] = []
 
-
-@dataclass(frozen=True)
-class _FakeRuntimeFlags:
-    enable_ledger_sync_service: bool
+    def refresh_if_needed(self, *, series_id: str, up_to_time: int):
+        self.calls.append((str(series_id), int(up_to_time)))
+        return SimpleNamespace(refreshed=bool(self.refreshed))
 
 
 @dataclass(frozen=True)
 class _FakeRuntime:
     store: _FakeStore
-    factor_orchestrator: _FakeStore
-    overlay_orchestrator: _FakeStore
     read_ctx: _FakeReadCtx
-    ingest_ctx: _FakeIngestCtx
-    runtime_flags: _FakeRuntimeFlags
+    ledger_sync_service: object
     debug_hub: _FakeDebugHub
 
 
@@ -98,17 +97,38 @@ async def _inline_run_blocking(fn, /, *args, **kwargs):  # noqa: ANN001
     return fn(*args, **kwargs)
 
 
+def _make_ledger_sync(
+    *,
+    store: _FakeStore,
+    factor_store: _FakeStore,
+    overlay_store: _FakeStore,
+    pipeline: _FakePipeline,
+) -> LedgerSyncService:
+    return LedgerSyncService(
+        store=store,
+        factor_store=factor_store,
+        overlay_store=overlay_store,
+        ingest_pipeline=pipeline,
+    )
+
+
 def test_startup_kline_sync_disabled_returns_empty(monkeypatch) -> None:
     monkeypatch.setattr("backend.app.startup_kline_sync.run_blocking", _inline_run_blocking)
     store = _FakeStore(heads={"binance:futures:BTC/USDT:1m": 0})
     backfill = _FakeBackfill(store=store)
     pipeline = _FakePipeline()
+    ledger_sync = _make_ledger_sync(
+        store=store,
+        factor_store=_FakeStore(heads={"binance:futures:BTC/USDT:1m": 0}),
+        overlay_store=_FakeStore(heads={"binance:futures:BTC/USDT:1m": 0}),
+        pipeline=pipeline,
+    )
 
     result = asyncio.run(
         run_startup_kline_sync(
             store=store,
             backfill=backfill,
-            ingest_pipeline=pipeline,
+            ledger_sync=ledger_sync,
             series_ids=("binance:futures:BTC/USDT:1m",),
             enabled=False,
             target_candles=2000,
@@ -129,13 +149,21 @@ def test_startup_kline_sync_updates_whitelist_series_and_marks_lagging(monkeypat
     store = _FakeStore(heads={series_1m: 0, series_5m: 0})
     backfill = _FakeBackfill(store=store, lag_by_series={series_5m: 300})
     pipeline = _FakePipeline()
+    factor_store = _FakeStore(heads={series_1m: 0, series_5m: 0})
+    overlay_store = _FakeStore(heads={series_1m: 0, series_5m: 0})
+    ledger_sync = _make_ledger_sync(
+        store=store,
+        factor_store=factor_store,
+        overlay_store=overlay_store,
+        pipeline=pipeline,
+    )
     debug_hub = _FakeDebugHub()
 
     result = asyncio.run(
         run_startup_kline_sync(
             store=store,
             backfill=backfill,
-            ingest_pipeline=pipeline,
+            ledger_sync=ledger_sync,
             series_ids=(series_1m, series_5m),
             enabled=True,
             target_candles=500,
@@ -172,14 +200,17 @@ def test_startup_kline_sync_for_runtime_uses_whitelist_series(monkeypatch) -> No
     store = _FakeStore(heads={series_id: 0})
     backfill = _FakeBackfill(store=store)
     pipeline = _FakePipeline()
+    ledger_sync = _make_ledger_sync(
+        store=store,
+        factor_store=_FakeStore(heads={series_id: 0}),
+        overlay_store=_FakeStore(heads={series_id: 0}),
+        pipeline=pipeline,
+    )
     debug_hub = _FakeDebugHub()
     runtime = _FakeRuntime(
         store=store,
-        factor_orchestrator=_FakeStore(heads={series_id: 0}),
-        overlay_orchestrator=_FakeStore(heads={series_id: 0}),
         read_ctx=_FakeReadCtx(backfill=backfill, whitelist=_FakeWhitelist(series_ids=(series_id,))),
-        ingest_ctx=_FakeIngestCtx(ingest_pipeline=pipeline),
-        runtime_flags=_FakeRuntimeFlags(enable_ledger_sync_service=False),
+        ledger_sync_service=ledger_sync,
         debug_hub=debug_hub,
     )
 
@@ -196,21 +227,16 @@ def test_startup_kline_sync_for_runtime_uses_whitelist_series(monkeypatch) -> No
     assert backfill.calls[0][0] == series_id
 
 
-def test_startup_kline_sync_runtime_uses_ledger_sync_service_when_enabled(monkeypatch) -> None:
+def test_startup_kline_sync_runtime_uses_runtime_ledger_sync_instance(monkeypatch) -> None:
     monkeypatch.setattr("backend.app.startup_kline_sync.run_blocking", _inline_run_blocking)
     series_id = "binance:futures:ETH/USDT:1m"
     store = _FakeStore(heads={series_id: 0})
-    factor_store = _FakeStore(heads={series_id: 3_000_000_000})
-    overlay_store = _FakeStore(heads={series_id: 3_000_000_000})
     backfill = _FakeBackfill(store=store)
-    pipeline = _FakePipeline()
+    ledger_sync = _LedgerSyncSpy(refreshed=False)
     runtime = _FakeRuntime(
         store=store,
-        factor_orchestrator=factor_store,
-        overlay_orchestrator=overlay_store,
         read_ctx=_FakeReadCtx(backfill=backfill, whitelist=_FakeWhitelist(series_ids=(series_id,))),
-        ingest_ctx=_FakeIngestCtx(ingest_pipeline=pipeline),
-        runtime_flags=_FakeRuntimeFlags(enable_ledger_sync_service=True),
+        ledger_sync_service=ledger_sync,
         debug_hub=_FakeDebugHub(),
     )
 
@@ -223,5 +249,6 @@ def test_startup_kline_sync_runtime_uses_ledger_sync_service_when_enabled(monkey
     )
 
     assert result.series_total == 1
-    assert len(pipeline.calls) == 0
+    assert len(ledger_sync.calls) == 1
+    assert ledger_sync.calls[0][0] == series_id
     assert result.series_results[0].refreshed is False

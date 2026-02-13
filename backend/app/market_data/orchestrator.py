@@ -14,10 +14,9 @@ from .contracts import (
     FreshnessService,
     FreshnessSnapshot,
     MarketDataOrchestrator,
-    WsCatchupRequest,
     WsDeliveryService,
-    WsEmitRequest,
-    WsEmitResult,
+    WsSubscribeRequest,
+    WsSubscribeResult,
 )
 
 
@@ -66,76 +65,62 @@ class DefaultMarketDataOrchestrator(MarketDataOrchestrator):
             gap_payload=None,
         )
 
-    async def build_ws_catchup(self, req: WsCatchupRequest) -> CatchupReadResult:
-        if req.candles is None:
-            out = self.read_candles(
-                CatchupReadRequest(
-                    series_id=req.series_id,
-                    since=req.since,
-                    limit=req.limit,
-                )
+    async def build_ws_subscribe(self, req: WsSubscribeRequest) -> WsSubscribeResult:
+        read_result = self.read_candles(
+            CatchupReadRequest(
+                series_id=req.series_id,
+                since=req.since,
+                limit=req.limit,
             )
-            catchup = out.candles
-        else:
-            catchup = req.candles
+        )
+        last_sent = await req.get_last_sent()
         effective_since = req.since
+        catchup = list(read_result.candles)
         if req.since is not None:
-            if req.last_sent is not None and int(req.last_sent) > int(req.since):
-                effective_since = int(req.last_sent)
+            if last_sent is not None and int(last_sent) > int(req.since):
+                effective_since = int(last_sent)
             if effective_since is not None and catchup:
                 catchup = [c for c in catchup if int(c.candle_time) > int(effective_since)]
-        healed, gap_payload = await self.heal_ws_gap(
+        healed, gap_payload = await self._ws_delivery.heal_catchup_gap(
             series_id=req.series_id,
             effective_since=effective_since,
             catchup=catchup,
         )
-        return CatchupReadResult(
-            series_id=req.series_id,
-            effective_since=effective_since,
-            candles=healed,
-            gap_payload=gap_payload,
-        )
 
-    def build_ws_emit(self, req: WsEmitRequest) -> WsEmitResult:
         payloads: list[dict] = []
-        if req.gap_payload is not None:
-            payloads.append(req.gap_payload)
+        if gap_payload is not None:
+            payloads.append(gap_payload)
 
         last_sent_time: int | None = None
-        if req.supports_batch:
-            if req.catchup:
+        if bool(req.supports_batch):
+            if healed:
                 payloads.append(
                     {
                         "type": WS_MSG_CANDLES_BATCH,
                         "series_id": req.series_id,
-                        "candles": [c.model_dump() for c in req.catchup],
+                        "candles": [c.model_dump() for c in healed],
                     }
                 )
-                last_sent_time = int(req.catchup[-1].candle_time)
-            return WsEmitResult(payloads=payloads, last_sent_time=last_sent_time)
+                last_sent_time = int(healed[-1].candle_time)
+        else:
+            for candle in healed:
+                payloads.append(
+                    {
+                        "type": WS_MSG_CANDLE_CLOSED,
+                        "series_id": req.series_id,
+                        "candle": candle.model_dump(),
+                    }
+                )
+                last_sent_time = int(candle.candle_time)
 
-        for candle in req.catchup:
-            payloads.append(
-                {
-                    "type": WS_MSG_CANDLE_CLOSED,
-                    "series_id": req.series_id,
-                    "candle": candle.model_dump(),
-                }
-            )
-            last_sent_time = int(candle.candle_time)
-        return WsEmitResult(payloads=payloads, last_sent_time=last_sent_time)
-
-    async def heal_ws_gap(
-        self,
-        *,
-        series_id: str,
-        effective_since: int | None,
-        catchup: list[CandleClosed],
-    ) -> tuple[list[CandleClosed], dict | None]:
-        return await self._ws_delivery.heal_catchup_gap(
-            series_id=series_id,
+        return WsSubscribeResult(
+            series_id=req.series_id,
             effective_since=effective_since,
-            catchup=catchup,
+            read_count=len(read_result.candles),
+            catchup_count=len(healed),
+            payloads=payloads,
+            last_sent_time=last_sent_time,
+            gap_emitted=bool(gap_payload is not None),
         )
 
 

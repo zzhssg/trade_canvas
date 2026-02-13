@@ -15,8 +15,7 @@ from backend.app.market_data import (
     StoreFreshnessService,
     WsMessageParser,
     WsSubscriptionCoordinator,
-    WsCatchupRequest,
-    WsEmitRequest,
+    WsSubscribeRequest,
     build_derived_initial_backfill_handler,
     build_gap_backfill_handler,
     build_ws_error_payload,
@@ -106,48 +105,41 @@ def test_default_market_data_orchestrator_routes_read_and_ws_gap_heal() -> None:
         assert read.effective_since == 100
         assert [int(c.candle_time) for c in read.candles] == [160, 220]
 
-        healed, gap = asyncio.run(
-            orchestrator.heal_ws_gap(series_id=series_id, effective_since=100, catchup=read.candles)
-        )
-        assert [int(c.candle_time) for c in healed] == [160, 220]
-        assert gap == {"type": "gap", "series_id": series_id, "effective_since": 100}
-
-        ws_out = asyncio.run(
-            orchestrator.build_ws_catchup(
-                WsCatchupRequest(
+        stream_out = asyncio.run(
+            orchestrator.build_ws_subscribe(
+                WsSubscribeRequest(
                     series_id=series_id,
                     since=100,
-                    last_sent=160,
+                    supports_batch=False,
                     limit=10,
-                    candles=read.candles,
+                    get_last_sent=lambda: asyncio.sleep(0, result=160),
                 )
             )
         )
-        assert ws_out.effective_since == 160
-        assert [int(c.candle_time) for c in ws_out.candles] == [220]
-        assert ws_out.gap_payload == {"type": "gap", "series_id": series_id, "effective_since": 160}
+        assert stream_out.effective_since == 160
+        assert stream_out.read_count == 2
+        assert stream_out.catchup_count == 1
+        assert stream_out.gap_emitted is True
+        assert [p["type"] for p in stream_out.payloads] == ["gap", "candle_closed"]
+        assert stream_out.last_sent_time == 220
 
-        emit_single = orchestrator.build_ws_emit(
-            WsEmitRequest(
-                series_id=series_id,
-                supports_batch=False,
-                catchup=ws_out.candles,
-                gap_payload=ws_out.gap_payload,
+        batch_out = asyncio.run(
+            orchestrator.build_ws_subscribe(
+                WsSubscribeRequest(
+                    series_id=series_id,
+                    since=100,
+                    supports_batch=True,
+                    limit=10,
+                    get_last_sent=lambda: asyncio.sleep(0, result=160),
+                )
             )
         )
-        assert [p["type"] for p in emit_single.payloads] == ["gap", "candle_closed"]
-        assert emit_single.last_sent_time == 220
-
-        emit_batch = orchestrator.build_ws_emit(
-            WsEmitRequest(
-                series_id=series_id,
-                supports_batch=True,
-                catchup=ws_out.candles,
-                gap_payload=ws_out.gap_payload,
-            )
-        )
-        assert [p["type"] for p in emit_batch.payloads] == ["gap", "candles_batch"]
-        assert emit_batch.last_sent_time == 220
+        assert batch_out.effective_since == 160
+        assert batch_out.read_count == 2
+        assert batch_out.catchup_count == 1
+        assert batch_out.gap_emitted is True
+        assert [p["type"] for p in batch_out.payloads] == ["gap", "candles_batch"]
+        assert batch_out.last_sent_time == 220
 
 
 def test_store_backfill_service_wraps_gap_and_tail_backfill() -> None:
@@ -329,6 +321,56 @@ def test_store_backfill_service_to_time_none_skips_ccxt_by_default(monkeypatch) 
         covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=None)
         assert covered == 1
         assert called == []
+
+
+def test_store_backfill_service_to_time_none_strict_closed_only_caps_at_previous_closed(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as td:
+        store = CandleStore(db_path=Path(td) / "market.db")
+        series_id = "binance:futures:SOL/USDT:1h"
+        called: list[tuple[int, int]] = []
+
+        store.upsert_closed(
+            series_id,
+            CandleClosed(candle_time=0, open=1.0, high=2.0, low=0.5, close=1.5, volume=10.0),
+        )
+
+        def fake_tail_backfill(store: CandleStore, *, series_id: str, limit: int) -> int:
+            return 0
+
+        def fake_ccxt_backfill(
+            *,
+            candle_store: CandleStore,
+            series_id: str,
+            start_time: int,
+            end_time: int,
+            batch_limit: int = 1000,
+            ccxt_timeout_ms: int = 10_000,
+        ) -> int:
+            _ = batch_limit
+            _ = ccxt_timeout_ms
+            called.append((int(start_time), int(end_time)))
+            with candle_store.connect() as conn:
+                candle_store.upsert_closed_in_conn(
+                    conn,
+                    series_id,
+                    CandleClosed(candle_time=3600, open=2.0, high=3.0, low=1.5, close=2.5, volume=10.0),
+                )
+                conn.commit()
+            return 1
+
+        monkeypatch.setattr("backend.app.market_data.read_services.backfill_from_ccxt_range", fake_ccxt_backfill)
+        monkeypatch.setattr("backend.app.market_data.read_services.time.time", lambda: 7201)
+
+        svc = StoreBackfillService(
+            store=store,
+            tail_backfill_fn=fake_tail_backfill,
+            enable_ccxt_backfill=True,
+            enable_ccxt_backfill_on_read=True,
+            enable_strict_closed_only=True,
+        )
+        covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=None)
+        assert covered == 2
+        assert called == [(0, 3600)]
 
 
 def test_store_backfill_service_derived_5m_can_rollup_from_base_1m() -> None:
@@ -513,16 +555,18 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
             self.unsubscribed.append(series_id)
 
     class _MarketData:
-        def read_candles(self, req: CatchupReadRequest):
+        async def build_ws_subscribe(self, req: WsSubscribeRequest):
             c = CandleClosed(candle_time=160, open=1.0, high=2.0, low=0.5, close=1.5, volume=10.0)
-            return SimpleNamespace(series_id=req.series_id, effective_since=req.since, candles=[c], gap_payload=None)
-
-        async def build_ws_catchup(self, req: WsCatchupRequest):
-            return SimpleNamespace(series_id=req.series_id, effective_since=req.since, candles=req.candles or [], gap_payload=None)
-
-        def build_ws_emit(self, req: WsEmitRequest):
-            payloads = [{"type": "candle_closed", "series_id": req.series_id, "candle": req.catchup[0].model_dump()}]
-            return SimpleNamespace(payloads=payloads, last_sent_time=int(req.catchup[-1].candle_time) if req.catchup else None)
+            payloads = [{"type": "candle_closed", "series_id": req.series_id, "candle": c.model_dump()}]
+            return SimpleNamespace(
+                series_id=req.series_id,
+                effective_since=req.since,
+                read_count=1,
+                catchup_count=1,
+                payloads=payloads,
+                last_sent_time=160,
+                gap_emitted=False,
+            )
 
     hub = cast(Any, _Hub())
     ondemand = _OnDemand()

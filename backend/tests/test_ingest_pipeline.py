@@ -93,6 +93,30 @@ class _HubFailing(_Hub):
         await super().publish_system(series_id=series_id, event=event, message=message, data=data)
 
 
+class _Mirror:
+    def __init__(self, *, fail_upsert_series: set[str] | None = None, fail_delete_series: set[str] | None = None) -> None:
+        self._fail_upsert_series = set(fail_upsert_series or set())
+        self._fail_delete_series = set(fail_delete_series or set())
+        self.upsert_calls: list[tuple[str, list[int]]] = []
+        self.delete_calls: list[tuple[str, list[int]]] = []
+
+    def upsert_closed_batch(self, *, series_id: str, candles: list[CandleClosed]) -> int:
+        sid = str(series_id)
+        if sid in self._fail_upsert_series:
+            raise RuntimeError(f"mirror_upsert_failed:{sid}")
+        times = [int(c.candle_time) for c in candles]
+        self.upsert_calls.append((sid, times))
+        return len(times)
+
+    def delete_closed_times(self, *, series_id: str, candle_times: list[int]) -> int:
+        sid = str(series_id)
+        if sid in self._fail_delete_series:
+            raise RuntimeError(f"mirror_delete_failed:{sid}")
+        times = [int(t) for t in candle_times]
+        self.delete_calls.append((sid, times))
+        return len(times)
+
+
 def _candle(t: int, price: float = 1.0) -> CandleClosed:
     return CandleClosed(candle_time=int(t), open=price, high=price, low=price, close=price, volume=1.0)
 
@@ -362,3 +386,79 @@ def test_ingest_pipeline_factor_failure_can_compensate_new_candles() -> None:
         assert exc.value.candle_compensated_rows == 1
         assert exc.value.compensation_error is None
         assert store.head_time("s1") is None
+
+
+def test_ingest_pipeline_shadow_mirror_success_adds_step_without_affecting_main_flow() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        store = CandleStore(db_path=Path(td) / "market.db")
+        mirror = _Mirror()
+        pipeline = IngestPipeline(
+            store=store,
+            factor_orchestrator=None,
+            overlay_orchestrator=None,
+            hub=None,
+            candle_mirror=mirror,
+        )
+
+        result = pipeline.run_sync(
+            batches={
+                "s1": [_candle(100, 1.0), _candle(100, 2.0), _candle(160, 3.0)],
+            }
+        )
+
+        assert store.head_time("s1") == 160
+        assert mirror.upsert_calls == [("s1", [100, 160])]
+        mirror_step = next(step for step in result.steps if step.name == "mirror.upsert_many_closed:s1")
+        assert mirror_step.ok is True
+        assert mirror_step.error is None
+
+
+def test_ingest_pipeline_shadow_mirror_failure_is_non_blocking() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        store = CandleStore(db_path=Path(td) / "market.db")
+        mirror = _Mirror(fail_upsert_series={"s1"})
+        pipeline = IngestPipeline(
+            store=store,
+            factor_orchestrator=None,
+            overlay_orchestrator=None,
+            hub=None,
+            candle_mirror=mirror,
+        )
+
+        result = pipeline.run_sync(
+            batches={
+                "s1": [_candle(100, 1.0)],
+            }
+        )
+
+        assert store.head_time("s1") == 100
+        mirror_step = next(step for step in result.steps if step.name == "mirror.upsert_many_closed:s1")
+        assert mirror_step.ok is False
+        assert "mirror_upsert_failed:s1" in str(mirror_step.error)
+
+
+def test_ingest_pipeline_factor_failure_reports_shadow_mirror_rollback_error() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        store = CandleStore(db_path=Path(td) / "market.db")
+        factor = _Factor(rebuilt_series=set(), fail_series={"s1"})
+        mirror = _Mirror(fail_delete_series={"s1"})
+        pipeline = IngestPipeline(
+            store=store,
+            factor_orchestrator=factor,
+            overlay_orchestrator=None,
+            hub=None,
+            candle_mirror=mirror,
+            candle_compensate_on_error=True,
+        )
+
+        with pytest.raises(IngestPipelineError) as exc:
+            pipeline.run_sync(
+                batches={
+                    "s1": [_candle(100, 1.0)],
+                }
+            )
+
+        assert exc.value.step == "factor.ingest_closed"
+        assert exc.value.candle_compensated_rows == 1
+        assert mirror.delete_calls == []
+        assert "mirror_delete_failed:s1" in str(exc.value.compensation_error)

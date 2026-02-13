@@ -6,9 +6,8 @@ from backend.app.market_data.contracts import (
     CatchupReadRequest,
     CatchupReadResult,
     FreshnessSnapshot,
-    WsCatchupRequest,
-    WsEmitRequest,
-    WsEmitResult,
+    WsSubscribeRequest,
+    WsSubscribeResult,
 )
 from backend.app.schemas import CandleClosed
 
@@ -56,24 +55,29 @@ def test_catchup_contract_keeps_effective_since_and_gap() -> None:
     assert out.candles[0].candle_time == 1700000060
 
 
-def test_ws_catchup_request_contract_shape() -> None:
-    req = WsCatchupRequest(
+def test_ws_subscribe_request_contract_shape() -> None:
+    async def _last_sent() -> int | None:
+        return 1700000060
+
+    req = WsSubscribeRequest(
         series_id="binance:futures:BTC/USDT:1m",
         since=1700000000,
-        last_sent=1700000060,
-        limit=5000,
-    )
-    assert req.last_sent == 1700000060
-    assert req.candles is None
-
-
-def test_ws_emit_contract_shape() -> None:
-    req = WsEmitRequest(
-        series_id="binance:futures:BTC/USDT:1m",
         supports_batch=True,
-        catchup=[],
-        gap_payload={"type": "gap"},
+        limit=5000,
+        get_last_sent=_last_sent,
     )
-    out = WsEmitResult(payloads=[{"type": "gap"}], last_sent_time=None)
     assert req.supports_batch is True
+
+
+def test_ws_subscribe_result_contract_shape() -> None:
+    out = WsSubscribeResult(
+        series_id="binance:futures:BTC/USDT:1m",
+        effective_since=1700000060,
+        read_count=2,
+        catchup_count=1,
+        payloads=[{"type": "gap"}],
+        last_sent_time=None,
+        gap_emitted=True,
+    )
+    assert out.effective_since == 1700000060
     assert out.last_sent_time is None

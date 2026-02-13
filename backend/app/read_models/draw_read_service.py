@@ -3,11 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..overlay_integrity_plugins import evaluate_overlay_integrity
 from ..overlay_store import OverlayInstructionVersionRow
-from ..schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1, OverlayInstructionPatchItemV1
-from ..service_errors import ServiceError
+from ..schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1
 from ..timeframe import series_id_timeframe, timeframe_to_seconds
+from .draw_delta_steps import (
+    assert_overlay_head_covers,
+    build_patch,
+    collect_active_ids,
+    emit_draw_delta_debug_if_needed,
+    ensure_overlay_integrity_if_needed,
+    read_slices_for_overlay_if_needed,
+    resolve_to_time,
+)
 
 
 class _StoreLike(Protocol):
@@ -101,165 +108,69 @@ class DrawReadService:
         strict_mode = bool(getattr(self.factor_read_service, "strict_mode", False))
         store_head = self.store.head_time(series_id)
         overlay_head = self.overlay_store.head_time(series_id)
-        to_time: int | None
-
-        if at_time is not None:
-            aligned = self.store.floor_time(series_id, at_time=int(at_time))
-            if aligned is None:
-                return self._empty_delta(series_id=series_id, cursor_version_id=int(cursor_version_id))
-            if overlay_head is None or int(overlay_head) < int(aligned):
-                raise ServiceError(
-                    status_code=409,
-                    detail="ledger_out_of_sync:overlay",
-                    code="draw_read.ledger_out_of_sync.overlay",
-                )
-            to_time = int(aligned)
-        else:
-            if store_head is not None:
-                to_time = int(store_head)
-            elif overlay_head is not None:
-                to_time = int(overlay_head)
-            else:
-                to_time = None
-        to_candle_id = f"{series_id}:{to_time}" if to_time is not None else None
-
-        if strict_mode and to_time is not None:
-            if overlay_head is None or int(overlay_head) < int(to_time):
-                raise ServiceError(
-                    status_code=409,
-                    detail="ledger_out_of_sync:overlay",
-                    code="draw_read.ledger_out_of_sync.overlay",
-                )
-
+        to_time = resolve_to_time(
+            store=self.store,
+            series_id=series_id,
+            at_time=at_time,
+            store_head=store_head,
+            overlay_head=overlay_head,
+        )
         if to_time is None:
             return self._empty_delta(series_id=series_id, cursor_version_id=int(cursor_version_id))
 
-        slices_for_overlay = None
-        if int(cursor_version_id) == 0:
-            if self.factor_read_service is None:
-                raise ServiceError(
-                    status_code=500,
-                    detail="factor_read_service_not_ready",
-                    code="draw_read.factor_service_not_ready",
-                )
-            slices_for_overlay = self.factor_read_service.read_slices(
-                series_id=series_id,
-                at_time=int(to_time),
-                aligned_time=int(to_time),
-                window_candles=int(window_candles),
-                ensure_fresh=True,
-            )
+        to_candle_id = f"{series_id}:{to_time}" if to_time is not None else None
+
+        if strict_mode:
+            assert_overlay_head_covers(required_time=int(to_time), overlay_head=overlay_head)
+
+        slices_for_overlay = read_slices_for_overlay_if_needed(
+            factor_read_service=self.factor_read_service,
+            series_id=series_id,
+            cursor_version_id=int(cursor_version_id),
+            window_candles=int(window_candles),
+            to_time=int(to_time),
+        )
 
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         cutoff_time = max(0, int(to_time) - int(window_candles) * int(tf_s))
 
         latest_defs = self.overlay_store.get_latest_defs_up_to_time(series_id=series_id, up_to_time=int(to_time))
-        if int(cursor_version_id) == 0:
-            slices = slices_for_overlay
-            if slices is None:
-                slices = GetFactorSlicesResponseV1(
-                    series_id=series_id,
-                    at_time=int(to_time),
-                    candle_id=f"{series_id}:{int(to_time)}",
-                )
-            should_rebuild_overlay, integrity_results = evaluate_overlay_integrity(
-                series_id=series_id,
-                slices=slices,
-                latest_defs=latest_defs,
-            )
-            if should_rebuild_overlay:
-                if self._debug_enabled():
-                    self.debug_hub.emit(
-                        pipe="read",
-                        event="read.http.draw_delta.overlay_out_of_sync",
-                        series_id=series_id,
-                        message="overlay integrity check failed; explicit repair required",
-                        data={
-                            "at_time": int(to_time),
-                            "strict_mode": bool(strict_mode),
-                            "checks": [
-                                {
-                                    "plugin": str(item.plugin_name),
-                                    "should_rebuild": bool(item.should_rebuild),
-                                    "reason": None if item.reason is None else str(item.reason),
-                                }
-                                for item in integrity_results
-                            ],
-                        },
-                    )
-                raise ServiceError(
-                    status_code=409,
-                    detail="ledger_out_of_sync:overlay",
-                    code="draw_read.ledger_out_of_sync.overlay",
-                )
-
-        active_ids: list[str] = []
-        for definition in latest_defs:
-            if definition.kind == "marker":
-                marker_time = definition.payload.get("time")
-                if marker_time is None:
-                    continue
-                try:
-                    pivot_time = int(marker_time)
-                except Exception:
-                    continue
-                if pivot_time < cutoff_time or pivot_time > int(to_time):
-                    continue
-                active_ids.append(str(definition.instruction_id))
-            elif definition.kind == "polyline":
-                points = definition.payload.get("points")
-                if not isinstance(points, list) or not points:
-                    continue
-                has_visible_point = False
-                for point in points:
-                    if not isinstance(point, dict):
-                        continue
-                    point_time = point.get("time")
-                    if point_time is None:
-                        continue
-                    try:
-                        point_time_int = int(point_time)
-                    except Exception:
-                        continue
-                    if cutoff_time <= point_time_int <= int(to_time):
-                        has_visible_point = True
-                        break
-                if has_visible_point:
-                    active_ids.append(str(definition.instruction_id))
-
-        patch_rows = self.overlay_store.get_patch_after_version(
+        ensure_overlay_integrity_if_needed(
             series_id=series_id,
-            after_version_id=int(cursor_version_id),
-            up_to_time=int(to_time),
+            cursor_version_id=int(cursor_version_id),
+            to_time=int(to_time),
+            strict_mode=bool(strict_mode),
+            latest_defs=latest_defs,
+            slices_for_overlay=slices_for_overlay,
+            debug_enabled=self._debug_enabled(),
+            debug_hub=self.debug_hub,
         )
-        patch = [
-            OverlayInstructionPatchItemV1(
-                version_id=row.version_id,
-                instruction_id=row.instruction_id,
-                kind=row.kind,
-                visible_time=row.visible_time,
-                definition=row.payload,
-            )
-            for row in patch_rows
-        ]
-        next_cursor = DrawCursorV1(version_id=int(self.overlay_store.last_version_id(series_id)), point_time=None)
 
-        active_ids.sort()
-        if self._debug_enabled() and (patch or int(next_cursor.version_id) > int(cursor_version_id)):
-            self.debug_hub.emit(
-                pipe="read",
-                event="read.http.draw_delta",
-                series_id=series_id,
-                message="get draw delta",
-                data={
-                    "cursor_version_id": int(cursor_version_id),
-                    "next_version_id": int(next_cursor.version_id),
-                    "to_time": None if to_time is None else int(to_time),
-                    "patch_len": int(len(patch)),
-                    "active_len": int(len(active_ids)),
-                    "at_time": None if at_time is None else int(at_time),
-                },
-            )
+        active_ids = collect_active_ids(
+            latest_defs=latest_defs,
+            cutoff_time=int(cutoff_time),
+            to_time=int(to_time),
+        )
+        patch = build_patch(
+            overlay_store=self.overlay_store,
+            series_id=series_id,
+            cursor_version_id=int(cursor_version_id),
+            to_time=int(to_time),
+        )
+        next_version_id = int(self.overlay_store.last_version_id(series_id))
+        next_cursor = DrawCursorV1(version_id=int(next_version_id), point_time=None)
+
+        emit_draw_delta_debug_if_needed(
+            debug_enabled=self._debug_enabled(),
+            debug_hub=self.debug_hub,
+            series_id=series_id,
+            cursor_version_id=int(cursor_version_id),
+            next_version_id=int(next_cursor.version_id),
+            to_time=int(to_time),
+            patch_len=int(len(patch)),
+            active_len=int(len(active_ids)),
+            at_time=at_time,
+        )
         return DrawDeltaV1(
             series_id=series_id,
             to_candle_id=to_candle_id,

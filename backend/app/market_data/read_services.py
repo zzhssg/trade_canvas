@@ -59,6 +59,7 @@ class StoreBackfillService(BackfillService):
         progress_tracker: MarketBackfillProgressTracker | None = None,
         enable_ccxt_backfill: bool = False,
         enable_ccxt_backfill_on_read: bool = False,
+        enable_strict_closed_only: bool = False,
         ccxt_timeout_ms: int = 10_000,
     ) -> None:
         self._store = store
@@ -67,7 +68,18 @@ class StoreBackfillService(BackfillService):
         self._progress_tracker = progress_tracker
         self._enable_ccxt_backfill = bool(enable_ccxt_backfill)
         self._enable_ccxt_backfill_on_read = bool(enable_ccxt_backfill_on_read)
+        self._enable_strict_closed_only = bool(enable_strict_closed_only)
         self._ccxt_timeout_ms = max(1000, int(ccxt_timeout_ms))
+
+    @staticmethod
+    def _expected_latest_closed_time(*, now_time: int, timeframe_seconds: int) -> int:
+        tf = max(1, int(timeframe_seconds))
+        aligned = (int(now_time) // int(tf)) * int(tf)
+        if aligned <= 0:
+            return 0
+        if aligned >= int(tf):
+            return int(aligned - int(tf))
+        return 0
 
     def _best_effort_backfill_from_base_1m(
         self,
@@ -153,7 +165,14 @@ class StoreBackfillService(BackfillService):
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         if to_time is None:
             now = int(time.time())
-            end_time = int(now // int(tf_s)) * int(tf_s)
+            aligned_now = int(now // int(tf_s)) * int(tf_s)
+            if self._enable_strict_closed_only:
+                end_time = self._expected_latest_closed_time(
+                    now_time=int(now),
+                    timeframe_seconds=int(tf_s),
+                )
+            else:
+                end_time = int(aligned_now)
         else:
             end_time = int(to_time)
 

@@ -2,46 +2,76 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from typing import Mapping
 
 from backend.app.replay_prepare_service import ReplayPrepareService
 from backend.app.schemas import ReplayPrepareRequestV1
 from backend.app.service_errors import ServiceError
 
 
-class _StoreStub:
-    def __init__(self, *, head_time: int | None, aligned_time: int | None) -> None:
-        self._head_time = head_time
-        self._aligned_time = aligned_time
+class _LedgerSyncStub:
+    def __init__(
+        self,
+        *,
+        point_time: int = 1_700_000_060,
+        refresh_refreshed: bool = False,
+        heads_factor_time: int = 1_700_000_060,
+        heads_overlay_time: int = 1_700_000_060,
+        resolve_error: ServiceError | None = None,
+        heads_error: ServiceError | None = None,
+    ) -> None:
+        self.point_time = int(point_time)
+        self.refresh_refreshed = bool(refresh_refreshed)
+        self.heads_factor_time = int(heads_factor_time)
+        self.heads_overlay_time = int(heads_overlay_time)
+        self.resolve_error = resolve_error
+        self.heads_error = heads_error
+        self.refresh_calls: list[tuple[str, int]] = []
 
-    def head_time(self, series_id: str) -> int | None:  # noqa: ARG002
-        return self._head_time
+    def resolve_aligned_point(
+        self,
+        *,
+        series_id: str,
+        to_time: int | None,
+        no_data_code: str,
+        no_data_detail: str = "no_data",
+    ):
+        _ = series_id
+        _ = to_time
+        _ = no_data_code
+        _ = no_data_detail
+        if self.resolve_error is not None:
+            raise self.resolve_error
+        return SimpleNamespace(
+            requested_time=int(self.point_time),
+            aligned_time=int(self.point_time),
+        )
 
-    def floor_time(self, series_id: str, *, at_time: int) -> int | None:  # noqa: ARG002
-        aligned = self._aligned_time
-        if aligned is None:
-            return None
-        return int(aligned) if int(at_time) >= int(aligned) else None
+    def refresh_if_needed(self, *, series_id: str, up_to_time: int):
+        self.refresh_calls.append((str(series_id), int(up_to_time)))
+        return SimpleNamespace(refreshed=bool(self.refresh_refreshed))
 
-
-class _HeadStoreStub:
-    def __init__(self, *, head_time: int | None) -> None:
-        self.head_time_value = head_time
-
-    def head_time(self, series_id: str) -> int | None:  # noqa: ARG002
-        return self.head_time_value
-
-
-class _PipelineStub:
-    def __init__(self, on_refresh=None) -> None:
-        self.calls: list[dict[str, int]] = []
-        self._on_refresh = on_refresh
-
-    def refresh_series_sync(self, *, up_to_times: Mapping[str, int]):
-        self.calls.append(dict(up_to_times))
-        if self._on_refresh is not None:
-            self._on_refresh(dict(up_to_times))
-        return SimpleNamespace(steps=(SimpleNamespace(name="refresh"),))
+    def require_heads_ready(
+        self,
+        *,
+        series_id: str,
+        aligned_time: int,
+        factor_out_of_sync_code: str,
+        overlay_out_of_sync_code: str,
+        factor_out_of_sync_detail: str = "ledger_out_of_sync:factor",
+        overlay_out_of_sync_detail: str = "ledger_out_of_sync:overlay",
+    ):
+        _ = series_id
+        _ = aligned_time
+        _ = factor_out_of_sync_code
+        _ = overlay_out_of_sync_code
+        _ = factor_out_of_sync_detail
+        _ = overlay_out_of_sync_detail
+        if self.heads_error is not None:
+            raise self.heads_error
+        return SimpleNamespace(
+            factor_head_time=int(self.heads_factor_time),
+            overlay_head_time=int(self.heads_overlay_time),
+        )
 
 
 class _DebugHubStub:
@@ -55,10 +85,13 @@ class _DebugHubStub:
 class ReplayPrepareServiceTests(unittest.TestCase):
     def test_prepare_returns_404_when_store_has_no_data(self) -> None:
         service = ReplayPrepareService(
-            store=_StoreStub(head_time=None, aligned_time=None),
-            factor_store=_HeadStoreStub(head_time=None),
-            overlay_store=_HeadStoreStub(head_time=None),
-            ingest_pipeline=_PipelineStub(),
+            ledger_sync_service=_LedgerSyncStub(
+                resolve_error=ServiceError(
+                    status_code=404,
+                    detail="no_data",
+                    code="replay_prepare.no_data",
+                )
+            ),
             debug_hub=_DebugHubStub(),
             debug_api_enabled=False,
         )
@@ -71,21 +104,15 @@ class ReplayPrepareServiceTests(unittest.TestCase):
 
     def test_prepare_refreshes_stale_ledger_and_returns_success(self) -> None:
         series_id = "binance:futures:BTC/USDT:1m"
-        factor_store = _HeadStoreStub(head_time=1_699_999_940)
-        overlay_store = _HeadStoreStub(head_time=1_699_999_940)
-
-        def _promote_heads(up_to_times: dict[str, int]) -> None:
-            new_head = int(up_to_times[series_id])
-            factor_store.head_time_value = new_head
-            overlay_store.head_time_value = new_head
-
-        pipeline = _PipelineStub(on_refresh=_promote_heads)
+        ledger_sync = _LedgerSyncStub(
+            point_time=1_700_000_060,
+            refresh_refreshed=True,
+            heads_factor_time=1_700_000_060,
+            heads_overlay_time=1_700_000_060,
+        )
         debug_hub = _DebugHubStub()
         service = ReplayPrepareService(
-            store=_StoreStub(head_time=1_700_000_060, aligned_time=1_700_000_060),
-            factor_store=factor_store,
-            overlay_store=overlay_store,
-            ingest_pipeline=pipeline,
+            ledger_sync_service=ledger_sync,
             debug_hub=debug_hub,
             debug_api_enabled=True,
         )
@@ -98,16 +125,19 @@ class ReplayPrepareServiceTests(unittest.TestCase):
         self.assertEqual(resp.aligned_time, 1_700_000_060)
         self.assertEqual(resp.window_candles, 100)
         self.assertTrue(resp.computed)
-        self.assertEqual(pipeline.calls, [{series_id: 1_700_000_060}])
+        self.assertEqual(ledger_sync.refresh_calls, [(series_id, 1_700_000_060)])
         self.assertEqual(len(debug_hub.events), 1)
         self.assertEqual(debug_hub.events[0]["event"], "read.http.replay_prepare")
 
     def test_prepare_raises_409_when_factor_still_out_of_sync(self) -> None:
         service = ReplayPrepareService(
-            store=_StoreStub(head_time=1_700_000_060, aligned_time=1_700_000_060),
-            factor_store=_HeadStoreStub(head_time=1_700_000_000),
-            overlay_store=_HeadStoreStub(head_time=1_700_000_060),
-            ingest_pipeline=_PipelineStub(),
+            ledger_sync_service=_LedgerSyncStub(
+                heads_error=ServiceError(
+                    status_code=409,
+                    detail="ledger_out_of_sync:factor",
+                    code="replay_prepare.ledger_out_of_sync.factor",
+                )
+            ),
             debug_hub=_DebugHubStub(),
             debug_api_enabled=False,
         )
