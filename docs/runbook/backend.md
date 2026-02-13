@@ -2,7 +2,7 @@
 title: Backend 运行手册（market kline sync API）
 status: draft
 created: 2026-02-02
-updated: 2026-02-08
+updated: 2026-02-13
 ---
 
 # Backend 运行手册（market kline sync API）
@@ -22,7 +22,9 @@ export TRADE_CANVAS_ENABLE_WHITELIST_INGEST=1
 export TRADE_CANVAS_ENABLE_ONDEMAND_INGEST=1  # 默认已开启（dev_backend.sh）
 export TRADE_CANVAS_ONDEMAND_IDLE_TTL_S=60
 export TRADE_CANVAS_ONDEMAND_MAX_JOBS=8  # 避免同时订阅过多标的导致本机卡顿
-export TRADE_CANVAS_SQLITE_TIMEOUT_S=5   # sqlite 连接 busy 超时（秒）
+export TRADE_CANVAS_ENABLE_PG_STORE=1
+export TRADE_CANVAS_POSTGRES_DSN='postgresql://tc:tc@127.0.0.1:5432/trade_canvas'
+export TRADE_CANVAS_POSTGRES_SCHEMA=trade_canvas
 bash scripts/dev_backend.sh
 ```
 

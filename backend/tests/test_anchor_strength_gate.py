@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.factor_processor_anchor import AnchorProcessor
+from backend.app.factor.processor_anchor import AnchorProcessor
 
 
 class AnchorStrengthGateTests(unittest.TestCase):

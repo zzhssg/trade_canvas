@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.overlay_integrity_plugins import (
+from backend.app.overlay.integrity_plugins import (
     AnchorCurrentStartIntegrityPlugin,
     OverlayIntegrityContext,
     ZhongshuSignatureIntegrityPlugin,
     evaluate_overlay_integrity,
 )
-from backend.app.overlay_store import OverlayInstructionVersionRow
+from backend.app.overlay.store import OverlayInstructionVersionRow
 from backend.app.schemas import FactorMetaV1, FactorSliceV1, GetFactorSlicesResponseV1
 
 

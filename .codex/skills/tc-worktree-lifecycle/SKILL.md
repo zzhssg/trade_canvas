@@ -1,6 +1,6 @@
 ---
 name: tc-worktree-lifecycle
-description: "Enforce worktree lifecycle gates: creation requires description + plan link; acceptance requires E2E pass + review; deletion requires merge confirmation. Use when creating, developing, or completing work in a worktree."
+description: "Enforce worktree lifecycle gates: creation requires description + plan link; acceptance requires quality gate + E2E pass + review; deletion requires merge confirmation. Use when creating, developing, or completing work in a worktree."
 metadata:
   short-description: Worktree 生命周期管理门禁
 ---
@@ -13,7 +13,7 @@ metadata:
 
 - **创建阶段**：必须提供功能介绍（description），建议链接 plan 文档
 - **开发阶段**：遵循 tc-e2e-gate，保持元数据更新
-- **验收阶段**：E2E 通过 + Code Review + Plan 状态更新
+- **验收阶段**：Quality Gate 通过 + E2E 通过 + Code Review + Plan 状态更新
 - **删除阶段**：确认已合并到 main，归档元数据
 
 ---
@@ -94,6 +94,7 @@ Worktree #2:       Backend 8002, Frontend 5175
 
 ### 3.1 验收前必须完成
 
+- [ ] Quality Gate 通过（`bash scripts/quality_gate.sh`）
 - [ ] E2E 用户故事通过（`tc-e2e-gate`）
 - [ ] Code Review 完成
 - [ ] Plan 状态已更新为“待验收”
@@ -109,23 +110,26 @@ bash scripts/worktree_acceptance.sh
 
 1. 输出 review 信息（commit 列表 / diff stat / diff check）
 2. 准备 main（checkout + 可选 ff-only 同步远端 main）
-3. 执行 merge 到 main（需要 `--yes`）
-4. 删除 worktree + 删除本地分支（需要 `--yes`）
+3. 执行质量门禁（`quality_gate.sh`，`--yes` 时默认开启）
+4. 执行 merge 到 main（需要 `--yes`）
+5. 删除 worktree + 删除本地分支（需要 `--yes`）
 
 默认是 dry-run，不会真正合并/删除；真正执行用：
 
 ```bash
 # 在 feature worktree 内执行（推荐）
-bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status --run-doc-audit
+bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status
 
 # 如需合并后删除远端分支（可选）
-bash scripts/worktree_acceptance.sh --yes --push --delete-remote --auto-doc-status --run-doc-audit
+bash scripts/worktree_acceptance.sh --yes --push --delete-remote --auto-doc-status
 ```
+
+特例需要跳过质量门禁时，显式加：`--no-quality-gate`（默认不建议）。
 
 如果 metadata 里没有 plan_path，可显式指定：
 
 ```bash
-bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status --run-doc-audit --plan-doc docs/plan/2026-02-xx-my-feature.md
+bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status --plan-doc docs/plan/2026-02-xx-my-feature.md
 ```
 
 ### 3.3 验收阶段的退出条件

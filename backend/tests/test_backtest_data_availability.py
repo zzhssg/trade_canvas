@@ -71,7 +71,7 @@ class BacktestDataAvailabilityTests(unittest.TestCase):
         self.assertIn("1m", payload["available_timeframes"])
 
     def test_run_backtest_fails_fast_when_data_missing(self) -> None:
-        from backend.app.freqtrade_runner import FreqtradeExecResult
+        from backend.app.freqtrade.runner import FreqtradeExecResult
 
         list_ok = FreqtradeExecResult(
             ok=True,

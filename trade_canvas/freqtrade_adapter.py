@@ -21,13 +21,13 @@ def _to_unix_seconds(value: Any) -> int:
     return int(value)
 
 
-def default_strategy_db_path(*, strategy_name: str) -> Path:
+def default_strategy_state_path(*, strategy_name: str) -> Path:
     explicit = os.environ.get("TRADE_CANVAS_STRATEGY_DB_PATH", "").strip()
     if explicit:
         return Path(explicit)
     # Avoid accidental cross-run persistence in backtests when env var is not set.
     tmpdir = Path(tempfile.gettempdir())
-    return tmpdir / f"trade_canvas_{strategy_name}_{os.getpid()}.sqlite3"
+    return tmpdir / f"trade_canvas_{strategy_name}_{os.getpid()}.db"
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ def annotate_sma_cross(
     """
     Freqtrade-friendly bridge:
     - Consumes freqtrade candle dataframe (expects columns: date/open/high/low/close/volume)
-    - Replays candles into trade_canvas sqlite-backed kernel (incremental, deterministic)
+    - Replays candles into trade_canvas kernel state (incremental, deterministic)
     - Annotates dataframe with:
         - `tc_ok` (1/0)
         - `tc_sma_fast`, `tc_sma_slow`
@@ -63,7 +63,7 @@ def annotate_sma_cross(
         return KernelAnnotateResult(ok=False, reason=f"pandas_missing:{e}", dataframe=dataframe)
 
     from .kernel import SmaCrossKernel
-    from .store import SqliteStore
+    from .store import KernelStore
     from .types import CandleClosed
 
     df = dataframe.copy()
@@ -79,8 +79,8 @@ def annotate_sma_cross(
     if missing:
         return KernelAnnotateResult(ok=False, reason=f"missing_columns:{sorted(missing)}", dataframe=dataframe)
 
-    db_path = db_path or default_strategy_db_path(strategy_name="sma_cross")
-    store = SqliteStore(db_path)
+    db_path = db_path or default_strategy_state_path(strategy_name="sma_cross")
+    store = KernelStore(db_path)
     conn = store.connect()
     try:
         store.init_schema(conn)

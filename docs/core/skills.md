@@ -20,6 +20,7 @@
 - `tc-market-kline-fastpath-v2`：市场 K 线 Fastpath v2（保持 HTTP/WS 契约稳定，可回滚可验收）
 - `tc-planning`：任务拆解与计划（每步可验收/可回滚；强制 A/B 方案取舍、新增文件理由卡、复杂度预算卡；大改动落盘 `docs/plan/`）
 - `tc-skill-authoring`：本项目 skill 编写指南（新增/修改 skills，并与文档索引联动）
+- `tc-verify`：统一质量门禁（禁兼容层/禁遗留双轨/禁临时债，交付前强制跑 `bash scripts/quality_gate.sh`）
 - `tc-worktree-lifecycle`：Worktree 生命周期管理（创建→开发→验收→删除门禁，配合 `/dev` 与 `.worktree-meta/`）
 
 ### 2) 全局 skills（真源：`$CODEX_HOME/skills/`，可能因机器而异）
@@ -50,7 +51,6 @@
 以下条目若在协作中需要用到，建议尽快补齐到 `.codex/skills/` 或从全局 skills 引入：
 
 - `tc-docs`
-- `tc-verify`
 
 ## 真源位置
 

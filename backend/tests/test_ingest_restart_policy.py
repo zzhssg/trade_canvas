@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.app.ingest_restart_policy import carry_restart_state, mark_restart_failure, plan_ingest_restart
+from backend.app.ingest.restart_policy import carry_restart_state, mark_restart_failure, plan_ingest_restart
 
 
 class _FakeGuardrail:

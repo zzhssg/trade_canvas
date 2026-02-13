@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.app.factor_fingerprint_rebuild import FactorFingerprintRebuildCoordinator
-from backend.app.factor_store import FactorEventWrite, FactorStore
+from backend.app.factor.fingerprint_rebuild import FactorFingerprintRebuildCoordinator
+from backend.app.factor.store import FactorEventWrite, FactorStore
 from backend.app.schemas import CandleClosed
 from backend.app.store import CandleStore
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.zhongshu import (
+from backend.app.factor.zhongshu import (
     build_alive_zhongshu_from_confirmed_pens,
     build_dead_zhongshus_from_confirmed_pens,
     init_zhongshu_state,

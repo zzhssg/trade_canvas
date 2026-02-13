@@ -4,15 +4,9 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from backend.app.data_reconcile_service import (
-    ReconcileDiffSnapshot,
-    ReconcileSeriesSnapshot,
-    ReconcileSideSnapshot,
-)
 from backend.app.main import create_app
 
 
@@ -31,7 +25,6 @@ class MarketDebugIngestStateTests(unittest.TestCase):
         os.environ.pop("TRADE_CANVAS_ENABLE_DEBUG_API", None)
         os.environ.pop("TRADE_CANVAS_ENABLE_RUNTIME_METRICS", None)
         os.environ.pop("TRADE_CANVAS_ENABLE_PG_STORE", None)
-        os.environ.pop("TRADE_CANVAS_ENABLE_DUAL_WRITE", None)
         os.environ.pop("TRADE_CANVAS_POSTGRES_DSN", None)
         os.environ.pop("TRADE_CANVAS_POSTGRES_SCHEMA", None)
 
@@ -118,64 +111,6 @@ class MarketDebugIngestStateTests(unittest.TestCase):
         self.assertEqual(payload["base_bucket_completeness"][-1]["bucket_open_time"], 600)
         self.assertEqual(payload["base_bucket_completeness"][-1]["expected_minutes"], 5)
         self.assertEqual(payload["base_bucket_completeness"][-1]["actual_minutes"], 2)
-
-    def test_debug_reconcile_404_when_pg_store_disabled(self) -> None:
-        os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
-        client = TestClient(create_app())
-        resp = client.get(
-            "/api/market/debug/reconcile",
-            params={"series_id": "binance:futures:BTC/USDT:1m"},
-        )
-        self.assertEqual(resp.status_code, 404, resp.text)
-
-    def test_debug_reconcile_200_when_debug_and_pg_store_enabled(self) -> None:
-        os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
-        os.environ["TRADE_CANVAS_ENABLE_PG_STORE"] = "1"
-        os.environ["TRADE_CANVAS_ENABLE_DUAL_WRITE"] = "1"
-        os.environ["TRADE_CANVAS_POSTGRES_DSN"] = "postgresql://tc:tc@127.0.0.1:5432/tc"
-        os.environ["TRADE_CANVAS_POSTGRES_SCHEMA"] = "trade_canvas"
-
-        fake_snapshot = ReconcileSeriesSnapshot(
-            series_id="binance:futures:BTC/USDT:1m",
-            range_start=100,
-            range_end=160,
-            sqlite=ReconcileSideSnapshot(
-                head_time=160,
-                first_time=100,
-                count=2,
-                candle_time_sum=260,
-                close_micro_sum=3000000,
-            ),
-            postgres=ReconcileSideSnapshot(
-                head_time=160,
-                first_time=100,
-                count=2,
-                candle_time_sum=260,
-                close_micro_sum=3000000,
-            ),
-            diff=ReconcileDiffSnapshot(
-                head_match=True,
-                count_match=True,
-                checksum_match=True,
-                match=True,
-            ),
-        )
-
-        with patch("backend.app.container._maybe_bootstrap_postgres", return_value=None):
-            with patch(
-                "backend.app.data_reconcile_service.DataReconcileService.reconcile_series",
-                return_value=fake_snapshot,
-            ):
-                client = TestClient(create_app())
-                resp = client.get(
-                    "/api/market/debug/reconcile",
-                    params={"series_id": "binance:futures:BTC/USDT:1m"},
-                )
-
-        self.assertEqual(resp.status_code, 200, resp.text)
-        payload = resp.json()
-        self.assertEqual(payload["series_id"], "binance:futures:BTC/USDT:1m")
-        self.assertTrue(payload["diff"]["match"])
 
 
 if __name__ == "__main__":

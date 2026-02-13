@@ -9,7 +9,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
-from backend.app.market_list import _exchangeinfo_ttl_s, _futures_base_url, _spot_base_url, _ticker_ttl_s
+from backend.app.market.list import _exchangeinfo_ttl_s, _futures_base_url, _spot_base_url, _ticker_ttl_s
 
 
 class MarketTopMarketsApiTests(unittest.TestCase):
@@ -58,7 +58,7 @@ class MarketTopMarketsApiTests(unittest.TestCase):
                 return spot_tickers
             raise AssertionError(f"unexpected url: {url}")
 
-        with patch("backend.app.market_list._fetch_json", side_effect=fake_fetch):
+        with patch("backend.app.market.list._fetch_json", side_effect=fake_fetch):
             resp = self.client.get(
                 "/api/market/top_markets",
                 params={"exchange": "binance", "market": "spot", "quote_asset": "USDT", "limit": 2, "force": True},
@@ -101,7 +101,7 @@ class MarketTopMarketsApiTests(unittest.TestCase):
                 return futures_tickers
             raise AssertionError(f"unexpected url: {url}")
 
-        with patch("backend.app.market_list._fetch_json", side_effect=fake_fetch):
+        with patch("backend.app.market.list._fetch_json", side_effect=fake_fetch):
             resp = self.client.get(
                 "/api/market/top_markets",
                 params={"exchange": "binance", "market": "futures", "quote_asset": "USDT", "limit": 20, "force": True},
@@ -127,14 +127,14 @@ class MarketTopMarketsApiTests(unittest.TestCase):
                 return spot_tickers
             raise AssertionError(f"unexpected url: {url}")
 
-        with patch("backend.app.market_list._fetch_json", side_effect=fake_fetch):
+        with patch("backend.app.market.list._fetch_json", side_effect=fake_fetch):
             resp1 = self.client.get(
                 "/api/market/top_markets",
                 params={"exchange": "binance", "market": "spot", "quote_asset": "USDT", "limit": 20, "force": True},
             )
             self.assertEqual(resp1.status_code, 200)
 
-        with patch("backend.app.market_list._fetch_json", side_effect=RuntimeError("upstream down")):
+        with patch("backend.app.market.list._fetch_json", side_effect=RuntimeError("upstream down")):
             resp2 = self.client.get(
                 "/api/market/top_markets",
                 params={"exchange": "binance", "market": "spot", "quote_asset": "USDT", "limit": 20},

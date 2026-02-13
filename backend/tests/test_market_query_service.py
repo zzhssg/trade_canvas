@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from backend.app.market_data import CatchupReadResult, FreshnessSnapshot
-from backend.app.market_query_service import MarketQueryService
+from backend.app.market.query_service import MarketQueryService
 from backend.app.schemas import CandleClosed
 
 

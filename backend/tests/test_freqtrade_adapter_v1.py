@@ -8,9 +8,9 @@ from typing import Sequence
 
 import pandas as pd  # type: ignore[import-untyped]
 
-from backend.app.factor_plugin_contract import FactorPluginSpec
-from backend.app.freqtrade_adapter_v1 import annotate_factor_ledger
-from backend.app.freqtrade_signal_plugin_contract import (
+from backend.app.factor.plugin_contract import FactorPluginSpec
+from backend.app.freqtrade.adapter_v1 import annotate_factor_ledger
+from backend.app.freqtrade.signal_plugin_contract import (
     FreqtradeSignalBucketSpec,
     FreqtradeSignalContext,
 )

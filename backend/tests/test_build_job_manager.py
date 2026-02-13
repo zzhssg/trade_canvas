@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.build_job_manager import BuildJobManager
+from backend.app.build.job_manager import BuildJobManager
 
 
 def test_build_job_manager_ensure_is_idempotent() -> None:

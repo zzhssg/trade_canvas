@@ -8,6 +8,7 @@ metadata:
 # tc-acceptance-e2e（最终验收：E2E + 证据交付）
 
 目标：在宣称“完成/可交付”之前，把 trade_canvas 的主链路验收收敛到 **唯一可复核证据**：
+- `bash scripts/quality_gate.sh` 退出码为 0（结构清洁门禁）
 - `bash scripts/e2e_acceptance.sh` 退出码为 0
 - `output/playwright/` 中留存 trace/screenshot/video（失败时必有，成功时可为空但要有本次运行日志）
 
@@ -22,12 +23,14 @@ metadata:
 避免端口冲突与本机 dev 服务干扰，固定使用非默认端口：
 
 ```bash
+bash scripts/quality_gate.sh
 E2E_BACKEND_PORT=18080 E2E_FRONTEND_PORT=15180 bash scripts/e2e_acceptance.sh
 ```
 
 ### 1.2 输出证据（必须给）
 
 交付汇报至少包含：
+- 命令：`bash scripts/quality_gate.sh`
 - 命令：`E2E_BACKEND_PORT=... E2E_FRONTEND_PORT=... bash scripts/e2e_acceptance.sh`
 - 关键输出：最后的 `OK: Playwright E2E passed.`（或失败栈）
 - 产物路径：`output/playwright/`

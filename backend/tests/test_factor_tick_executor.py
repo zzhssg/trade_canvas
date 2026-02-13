@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend.app.factor_runtime_config import FactorSettings
-from backend.app.factor_runtime_contract import FactorRuntimeContext
-from backend.app.factor_store import FactorEventWrite
-from backend.app.factor_tick_executor import FactorTickExecutor, FactorTickState
+from backend.app.factor.runtime_config import FactorSettings
+from backend.app.factor.runtime_contract import FactorRuntimeContext
+from backend.app.factor.store import FactorEventWrite
+from backend.app.factor.tick_executor import FactorTickExecutor, FactorTickState
 
 
 class _GraphStub:

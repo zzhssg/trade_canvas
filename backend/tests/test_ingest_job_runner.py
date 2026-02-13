@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from backend.app.ingest_job_runner import IngestJobRunner, IngestJobRunnerConfig
-from backend.app.ingest_settings import WhitelistIngestSettings
+from backend.app.ingest.job_runner import IngestJobRunner, IngestJobRunnerConfig
+from backend.app.ingest.settings import WhitelistIngestSettings
 from backend.app.store import CandleStore
-from backend.app.ws_hub import CandleHub
+from backend.app.ws.hub import CandleHub
 
 
 class _FakeGuardrail:

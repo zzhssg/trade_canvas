@@ -7,7 +7,6 @@ from ..blocking import run_blocking
 from ..schemas import CandleClosed
 from ..store import CandleStore
 from .ingest_pipeline_steps import (
-    CandleMirrorLike,
     FactorOrchestratorLike,
     IngestPipelineError,
     IngestPipelineResult,
@@ -39,7 +38,6 @@ class IngestPipeline:
         factor_orchestrator: FactorOrchestratorLike | None,
         overlay_orchestrator: OverlayOrchestratorLike | None,
         hub: _HubLike | None,
-        candle_mirror: CandleMirrorLike | None = None,
         overlay_compensate_on_error: bool = False,
         candle_compensate_on_error: bool = False,
     ) -> None:
@@ -47,14 +45,12 @@ class IngestPipeline:
         self._factor_orchestrator = factor_orchestrator
         self._overlay_orchestrator = overlay_orchestrator
         self._hub = hub
-        self._candle_mirror = candle_mirror
         self._overlay_compensate_on_error = bool(overlay_compensate_on_error)
         self._candle_compensate_on_error = bool(candle_compensate_on_error)
 
     def _rollback_new_candles(self, *, series_id: str, new_candle_times: list[int]) -> tuple[int, BaseException | None]:
         return rollback_new_candles(
             store=self._store,
-            candle_mirror=self._candle_mirror,
             enabled=bool(self._candle_compensate_on_error),
             series_id=series_id,
             new_candle_times=new_candle_times,
@@ -113,7 +109,6 @@ class IngestPipeline:
             if matched_batch is not None and matched_batch.candles:
                 new_candle_times, store_steps = persist_closed_batch(
                     store=self._store,
-                    candle_mirror=self._candle_mirror,
                     batch=matched_batch,
                 )
                 steps.extend(store_steps)

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 
 @dataclass(frozen=True)
@@ -30,150 +30,112 @@ class PlotPointRow:
     value: float
 
 
-class SqliteStore:
+@dataclass
+class _KernelStoreState:
+    candles_by_series: dict[str, dict[int, dict[str, Any]]] = field(default_factory=dict)
+    kernel_state: dict[str, dict[str, Any]] = field(default_factory=dict)
+    ledger_latest: dict[str, LatestLedgerRow] = field(default_factory=dict)
+    overlay_events: dict[str, list[OverlayEventRow]] = field(default_factory=dict)
+    plot_points: dict[str, dict[str, dict[int, PlotPointRow]]] = field(default_factory=dict)
+    next_overlay_event_id: int = 1
+
+
+_STORE_STATES: dict[str, _KernelStoreState] = {}
+_STORE_STATES_LOCK = threading.Lock()
+
+
+def _store_key(db_path: str | Path) -> str:
+    return str(Path(db_path))
+
+
+def _get_store_state(db_path: str | Path) -> _KernelStoreState:
+    key = _store_key(db_path)
+    with _STORE_STATES_LOCK:
+        state = _STORE_STATES.get(key)
+        if state is None:
+            state = _KernelStoreState()
+            _STORE_STATES[key] = state
+        return state
+
+
+def _series_key(symbol: str, timeframe: str) -> str:
+    return f"{str(symbol)}:{str(timeframe)}"
+
+
+def _clone_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return json.loads(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+
+
+class KernelStoreConnection:
+    def __init__(self, state: _KernelStoreState) -> None:
+        self._state = state
+        self.total_changes = 0
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def commit(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+class KernelStore:
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = str(db_path)
 
-    def connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        return conn
+    def connect(self) -> KernelStoreConnection:
+        return KernelStoreConnection(_get_store_state(self._db_path))
 
-    def init_schema(self, conn: sqlite3.Connection) -> None:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS candles (
-              candle_id TEXT PRIMARY KEY,
-              symbol TEXT NOT NULL,
-              timeframe TEXT NOT NULL,
-              open_time INTEGER NOT NULL,
-              open REAL NOT NULL,
-              high REAL NOT NULL,
-              low REAL NOT NULL,
-              close REAL NOT NULL,
-              volume REAL NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS kernel_state (
-              key TEXT PRIMARY KEY,
-              payload_json TEXT NOT NULL
-            );
-
-            -- latest materialized ledger row (per symbol+timeframe)
-            CREATE TABLE IF NOT EXISTS ledger_latest (
-              symbol TEXT NOT NULL,
-              timeframe TEXT NOT NULL,
-              candle_id TEXT NOT NULL,
-              candle_time INTEGER NOT NULL,
-              payload_json TEXT NOT NULL,
-              PRIMARY KEY (symbol, timeframe)
-            );
-
-            CREATE TABLE IF NOT EXISTS overlay_events (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              symbol TEXT NOT NULL,
-              timeframe TEXT NOT NULL,
-              candle_id TEXT NOT NULL,
-              candle_time INTEGER NOT NULL,
-              kind TEXT NOT NULL,
-              payload_json TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_overlay_events_series_time
-              ON overlay_events(symbol, timeframe, candle_time);
-
-            CREATE INDEX IF NOT EXISTS idx_overlay_events_series_id
-              ON overlay_events(symbol, timeframe, id);
-
-            -- plot points (time series) for chart overlays (e.g. indicators)
-            CREATE TABLE IF NOT EXISTS plot_points (
-              symbol TEXT NOT NULL,
-              timeframe TEXT NOT NULL,
-              feature_key TEXT NOT NULL,
-              candle_id TEXT NOT NULL,
-              candle_time INTEGER NOT NULL,
-              value REAL NOT NULL,
-              PRIMARY KEY (symbol, timeframe, feature_key, candle_time)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_plot_points_series_feature_time
-              ON plot_points(symbol, timeframe, feature_key, candle_time);
-            """
-        )
+    def init_schema(self, conn: KernelStoreConnection) -> None:
         conn.commit()
 
-    # --- candles ---
-    def upsert_candle(self, conn: sqlite3.Connection, *, candle: Any) -> None:
-        conn.execute(
-            """
-            INSERT INTO candles (candle_id, symbol, timeframe, open_time, open, high, low, close, volume)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(candle_id) DO UPDATE SET
-              open=excluded.open,
-              high=excluded.high,
-              low=excluded.low,
-              close=excluded.close,
-              volume=excluded.volume
-            """,
-            (
-                candle.candle_id,
-                candle.symbol,
-                candle.timeframe,
-                candle.open_time,
-                float(candle.open),
-                float(candle.high),
-                float(candle.low),
-                float(candle.close),
-                float(candle.volume),
-            ),
-        )
+    def upsert_candle(self, conn: KernelStoreConnection, *, candle: Any) -> None:
+        series = _series_key(str(candle.symbol), str(candle.timeframe))
+        by_time = conn._state.candles_by_series.setdefault(series, {})
+        by_time[int(candle.open_time)] = {
+            "candle_id": str(candle.candle_id),
+            "symbol": str(candle.symbol),
+            "timeframe": str(candle.timeframe),
+            "open_time": int(candle.open_time),
+            "open": float(candle.open),
+            "high": float(candle.high),
+            "low": float(candle.low),
+            "close": float(candle.close),
+            "volume": float(candle.volume),
+        }
+        conn.total_changes += 1
 
-    def get_latest_candle_id(self, conn: sqlite3.Connection, *, symbol: str, timeframe: str) -> str | None:
-        row = conn.execute(
-            """
-            SELECT candle_id
-            FROM candles
-            WHERE symbol = ? AND timeframe = ?
-            ORDER BY open_time DESC
-            LIMIT 1
-            """,
-            (symbol, timeframe),
-        ).fetchone()
-        return None if row is None else str(row["candle_id"])
-
-    def get_latest_candle_time(self, conn: sqlite3.Connection, *, symbol: str, timeframe: str) -> int | None:
-        row = conn.execute(
-            """
-            SELECT MAX(open_time) AS open_time
-            FROM candles
-            WHERE symbol = ? AND timeframe = ?
-            """,
-            (symbol, timeframe),
-        ).fetchone()
-        if row is None or row["open_time"] is None:
+    def get_latest_candle_id(self, conn: KernelStoreConnection, *, symbol: str, timeframe: str) -> str | None:
+        by_time = conn._state.candles_by_series.get(_series_key(symbol, timeframe), {})
+        if not by_time:
             return None
-        return int(row["open_time"])
+        latest_time = max(by_time)
+        return str(by_time[int(latest_time)]["candle_id"])
 
-    # --- kernel state ---
-    def load_state(self, conn: sqlite3.Connection, *, key: str) -> dict[str, Any] | None:
-        row = conn.execute("SELECT payload_json FROM kernel_state WHERE key = ?", (key,)).fetchone()
-        return None if row is None else json.loads(row["payload_json"])
+    def get_latest_candle_time(self, conn: KernelStoreConnection, *, symbol: str, timeframe: str) -> int | None:
+        by_time = conn._state.candles_by_series.get(_series_key(symbol, timeframe), {})
+        if not by_time:
+            return None
+        return int(max(by_time))
 
-    def save_state(self, conn: sqlite3.Connection, *, key: str, payload: dict[str, Any]) -> None:
-        conn.execute(
-            """
-            INSERT INTO kernel_state (key, payload_json) VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET payload_json=excluded.payload_json
-            """,
-            (key, json.dumps(payload, separators=(",", ":"), sort_keys=True)),
-        )
+    def load_state(self, conn: KernelStoreConnection, *, key: str) -> dict[str, Any] | None:
+        payload = conn._state.kernel_state.get(str(key))
+        if payload is None:
+            return None
+        return _clone_payload(payload)
 
-    # --- ledger / overlay ---
+    def save_state(self, conn: KernelStoreConnection, *, key: str, payload: dict[str, Any]) -> None:
+        conn._state.kernel_state[str(key)] = _clone_payload(payload)
+        conn.total_changes += 1
+
     def set_latest_ledger(
         self,
-        conn: sqlite3.Connection,
+        conn: KernelStoreConnection,
         *,
         symbol: str,
         timeframe: str,
@@ -181,44 +143,26 @@ class SqliteStore:
         candle_time: int,
         payload: dict[str, Any],
     ) -> None:
-        conn.execute(
-            """
-            INSERT INTO ledger_latest (symbol, timeframe, candle_id, candle_time, payload_json)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(symbol, timeframe) DO UPDATE SET
-              candle_id=excluded.candle_id,
-              candle_time=excluded.candle_time,
-              payload_json=excluded.payload_json
-            """,
-            (
-                symbol,
-                timeframe,
-                candle_id,
-                int(candle_time),
-                json.dumps(payload, separators=(",", ":"), sort_keys=True),
-            ),
+        conn._state.ledger_latest[_series_key(symbol, timeframe)] = LatestLedgerRow(
+            candle_id=str(candle_id),
+            candle_time=int(candle_time),
+            payload=_clone_payload(payload),
         )
+        conn.total_changes += 1
 
-    def get_latest_ledger(self, conn: sqlite3.Connection, *, symbol: str, timeframe: str) -> LatestLedgerRow | None:
-        row = conn.execute(
-            """
-            SELECT candle_id, candle_time, payload_json
-            FROM ledger_latest
-            WHERE symbol = ? AND timeframe = ?
-            """,
-            (symbol, timeframe),
-        ).fetchone()
+    def get_latest_ledger(self, conn: KernelStoreConnection, *, symbol: str, timeframe: str) -> LatestLedgerRow | None:
+        row = conn._state.ledger_latest.get(_series_key(symbol, timeframe))
         if row is None:
             return None
         return LatestLedgerRow(
-            candle_id=str(row["candle_id"]),
-            candle_time=int(row["candle_time"]),
-            payload=json.loads(row["payload_json"]),
+            candle_id=str(row.candle_id),
+            candle_time=int(row.candle_time),
+            payload=_clone_payload(row.payload),
         )
 
     def append_overlay_event(
         self,
-        conn: sqlite3.Connection,
+        conn: KernelStoreConnection,
         *,
         symbol: str,
         timeframe: str,
@@ -227,97 +171,77 @@ class SqliteStore:
         kind: str,
         payload: dict[str, Any],
     ) -> None:
-        conn.execute(
-            """
-            INSERT INTO overlay_events (symbol, timeframe, candle_id, candle_time, kind, payload_json)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                symbol,
-                timeframe,
-                candle_id,
-                int(candle_time),
-                kind,
-                json.dumps(payload, separators=(",", ":"), sort_keys=True),
-            ),
+        series = _series_key(symbol, timeframe)
+        event_id = int(conn._state.next_overlay_event_id)
+        conn._state.next_overlay_event_id += 1
+        events = conn._state.overlay_events.setdefault(series, [])
+        events.append(
+            OverlayEventRow(
+                id=event_id,
+                candle_id=str(candle_id),
+                candle_time=int(candle_time),
+                kind=str(kind),
+                payload=_clone_payload(payload),
+            )
         )
+        conn.total_changes += 1
 
     def get_latest_overlay_event(
         self,
-        conn: sqlite3.Connection,
+        conn: KernelStoreConnection,
         *,
         symbol: str,
         timeframe: str,
         kind: str,
     ) -> OverlayEventRow | None:
-        row = conn.execute(
-            """
-            SELECT id, candle_id, candle_time, kind, payload_json
-            FROM overlay_events
-            WHERE symbol = ? AND timeframe = ? AND kind = ?
-            ORDER BY candle_time DESC, id DESC
-            LIMIT 1
-            """,
-            (symbol, timeframe, kind),
-        ).fetchone()
-        if row is None:
+        events = conn._state.overlay_events.get(_series_key(symbol, timeframe), [])
+        candidates = [event for event in events if str(event.kind) == str(kind)]
+        if not candidates:
             return None
+        latest = max(candidates, key=lambda event: (int(event.candle_time), int(event.id or 0)))
         return OverlayEventRow(
-            candle_id=str(row["candle_id"]),
-            candle_time=int(row["candle_time"]),
-            kind=str(row["kind"]),
-            payload=json.loads(row["payload_json"]),
-            id=int(row["id"]),
+            id=int(latest.id or 0),
+            candle_id=str(latest.candle_id),
+            candle_time=int(latest.candle_time),
+            kind=str(latest.kind),
+            payload=_clone_payload(latest.payload),
         )
 
-    def get_latest_overlay_event_id(self, conn: sqlite3.Connection, *, symbol: str, timeframe: str) -> int | None:
-        row = conn.execute(
-            """
-            SELECT MAX(id) AS id
-            FROM overlay_events
-            WHERE symbol = ? AND timeframe = ?
-            """,
-            (symbol, timeframe),
-        ).fetchone()
-        if row is None or row["id"] is None:
+    def get_latest_overlay_event_id(self, conn: KernelStoreConnection, *, symbol: str, timeframe: str) -> int | None:
+        events = conn._state.overlay_events.get(_series_key(symbol, timeframe), [])
+        if not events:
             return None
-        return int(row["id"])
+        return int(max(int(event.id or 0) for event in events))
 
     def get_overlay_events_since_id(
         self,
-        conn: sqlite3.Connection,
+        conn: KernelStoreConnection,
         *,
         symbol: str,
         timeframe: str,
         since_id: int | None,
         limit: int = 5000,
     ) -> list[OverlayEventRow]:
-        since_id = 0 if since_id is None else int(since_id)
-        rows = conn.execute(
-            """
-            SELECT id, candle_id, candle_time, kind, payload_json
-            FROM overlay_events
-            WHERE symbol = ? AND timeframe = ? AND id > ?
-            ORDER BY id ASC
-            LIMIT ?
-            """,
-            (symbol, timeframe, since_id, int(limit)),
-        ).fetchall()
+        events = conn._state.overlay_events.get(_series_key(symbol, timeframe), [])
+        min_event_id = 0 if since_id is None else int(since_id)
+        out = [event for event in events if int(event.id or 0) > min_event_id]
+        out.sort(key=lambda event: int(event.id or 0))
+        if int(limit) > 0:
+            out = out[: int(limit)]
         return [
             OverlayEventRow(
-                candle_id=str(r["candle_id"]),
-                candle_time=int(r["candle_time"]),
-                kind=str(r["kind"]),
-                payload=json.loads(r["payload_json"]),
-                id=int(r["id"]),
+                id=int(event.id or 0),
+                candle_id=str(event.candle_id),
+                candle_time=int(event.candle_time),
+                kind=str(event.kind),
+                payload=_clone_payload(event.payload),
             )
-            for r in rows
+            for event in out
         ]
 
-    # --- plot points ---
     def upsert_plot_point(
         self,
-        conn: sqlite3.Connection,
+        conn: KernelStoreConnection,
         *,
         symbol: str,
         timeframe: str,
@@ -326,20 +250,19 @@ class SqliteStore:
         candle_time: int,
         value: float,
     ) -> None:
-        conn.execute(
-            """
-            INSERT INTO plot_points (symbol, timeframe, feature_key, candle_id, candle_time, value)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(symbol, timeframe, feature_key, candle_time) DO UPDATE SET
-              candle_id=excluded.candle_id,
-              value=excluded.value
-            """,
-            (symbol, timeframe, feature_key, candle_id, int(candle_time), float(value)),
+        series = _series_key(symbol, timeframe)
+        by_feature = conn._state.plot_points.setdefault(series, {})
+        by_time = by_feature.setdefault(str(feature_key), {})
+        by_time[int(candle_time)] = PlotPointRow(
+            feature_key=str(feature_key),
+            candle_time=int(candle_time),
+            value=float(value),
         )
+        conn.total_changes += 1
 
     def get_plot_points_since_time(
         self,
-        conn: sqlite3.Connection,
+        conn: KernelStoreConnection,
         *,
         symbol: str,
         timeframe: str,
@@ -349,20 +272,25 @@ class SqliteStore:
     ) -> list[PlotPointRow]:
         if not feature_keys:
             return []
+        series = _series_key(symbol, timeframe)
+        by_feature = conn._state.plot_points.get(series, {})
+        floor = -1 if since_time is None else int(since_time)
 
-        since_time = -1 if since_time is None else int(since_time)
-        placeholders = ",".join("?" for _ in feature_keys)
-        rows = conn.execute(
-            f"""
-            SELECT feature_key, candle_time, value
-            FROM plot_points
-            WHERE symbol = ? AND timeframe = ? AND feature_key IN ({placeholders}) AND candle_time > ?
-            ORDER BY candle_time ASC
-            LIMIT ?
-            """,
-            (symbol, timeframe, *feature_keys, since_time, int(limit)),
-        ).fetchall()
-        return [
-            PlotPointRow(feature_key=str(r["feature_key"]), candle_time=int(r["candle_time"]), value=float(r["value"]))
-            for r in rows
-        ]
+        out: list[PlotPointRow] = []
+        for feature_key in feature_keys:
+            by_time = by_feature.get(str(feature_key), {})
+            for candle_time, point in by_time.items():
+                if int(candle_time) <= floor:
+                    continue
+                out.append(
+                    PlotPointRow(
+                        feature_key=str(point.feature_key),
+                        candle_time=int(point.candle_time),
+                        value=float(point.value),
+                    )
+                )
+
+        out.sort(key=lambda point: (int(point.candle_time), str(point.feature_key)))
+        if int(limit) > 0:
+            out = out[: int(limit)]
+        return out

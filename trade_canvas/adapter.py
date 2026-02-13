@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .store import OverlayEventRow, SqliteStore
+from .store import KernelStore, OverlayEventRow
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,7 @@ class SingleSourceAdapter:
     Reads only from the persisted artifacts and enforces candle_id alignment.
     """
 
-    def __init__(self, store: SqliteStore) -> None:
+    def __init__(self, store: KernelStore) -> None:
         self._store = store
 
     def get_latest(self, conn, *, symbol: str, timeframe: str) -> AdapterResult:

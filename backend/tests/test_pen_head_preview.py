@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import unittest
 
-from backend.app.factor_slices import build_pen_head_preview
+from backend.app.factor.slices import build_pen_head_preview
 
 
 @dataclass(frozen=True)

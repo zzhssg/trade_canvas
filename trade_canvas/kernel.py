@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .store import SqliteStore
+from .store import KernelStore
 from .types import CandleClosed
 
 
@@ -20,7 +20,7 @@ class SmaCrossKernel:
     - Produces ledger + overlay marker on signal
     """
 
-    def __init__(self, store: SqliteStore, *, fast: int = 5, slow: int = 20) -> None:
+    def __init__(self, store: KernelStore, *, fast: int = 5, slow: int = 20) -> None:
         if fast <= 0 or slow <= 0 or fast >= slow:
             raise ValueError("Require 0 < fast < slow")
         self._store = store

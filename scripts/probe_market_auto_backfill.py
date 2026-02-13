@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import sys
 import time
 import urllib.parse
@@ -18,22 +17,18 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _load_series_ids(db_path: Path) -> list[str]:
-    conn = sqlite3.connect(str(db_path))
-    try:
-        rows = conn.execute("SELECT DISTINCT series_id FROM candles ORDER BY series_id ASC").fetchall()
-        return [str(r[0]) for r in rows if r and r[0]]
-    finally:
-        conn.close()
-
-
 def _split_timeframe(series_id: str) -> str:
     return str(series_id).rsplit(":", 1)[-1]
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="轮测所有币种+周期的自动补齐触发情况。")
-    p.add_argument("--db-path", default="backend/data/market.db", help="SQLite path (默认 backend/data/market.db)")
+    p.add_argument("--db-path", default="backend/data/market.db", help="本地 store key path（默认 backend/data/market.db）")
+    p.add_argument(
+        "--whitelist-path",
+        default="backend/config/market_whitelist.json",
+        help="白名单路径（未指定 --series-id 时用于 app 模式回退）",
+    )
     p.add_argument("--rounds", type=int, default=2, help="轮数（默认 2）")
     p.add_argument("--limit", type=int, default=500, help="每次 /api/market/candles 的 limit（默认 500）")
     p.add_argument(
@@ -46,7 +41,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--request-timeout", type=float, default=25.0, help="live 请求超时秒（默认 25）")
     p.add_argument("--max-recent-gaps", type=int, default=1, help="series_health 参数（默认 1）")
     p.add_argument("--recent-base-buckets", type=int, default=2, help="series_health 参数（默认 2）")
-    p.add_argument("--series-id", action="append", default=[], help="可重复指定；不传则跑 DB 全部 series")
+    p.add_argument("--series-id", action="append", default=[], help="可重复指定；不传则从服务白名单加载")
     p.add_argument(
         "--report-path",
         default="output/market_backfill_rounds_report.json",
@@ -66,12 +61,18 @@ def _live_get_json(base_url: str, path: str, *, timeout: float) -> dict[str, Any
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _build_app_get_json(*, root: Path, db_path: Path, enable_ccxt_on_read: bool) -> Callable[[str], dict[str, Any]]:
+def _build_app_get_json(
+    *,
+    root: Path,
+    db_path: Path,
+    whitelist_path: Path,
+    enable_ccxt_on_read: bool,
+) -> Callable[[str], dict[str, Any]]:
     sys.path.insert(0, str(root))
     sys.path.insert(0, str(root / "backend"))
 
     os.environ["TRADE_CANVAS_DB_PATH"] = str(db_path)
-    os.environ["TRADE_CANVAS_WHITELIST_PATH"] = str(root / "backend" / "config" / "market_whitelist.json")
+    os.environ["TRADE_CANVAS_WHITELIST_PATH"] = str(whitelist_path)
     os.environ["TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL"] = "1"
     os.environ["TRADE_CANVAS_MARKET_AUTO_TAIL_BACKFILL_MAX_CANDLES"] = "500"
     os.environ["TRADE_CANVAS_ENABLE_CCXT_BACKFILL"] = "1"
@@ -113,15 +114,27 @@ def _candles_path(series_id: str, *, limit: int) -> str:
     return f"/api/market/candles?{q}"
 
 
+def _resolve_series_ids(*, args: argparse.Namespace, get_json: Callable[[str], dict[str, Any]]) -> list[str]:
+    if args.series_id:
+        return list(dict.fromkeys(str(item) for item in args.series_id if str(item).strip()))
+
+    payload = get_json("/api/market/whitelist")
+    candidates = payload.get("series_ids")
+    if isinstance(candidates, list):
+        series_ids = [str(item) for item in candidates if str(item).strip()]
+        if series_ids:
+            return list(dict.fromkeys(series_ids))
+
+    raise RuntimeError("series_ids_missing:provide_--series-id_or_configure_whitelist")
+
+
 def main(argv: list[str]) -> int:
     args = _parse_args(argv)
     root = _repo_root()
     db_path = Path(args.db_path).expanduser().resolve()
+    whitelist_path = Path(args.whitelist_path).expanduser().resolve()
     report_path = Path(args.report_path).expanduser().resolve()
     report_path.parent.mkdir(parents=True, exist_ok=True)
-
-    all_series_ids = _load_series_ids(db_path=db_path)
-    series_ids = list(args.series_id) if args.series_id else all_series_ids
 
     if args.transport == "live":
         get_json = lambda path: _live_get_json(args.base_url, path, timeout=float(args.request_timeout))
@@ -129,8 +142,11 @@ def main(argv: list[str]) -> int:
         get_json = _build_app_get_json(
             root=root,
             db_path=db_path,
+            whitelist_path=whitelist_path,
             enable_ccxt_on_read=bool(args.enable_ccxt_on_read),
         )
+
+    series_ids = _resolve_series_ids(args=args, get_json=get_json)
 
     rounds_payload: list[dict[str, Any]] = []
     for idx in range(1, max(1, int(args.rounds)) + 1):
@@ -224,6 +240,7 @@ def main(argv: list[str]) -> int:
         "transport": args.transport,
         "base_url": args.base_url if args.transport == "live" else None,
         "db_path": str(db_path),
+        "whitelist_path": str(whitelist_path),
         "rounds": int(args.rounds),
         "series_total": len(series_ids),
         "series_ids": series_ids,

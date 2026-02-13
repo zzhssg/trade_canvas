@@ -3,16 +3,16 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from backend.app.factor_default_components import build_default_factor_components
-from backend.app.factor_graph import FactorGraph, FactorSpec
-from backend.app.factor_processor_anchor import AnchorProcessor
-from backend.app.factor_processor_pen import PenProcessor
-from backend.app.factor_processor_pivot import PivotProcessor
-from backend.app.factor_processor_slice_buckets import build_default_slice_bucket_specs
-from backend.app.factor_processor_zhongshu import ZhongshuProcessor
-from backend.app.factor_registry import FactorRegistry, FactorRegistryError
-from backend.app.pen import ConfirmedPen, PivotMajorPoint
-from backend.app.zhongshu import ZhongshuDead
+from backend.app.factor.default_components import build_default_factor_components
+from backend.app.factor.graph import FactorGraph, FactorSpec
+from backend.app.factor.processor_anchor import AnchorProcessor
+from backend.app.factor.processor_pen import PenProcessor
+from backend.app.factor.processor_pivot import PivotProcessor
+from backend.app.factor.processor_slice_buckets import build_default_slice_bucket_specs
+from backend.app.factor.processor_zhongshu import ZhongshuProcessor
+from backend.app.factor.registry import FactorRegistry, FactorRegistryError
+from backend.app.factor.pen import ConfirmedPen, PivotMajorPoint
+from backend.app.factor.zhongshu import ZhongshuDead
 
 
 class FactorRegistryTests(unittest.TestCase):

@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -25,6 +25,36 @@ class _FakePgRepo:
 
     def upsert_closed(self, series_id: str, candle: CandleClosed) -> None:
         self._series(series_id)[int(candle.candle_time)] = candle
+
+    class _Conn:
+        def commit(self) -> None:
+            return
+
+    class _Ctx:
+        def __init__(self, conn: Any) -> None:
+            self._conn = conn
+
+        def __enter__(self) -> Any:
+            return self._conn
+
+        def __exit__(self, exc_type, exc, tb) -> Literal[False]:
+            return False
+
+    def connect(self):
+        return self._Ctx(self._Conn())
+
+    def upsert_many_closed_in_conn(self, conn: Any, series_id: str, candles: list[CandleClosed]) -> None:
+        _ = conn
+        self.upsert_many_closed(series_id, candles)
+
+    def existing_closed_times_in_conn(self, conn: Any, *, series_id: str, candle_times: list[int]) -> set[int]:
+        _ = conn
+        series = self._series(series_id)
+        return {int(t) for t in candle_times if int(t) in series}
+
+    def delete_closed_times_in_conn(self, conn: Any, *, series_id: str, candle_times: list[int]) -> int:
+        _ = conn
+        return self.delete_closed_times(series_id=series_id, candle_times=candle_times)
 
     def upsert_many_closed(self, series_id: str, candles: list[CandleClosed]) -> None:
         for candle in candles:
@@ -162,25 +192,25 @@ class MarketScaleoutE2EUserStoryTests(unittest.TestCase):
             "TRADE_CANVAS_WHITELIST_PATH",
             "TRADE_CANVAS_ENABLE_DEBUG_API",
             "TRADE_CANVAS_ENABLE_PG_STORE",
-            "TRADE_CANVAS_ENABLE_DUAL_WRITE",
-            "TRADE_CANVAS_ENABLE_PG_READ",
+            "TRADE_CANVAS_ENABLE_FACTOR_INGEST",
+            "TRADE_CANVAS_ENABLE_OVERLAY_INGEST",
             "TRADE_CANVAS_ENABLE_WS_PUBSUB",
             "TRADE_CANVAS_POSTGRES_DSN",
             "TRADE_CANVAS_REDIS_URL",
         ):
             os.environ.pop(key, None)
 
-    def test_dual_write_and_pg_read_consistency_under_scaleout_mode(self) -> None:
+    def test_pg_store_consistency_under_scaleout_mode(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_DEBUG_API"] = "1"
         os.environ["TRADE_CANVAS_ENABLE_PG_STORE"] = "1"
-        os.environ["TRADE_CANVAS_ENABLE_DUAL_WRITE"] = "1"
-        os.environ["TRADE_CANVAS_ENABLE_PG_READ"] = "1"
+        os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "0"
+        os.environ["TRADE_CANVAS_ENABLE_OVERLAY_INGEST"] = "0"
         os.environ["TRADE_CANVAS_POSTGRES_DSN"] = "postgresql://tc:tc@127.0.0.1:5432/tc"
 
         series_id = "binance:futures:BTC/USDT:1m"
         with (
             patch("backend.app.container._maybe_bootstrap_postgres", return_value=object()),
-            patch("backend.app.container.PostgresCandleRepository", _FakePgRepo),
+            patch("backend.app.container_builders.PostgresCandleRepository", _FakePgRepo),
         ):
             with TestClient(create_app()) as client:
                 for candle_time in (1700000000, 1700000060, 1700000120):
@@ -207,11 +237,10 @@ class MarketScaleoutE2EUserStoryTests(unittest.TestCase):
                 self.assertEqual(candles_resp.status_code, 200, candles_resp.text)
                 candles = candles_resp.json().get("candles", [])
                 self.assertEqual([int(c["candle_time"]) for c in candles], [1700000120])
-                app = client.app
+                app = cast(Any, client.app)
                 container = app.state.container
                 store = container.store
                 self.assertEqual(int(store.head_time(series_id) or 0), 1700000120)
-                self.assertIsNotNone(getattr(store, "mirror_repository", None))
 
     def test_multi_instance_ws_pubsub_delivers_closed_to_remote_subscribers(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_WS_PUBSUB"] = "1"
@@ -226,7 +255,7 @@ class MarketScaleoutE2EUserStoryTests(unittest.TestCase):
             return _FakePublisher(bus=bus)
 
         series_id = "binance:futures:BTC/USDT:1m"
-        with patch("backend.app.market_runtime_builder._build_ws_publisher", side_effect=_fake_build_ws_publisher):
+        with patch("backend.app.market.runtime_builder._build_ws_publisher", side_effect=_fake_build_ws_publisher):
             client_a = TestClient(create_app())
             client_b = TestClient(create_app())
             try:

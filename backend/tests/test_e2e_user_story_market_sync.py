@@ -25,6 +25,10 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         root = Path(self.tmpdir.name)
+        os.environ.pop("TRADE_CANVAS_ENABLE_PG_STORE", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_PG_ONLY", None)
+        os.environ.pop("TRADE_CANVAS_POSTGRES_DSN", None)
+        os.environ.pop("TRADE_CANVAS_POSTGRES_SCHEMA", None)
 
         os.environ["TRADE_CANVAS_DB_PATH"] = str(root / "market.db")
         os.environ["TRADE_CANVAS_WHITELIST_PATH"] = str(root / "whitelist.json")
@@ -44,6 +48,10 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
         os.environ.pop("TRADE_CANVAS_ENABLE_CCXT_BACKFILL", None)
         os.environ.pop("TRADE_CANVAS_ENABLE_CCXT_BACKFILL_ON_READ", None)
         os.environ.pop("TRADE_CANVAS_MARKET_HISTORY_SOURCE", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_PG_STORE", None)
+        os.environ.pop("TRADE_CANVAS_ENABLE_PG_ONLY", None)
+        os.environ.pop("TRADE_CANVAS_POSTGRES_DSN", None)
+        os.environ.pop("TRADE_CANVAS_POSTGRES_SCHEMA", None)
 
     def _ingest(self, candle_time: int) -> None:
         resp = self.client.post(
@@ -86,7 +94,7 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_MARKET_AUTO_TAIL_BACKFILL_MAX_CANDLES"] = "2"
         os.environ["TRADE_CANVAS_ENABLE_CCXT_BACKFILL"] = "1"
         os.environ.pop("TRADE_CANVAS_ENABLE_CCXT_BACKFILL_ON_READ", None)
-        os.environ["TRADE_CANVAS_MARKET_HISTORY_SOURCE"] = "freqtrade"
+        os.environ["TRADE_CANVAS_MARKET_HISTORY_SOURCE"] = ""
         calls: list[tuple[int, int]] = []
 
         def fake_ccxt_backfill(*, candle_store, series_id, start_time, end_time, batch_limit=1000, ccxt_timeout_ms=10_000):
@@ -230,7 +238,7 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
                 conn.commit()
             return 1
 
-        with mock.patch("backend.app.market_runtime_builder.backfill_market_gap_best_effort", side_effect=fake_backfill):
+        with mock.patch("backend.app.market.runtime_components.backfill_market_gap_best_effort", side_effect=fake_backfill):
             with self.client.websocket_connect("/ws/market") as ws:
                 ws.send_json({"type": "subscribe", "series_id": self.series_id, "since": 100})
                 self._ingest(220)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from backend.app.ingest_binance_ws import (
+from backend.app.ingest.binance_ws import (
     _publish_pipeline_result_from_ws,
     build_binance_kline_ws_url,
     parse_binance_kline_payload,

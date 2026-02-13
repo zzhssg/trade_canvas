@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.app.ingest_capacity_policy import plan_ondemand_capacity
+from backend.app.ingest.capacity_policy import plan_ondemand_capacity
 
 
 @dataclass

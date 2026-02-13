@@ -4,7 +4,7 @@ import asyncio
 import unittest
 
 from backend.app.schemas import CandleClosed
-from backend.app.ws_hub import CandleHub
+from backend.app.ws.hub import CandleHub
 from backend.app.ws_publishers import WsPubsubConsumer, WsPubsubMessage
 
 

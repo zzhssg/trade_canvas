@@ -3,9 +3,9 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from backend.app.factor_graph import FactorGraph, FactorSpec
-from backend.app.factor_plugin_registry import FactorPluginRegistry
-from backend.app.overlay_renderer_plugins import (
+from backend.app.factor.graph import FactorGraph, FactorSpec
+from backend.app.factor.plugin_registry import FactorPluginRegistry
+from backend.app.overlay.renderer_plugins import (
     MarkerOverlayRenderer,
     OverlayEventBucketSpec,
     OverlayRenderContext,

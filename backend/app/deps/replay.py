@@ -5,9 +5,9 @@ from typing import Annotated
 from fastapi import Depends
 
 from ..container import AppContainer
-from ..overlay_package_service_v1 import OverlayReplayPackageServiceV1
-from ..replay_package_service_v1 import ReplayPackageServiceV1
-from ..replay_prepare_service import ReplayPrepareService
+from ..overlay.package_service_v1 import OverlayReplayPackageServiceV1
+from ..replay.package_service_v1 import ReplayPackageServiceV1
+from ..replay.prepare_service import ReplayPrepareService
 from .core import get_app_container
 
 

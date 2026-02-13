@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.ledger_alignment import (
+from backend.app.ledger.alignment import (
     LedgerAlignedPoint,
     LedgerHeadTimes,
     require_aligned_point,

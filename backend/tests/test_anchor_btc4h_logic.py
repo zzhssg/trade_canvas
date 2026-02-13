@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.anchor_semantics import build_anchor_history_from_switches
-from backend.app.factor_processor_anchor import AnchorProcessor
+from backend.app.factor.anchor_semantics import build_anchor_history_from_switches
+from backend.app.factor.processor_anchor import AnchorProcessor
 
 
 class AnchorBtc4hLogicTests(unittest.TestCase):

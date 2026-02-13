@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.anchor_semantics import build_anchor_history_from_switches, should_append_switch
+from backend.app.factor.anchor_semantics import build_anchor_history_from_switches, should_append_switch
 
 
 class AnchorSemanticsTests(unittest.TestCase):

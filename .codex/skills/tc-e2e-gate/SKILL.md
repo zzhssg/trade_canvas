@@ -67,6 +67,7 @@ description: "Enforce an E2E user-story gate for trade_canvas work: during plann
 ### 2.2 开发阶段的退出条件（Definition of Done）
 
 交付前必须完成：
+- 统一质量门禁通过：`bash scripts/quality_gate.sh`（失败=未完成，先清理兼容层/遗留双轨/临时债）。
 - E2E 用户故事对应的验证命令全部通过（退出码为 0）。
 - **文档状态同步**：把本次相关文档的 `status/updated` 更新到正确阶段，并通过文档审计（参考 `docs/core/doc-status.md`）：
   - `docs/plan/YYYY-MM-DD-<topic>.md`：开发完成时应先更新为 `pending_acceptance/待验收`，并更新 `updated: YYYY-MM-DD`

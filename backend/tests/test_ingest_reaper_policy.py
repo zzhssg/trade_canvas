@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.ingest_reaper_policy import IngestReaperJobState, plan_ingest_reaper
+from backend.app.ingest.reaper_policy import IngestReaperJobState, plan_ingest_reaper
 
 
 def test_plan_ingest_reaper_returns_restart_stop_and_drop_sets() -> None:

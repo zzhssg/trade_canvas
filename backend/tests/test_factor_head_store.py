@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.app.factor_store import FactorStore
+from backend.app.factor.store import FactorStore
 
 
 class FactorHeadStoreTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.ingest_guardrail_registry import IngestGuardrailRegistry
+from backend.app.ingest.guardrail_registry import IngestGuardrailRegistry
 
 
 def test_guardrail_registry_disabled_returns_none() -> None:

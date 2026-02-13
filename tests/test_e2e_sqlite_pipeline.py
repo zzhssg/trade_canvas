@@ -7,7 +7,7 @@ from pathlib import Path
 
 from trade_canvas.adapter import SingleSourceAdapter
 from trade_canvas.kernel import SmaCrossKernel
-from trade_canvas.store import SqliteStore
+from trade_canvas.store import KernelStore
 from trade_canvas.types import CandleClosed
 
 
@@ -32,15 +32,15 @@ def load_fixture(path: Path) -> list[CandleClosed]:
     return candles
 
 
-class TestE2ESqlitePipeline(unittest.TestCase):
+class TestE2EKernelPipeline(unittest.TestCase):
     def test_happy_path_alignment(self) -> None:
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "klines_mock_BTCUSDT_1m_60.jsonl"
         candles = load_fixture(fixture)
         self.assertGreaterEqual(len(candles), 40)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "e2e.sqlite3"
-            store = SqliteStore(db_path)
+            db_path = Path(tmpdir) / "e2e.db"
+            store = KernelStore(db_path)
             conn = store.connect()
             try:
                 store.init_schema(conn)
@@ -67,8 +67,8 @@ class TestE2ESqlitePipeline(unittest.TestCase):
                     self.assertEqual(res.ledger["signal"]["candle_id"], entry.candle_id)
 
                 # Determinism: rerun from scratch into a new db and compare the first entry candle_id.
-                db_path2 = Path(tmpdir) / "e2e_2.sqlite3"
-                store2 = SqliteStore(db_path2)
+                db_path2 = Path(tmpdir) / "e2e_2.db"
+                store2 = KernelStore(db_path2)
                 conn2 = store2.connect()
                 try:
                     store2.init_schema(conn2)
@@ -90,8 +90,8 @@ class TestE2ESqlitePipeline(unittest.TestCase):
         candles = load_fixture(fixture)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "e2e.sqlite3"
-            store = SqliteStore(db_path)
+            db_path = Path(tmpdir) / "e2e.db"
+            store = KernelStore(db_path)
             conn = store.connect()
             try:
                 store.init_schema(conn)
@@ -116,4 +116,3 @@ class TestE2ESqlitePipeline(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -5,9 +5,9 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from backend.app.factor_catalog import build_factor_catalog_response
-from backend.app.factor_manifest import build_factor_manifest
-from backend.app.factor_plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec, FactorPluginSpec
+from backend.app.factor.catalog import build_factor_catalog_response
+from backend.app.factor.manifest import build_factor_manifest
+from backend.app.factor.plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec, FactorPluginSpec
 from backend.app.main import create_app
 
 
@@ -78,7 +78,7 @@ class FactorCatalogApiTests(unittest.TestCase):
             tick_plugins=(_TickPlugin(),),
             slice_plugins=(_SlicePlugin(),),
         )
-        with patch("backend.app.factor_catalog.build_default_factor_manifest", return_value=manifest):
+        with patch("backend.app.factor.catalog.build_default_factor_manifest", return_value=manifest):
             payload = build_factor_catalog_response().model_dump()
 
         factors = payload.get("factors") or []

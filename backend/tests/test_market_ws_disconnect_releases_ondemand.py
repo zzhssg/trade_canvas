@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-import backend.app.ingest_supervisor as ingest_supervisor_mod
+import backend.app.ingest.supervisor as ingest_supervisor_mod
 from backend.app.main import create_app
 
 

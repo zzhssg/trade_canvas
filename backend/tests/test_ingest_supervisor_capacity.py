@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.app.ingest_supervisor import IngestSupervisor, _Job
+from backend.app.ingest.supervisor import IngestSupervisor, _Job
 from backend.app.store import CandleStore
-from backend.app.ws_hub import CandleHub
+from backend.app.ws.hub import CandleHub
 
 
 class IngestSupervisorCapacityTests(unittest.TestCase):
@@ -240,7 +240,7 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
             raise RuntimeError("ws_loop_failed")
 
         async def run() -> None:
-            with patch("backend.app.ingest_supervisor.run_binance_ws_ingest_loop", new=_failing_ws_loop):
+            with patch("backend.app.ingest.supervisor.run_binance_ws_ingest_loop", new=_failing_ws_loop):
                 ok = await sup.subscribe(series_id)
                 self.assertTrue(ok)
                 await asyncio.sleep(0.05)

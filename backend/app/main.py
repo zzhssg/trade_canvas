@@ -8,7 +8,7 @@ from typing import TextIO
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
-from .backtest_routes import register_backtest_routes
+from .backtest.routes import register_backtest_routes
 from .config import load_settings
 from .container import build_app_container
 from .dependencies import (
@@ -19,18 +19,18 @@ from .dependencies import (
     MarketWsMessagesDep,
     MarketWsSubscriptionsDep,
 )
-from .debug_routes import handle_debug_ws
-from .dev_routes import register_dev_routes
-from .draw_routes import register_draw_routes
-from .factor_routes import register_factor_routes
-from .market_http_routes import register_market_http_routes
-from .market_meta_routes import register_market_meta_routes
-from .market_ws_routes import handle_market_ws
-from .overlay_package_routes import register_overlay_package_routes
-from .repair_routes import register_repair_routes
-from .replay_routes import register_replay_routes
-from .shutdown_cancellation_middleware import ShutdownCancellationMiddleware, ShutdownState
-from .world_routes import register_world_routes
+from .debug.routes import handle_debug_ws
+from .routes.dev import register_dev_routes
+from .routes.draw import register_draw_routes
+from .factor.routes import register_factor_routes
+from .market.http_routes import register_market_http_routes
+from .market.meta_routes import register_market_meta_routes
+from .market.ws_routes import handle_market_ws
+from .overlay.package_routes import register_overlay_package_routes
+from .routes.repair import register_repair_routes
+from .replay.routes import register_replay_routes
+from .lifecycle.shutdown_cancellation_middleware import ShutdownCancellationMiddleware, ShutdownState
+from .routes.world import register_world_routes
 
 _faulthandler_file: TextIO | None = None
 

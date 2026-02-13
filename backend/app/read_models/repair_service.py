@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..ledger_sync_service import LedgerAlignedPoint, LedgerHeadTimes
+from ..ledger.alignment import LedgerAlignedPoint, LedgerHeadTimes
 from ..schemas import RepairOverlayRequestV1, RepairOverlayResponseV1
 from ..shared_ports import DebugHubPort
 from ..service_errors import ServiceError

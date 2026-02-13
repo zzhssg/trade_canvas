@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from backend.app.flags import FeatureFlags
-from backend.app.runtime_flags import load_runtime_flags
+from backend.app.runtime.flags import load_runtime_flags
 
 
 def _base_flags(*, enable_market_auto_tail_backfill: bool) -> FeatureFlags:
@@ -82,8 +82,7 @@ def test_runtime_flags_pg_and_ws_scaleout_flags_default_off_and_can_override(mon
     for name in (
         "TRADE_CANVAS_ENABLE_CAPACITY_METRICS",
         "TRADE_CANVAS_ENABLE_PG_STORE",
-        "TRADE_CANVAS_ENABLE_DUAL_WRITE",
-        "TRADE_CANVAS_ENABLE_PG_READ",
+        "TRADE_CANVAS_ENABLE_PG_ONLY",
         "TRADE_CANVAS_ENABLE_WS_PUBSUB",
         "TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD",
         "TRADE_CANVAS_INGEST_ROLE",
@@ -93,24 +92,21 @@ def test_runtime_flags_pg_and_ws_scaleout_flags_default_off_and_can_override(mon
     defaults = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
     assert defaults.enable_capacity_metrics is False
     assert defaults.enable_pg_store is False
-    assert defaults.enable_dual_write is False
-    assert defaults.enable_pg_read is False
+    assert defaults.enable_pg_only is False
     assert defaults.enable_ws_pubsub is False
     assert defaults.enable_ingest_role_guard is False
     assert defaults.ingest_role == "hybrid"
 
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_CAPACITY_METRICS", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_PG_STORE", "1")
-    monkeypatch.setenv("TRADE_CANVAS_ENABLE_DUAL_WRITE", "1")
-    monkeypatch.setenv("TRADE_CANVAS_ENABLE_PG_READ", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_PG_ONLY", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_WS_PUBSUB", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", "1")
     monkeypatch.setenv("TRADE_CANVAS_INGEST_ROLE", "read")
     enabled = load_runtime_flags(base_flags=_base_flags(enable_market_auto_tail_backfill=False))
     assert enabled.enable_capacity_metrics is True
     assert enabled.enable_pg_store is True
-    assert enabled.enable_dual_write is True
-    assert enabled.enable_pg_read is True
+    assert enabled.enable_pg_only is True
     assert enabled.enable_ws_pubsub is True
     assert enabled.enable_ingest_role_guard is True
     assert enabled.ingest_role == "read"
@@ -205,8 +201,7 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_CAPACITY_METRICS", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_PG_STORE", "1")
-    monkeypatch.setenv("TRADE_CANVAS_ENABLE_DUAL_WRITE", "1")
-    monkeypatch.setenv("TRADE_CANVAS_ENABLE_PG_READ", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_PG_ONLY", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_WS_PUBSUB", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", "1")
     monkeypatch.setenv("TRADE_CANVAS_INGEST_ROLE", "INGEST")
@@ -228,8 +223,7 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     assert flags.enable_runtime_metrics is True
     assert flags.enable_capacity_metrics is True
     assert flags.enable_pg_store is True
-    assert flags.enable_dual_write is True
-    assert flags.enable_pg_read is True
+    assert flags.enable_pg_only is True
     assert flags.enable_ws_pubsub is True
     assert flags.enable_ingest_role_guard is True
     assert flags.ingest_role == "ingest"

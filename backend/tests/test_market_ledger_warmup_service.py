@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.market_ledger_warmup_service import MarketLedgerWarmupService
+from backend.app.market.ledger_warmup_service import MarketLedgerWarmupService
 
 
 class _RuntimeFlagsStub:

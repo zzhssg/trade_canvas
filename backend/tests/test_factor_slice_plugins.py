@@ -3,12 +3,12 @@ from __future__ import annotations
 import unittest
 from typing import Any, cast
 
-from backend.app.factor_graph import FactorGraph, FactorSpec
-from backend.app.factor_plugin_contract import FactorPluginSpec
-from backend.app.factor_plugin_registry import FactorPluginRegistry
-from backend.app.factor_processor_slice_buckets import SliceBucketSpec, build_default_slice_bucket_specs
-from backend.app.factor_slice_plugins import build_default_factor_slice_plugins
-from backend.app.factor_slices_service import FactorSlicesService
+from backend.app.factor.graph import FactorGraph, FactorSpec
+from backend.app.factor.plugin_contract import FactorPluginSpec
+from backend.app.factor.plugin_registry import FactorPluginRegistry
+from backend.app.factor.processor_slice_buckets import SliceBucketSpec, build_default_slice_bucket_specs
+from backend.app.factor.slice_plugins import build_default_factor_slice_plugins
+from backend.app.factor.slices_service import FactorSlicesService
 from backend.app.schemas import FactorMetaV1, FactorSliceV1
 
 

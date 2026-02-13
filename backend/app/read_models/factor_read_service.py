@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..factor_read_freshness import read_factor_slices_with_freshness
+from ..factor.read_freshness import read_factor_slices_with_freshness
 from ..schemas import GetFactorSlicesResponseV1
 
 

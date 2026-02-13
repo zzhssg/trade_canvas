@@ -42,7 +42,7 @@ class MarketTopMarketsSseTests(unittest.TestCase):
                 return spot_tickers
             raise AssertionError(f"unexpected url: {url}")
 
-        with patch("backend.app.market_list._fetch_json", side_effect=fake_fetch):
+        with patch("backend.app.market.list._fetch_json", side_effect=fake_fetch):
             resp = self.client.get(
                 "/api/market/top_markets/stream",
                 params={

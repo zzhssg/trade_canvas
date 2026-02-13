@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.app.artifacts import resolve_artifacts_root
+from backend.app.build.artifacts import resolve_artifacts_root
 
 
 def test_resolve_artifacts_root_defaults_to_backend_data(monkeypatch) -> None:

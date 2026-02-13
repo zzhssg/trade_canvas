@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.app import factor_orchestrator as orchestrator_module
-from backend.app.factor_fingerprint import build_series_fingerprint
-from backend.app.factor_orchestrator import FactorOrchestrator
-from backend.app.factor_runtime_config import FactorSettings
-from backend.app.factor_store import FactorStore
+from backend.app.factor import orchestrator as orchestrator_module
+from backend.app.factor.fingerprint import build_series_fingerprint
+from backend.app.factor.orchestrator import FactorOrchestrator
+from backend.app.factor.runtime_config import FactorSettings
+from backend.app.factor.store import FactorStore
 from backend.app.store import CandleStore
 
 

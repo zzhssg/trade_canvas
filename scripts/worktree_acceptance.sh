@@ -19,7 +19,8 @@ usage() {
   cat <<'EOF'
 Usage:
   bash scripts/worktree_acceptance.sh [--yes] [--push] [--delete-remote] [--main-branch <name>] [--remote <name>] [--no-pull]
-                                   [--plan-doc <path>] [--auto-doc-status] [--run-doc-audit] [--run-e2e-preflight]
+                                   [--plan-doc <path>] [--auto-doc-status] [--run-doc-audit]
+                                   [--run-quality-gate] [--no-quality-gate] [--run-e2e-preflight]
                                    [--e2e-backend-base <url>] [--no-e2e-demo-strategy] [--no-plan-gate]
 
 行为说明：
@@ -31,6 +32,8 @@ Usage:
   - --plan-doc：显式指定本次 worktree 对应的 plan 文档路径（`docs/plan/...`）
   - --auto-doc-status：在 merge 前自动把 plan 状态推进到 已上线/online，并单独提交该文档变更（需要配合 --yes）
   - --run-doc-audit：在 merge 前运行 `bash docs/scripts/doc_audit.sh`（建议交付时开启；--yes 时默认开启）
+  - --run-quality-gate：在 merge 前运行 `bash scripts/quality_gate.sh --base <main-branch>`
+  - --no-quality-gate：跳过 quality gate（仅特例；--yes 时默认会开启 quality gate）
   - --run-e2e-preflight：在 merge 前运行 `bash scripts/e2e_preflight.sh`（校验复用后端环境）
   - --e2e-backend-base：E2E preflight 使用的后端地址（默认 `E2E_API_BASE_URL` 或 `http://127.0.0.1:8000`）
   - --no-e2e-demo-strategy：E2E preflight 时跳过 DemoStrategy 校验（仅特例）
@@ -61,6 +64,8 @@ no_pull=0
 plan_doc=""
 auto_doc_status=0
 run_doc_audit=0
+run_quality_gate=0
+no_quality_gate=0
 no_plan_gate=0
 run_e2e_preflight=0
 e2e_backend_base="${E2E_API_BASE_URL:-http://127.0.0.1:8000}"
@@ -77,6 +82,8 @@ while [[ $# -gt 0 ]]; do
     --plan-doc) plan_doc="$2"; shift 2 ;;
     --auto-doc-status) auto_doc_status=1; shift ;;
     --run-doc-audit) run_doc_audit=1; shift ;;
+    --run-quality-gate) run_quality_gate=1; shift ;;
+    --no-quality-gate) no_quality_gate=1; shift ;;
     --run-e2e-preflight) run_e2e_preflight=1; shift ;;
     --e2e-backend-base) e2e_backend_base="$2"; shift 2 ;;
     --no-e2e-demo-strategy) e2e_require_demo_strategy=0; shift ;;
@@ -168,9 +175,19 @@ if [[ "${auto_doc_status}" -eq 1 && "${yes}" -ne 1 ]]; then
   exit 2
 fi
 
+if [[ "${run_quality_gate}" -eq 1 && "${no_quality_gate}" -eq 1 ]]; then
+  log_error "--run-quality-gate 与 --no-quality-gate 不能同时使用。"
+  exit 2
+fi
+
 # 默认策略：真正执行（--yes）时默认跑 doc_audit，避免“合并后才发现门禁不绿”。
 if [[ "${yes}" -eq 1 && "${run_doc_audit}" -ne 1 ]]; then
   run_doc_audit=1
+fi
+
+# 默认策略：真正执行（--yes）时默认跑 quality gate，保障结构清洁门禁。
+if [[ "${yes}" -eq 1 && "${no_quality_gate}" -ne 1 && "${run_quality_gate}" -ne 1 ]]; then
+  run_quality_gate=1
 fi
 
 compute_worktree_id() {
@@ -369,9 +386,19 @@ else
   fi
 fi
 
+if [[ "${run_quality_gate}" -eq 1 ]]; then
+  echo
+  log_info "=== Step 5: Quality Gate ==="
+  if [[ ! -f "scripts/quality_gate.sh" ]]; then
+    log_error "缺少 scripts/quality_gate.sh，无法执行 quality gate。"
+    exit 2
+  fi
+  bash scripts/quality_gate.sh --base "${main_branch}"
+fi
+
 if [[ "${run_e2e_preflight}" -eq 1 ]]; then
   echo
-  log_info "=== Step 5: E2E Backend Preflight Gate ==="
+  log_info "=== Step 6: E2E Backend Preflight Gate ==="
   preflight_args=(--backend-base "${e2e_backend_base}" --timeout-s 8)
   if [[ "${e2e_require_demo_strategy}" -eq 0 ]]; then
     preflight_args+=(--skip-demo-strategy)
@@ -387,12 +414,12 @@ fi
 
 if [[ "${run_doc_audit}" -eq 1 && -x "docs/scripts/doc_audit.sh" ]]; then
   echo
-  log_info "=== Step 6: Docs Audit Gate ==="
+  log_info "=== Step 7: Docs Audit Gate ==="
   bash "docs/scripts/doc_audit.sh"
 fi
 
 echo
-log_info "=== Step 7: Merge Gate ==="
+log_info "=== Step 8: Merge Gate ==="
 log_info "即将 merge: ${cur_branch} -> ${main_branch}"
 
 merge_msg="Merge branch '${cur_branch}' (worktree acceptance)"
@@ -414,7 +441,7 @@ if [[ "${push_main}" -eq 1 ]]; then
 fi
 
 echo
-log_info "=== Step 8: 删除 worktree + 分支 ==="
+log_info "=== Step 9: 删除 worktree + 分支 ==="
 log_info "Removing worktree: ${repo_root}"
 git worktree remove "${repo_root}"
 

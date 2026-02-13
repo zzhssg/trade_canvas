@@ -278,7 +278,7 @@ else
     echo "ERROR: missing venv at ./.env (needed by scripts/dev_backend.sh)" >&2
     exit 2
   fi
-  # Unique sqlite db per run to avoid cross-run interference when rerunning the E2E gate locally.
+  # Unique local DB path per run to avoid cross-run interference when rerunning the E2E gate locally.
   ts="$(date +%s)"
   e2e_db_path="backend/data/market_e2e_${backend_port}_${ts}_$$.db"
   rm -f "${e2e_db_path}" "${e2e_db_path}-wal" "${e2e_db_path}-shm" 2>/dev/null || true

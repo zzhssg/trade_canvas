@@ -6,7 +6,7 @@ from pathlib import Path
 
 from trade_canvas.kernel import SmaCrossKernel
 from trade_canvas.plot_adapter import PlotCursor, PlotDeltaAdapter
-from trade_canvas.store import SqliteStore
+from trade_canvas.store import KernelStore
 from trade_canvas.types import CandleClosed
 
 
@@ -27,8 +27,8 @@ def _candle(*, symbol: str, timeframe: str, t: int, close: float) -> CandleClose
 class TestPlotDeltaIncremental(unittest.TestCase):
     def test_plot_delta_incremental_points_and_cursor(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "plot.sqlite3"
-            store = SqliteStore(db_path)
+            db_path = Path(tmpdir) / "plot.db"
+            store = KernelStore(db_path)
             conn = store.connect()
             try:
                 store.init_schema(conn)
@@ -103,8 +103,8 @@ class TestPlotDeltaIncremental(unittest.TestCase):
 
     def test_plot_delta_fail_safe_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "plot.sqlite3"
-            store = SqliteStore(db_path)
+            db_path = Path(tmpdir) / "plot.db"
+            store = KernelStore(db_path)
             conn = store.connect()
             try:
                 store.init_schema(conn)
@@ -142,4 +142,3 @@ class TestPlotDeltaIncremental(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

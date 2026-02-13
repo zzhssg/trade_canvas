@@ -8,7 +8,7 @@ from starlette.requests import HTTPConnection
 from ..config import Settings
 from ..container import AppContainer
 from ..flags import FeatureFlags
-from ..runtime_flags import RuntimeFlags
+from ..runtime.flags import RuntimeFlags
 
 
 def get_app_container(conn: HTTPConnection) -> AppContainer:

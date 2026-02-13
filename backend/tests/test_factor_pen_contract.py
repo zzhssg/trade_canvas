@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.factor_pen_contract import (
+from backend.app.factor.pen_contract import (
     anchor_pen_ref_key,
     build_anchor_switch_payload,
     build_anchor_pen_ref,
@@ -9,7 +9,7 @@ from backend.app.factor_pen_contract import (
     normalize_confirmed_pen_payload,
     pen_strength,
 )
-from backend.app.pen import ConfirmedPen
+from backend.app.factor.pen import ConfirmedPen
 
 
 def test_build_confirmed_pen_payload_from_dataclass() -> None:

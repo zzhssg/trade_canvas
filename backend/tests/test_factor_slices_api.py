@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import json
 import os
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
+from backend.app.factor.store import FactorEventWrite
 from backend.app.main import create_app
 
 
@@ -53,6 +53,11 @@ class FactorSlicesApiTests(unittest.TestCase):
             pass
         self.client = TestClient(create_app())
 
+    def _factor_store(self):
+        app = self.client.app
+        container = cast(Any, app).state.container
+        return container.factor_store
+
     def test_factor_slices_empty_before_any_candles(self) -> None:
         res = self.client.get("/api/factor/slices", params={"series_id": self.series_id, "at_time": 120})
         self.assertEqual(res.status_code, 200, res.text)
@@ -92,18 +97,18 @@ class FactorSlicesApiTests(unittest.TestCase):
         for t, p in zip(times, prices, strict=True):
             self._ingest(t, float(p))
 
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO factor_events(series_id, factor_name, candle_time, kind, event_key, payload_json, created_at_ms)
-                VALUES (?, 'zhongshu', ?, 'zhongshu.dead', ?, ?, 0)
-                """,
-                (
-                    self.series_id,
-                    int(times[-1]),
-                    "test:stale-zhongshu",
-                    json.dumps(
-                        {
+        factor_store = self._factor_store()
+        with factor_store.connect() as conn:
+            factor_store.insert_events_in_conn(
+                conn,
+                events=[
+                    FactorEventWrite(
+                        series_id=self.series_id,
+                        factor_name="zhongshu",
+                        candle_time=int(times[-1]),
+                        kind="zhongshu.dead",
+                        event_key="test:stale-zhongshu",
+                        payload={
                             "start_time": 60,
                             "end_time": 120,
                             "zg": 5.0,
@@ -113,9 +118,8 @@ class FactorSlicesApiTests(unittest.TestCase):
                             "death_time": 240,
                             "visible_time": int(times[-1]),
                         },
-                        ensure_ascii=False,
-                    ),
-                ),
+                    )
+                ],
             )
             conn.commit()
 
@@ -152,17 +156,14 @@ class FactorSlicesApiTests(unittest.TestCase):
                 }
             ]
         }
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO factor_head_snapshots(series_id, factor_name, candle_time, seq, head_json, created_at_ms)
-                VALUES (?, 'zhongshu', ?, 0, ?, 0)
-                """,
-                (
-                    self.series_id,
-                    int(times[2]),
-                    json.dumps(stale_head, ensure_ascii=False),
-                ),
+        factor_store = self._factor_store()
+        with factor_store.connect() as conn:
+            factor_store.insert_head_snapshot_in_conn(
+                conn,
+                series_id=self.series_id,
+                factor_name="zhongshu",
+                candle_time=int(times[2]),
+                head=stale_head,
             )
             conn.commit()
 

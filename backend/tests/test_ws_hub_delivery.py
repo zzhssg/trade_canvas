@@ -4,8 +4,8 @@ import asyncio
 import unittest
 
 from backend.app.schemas import CandleClosed
-from backend.app.ws_hub import CandleHub
-from backend.app.ws_protocol import WS_MSG_CANDLE_CLOSED, WS_MSG_CANDLES_BATCH, WS_MSG_GAP
+from backend.app.ws.hub import CandleHub
+from backend.app.ws.protocol import WS_MSG_CANDLE_CLOSED, WS_MSG_CANDLES_BATCH, WS_MSG_GAP
 
 
 def _candle(candle_time: int) -> CandleClosed:

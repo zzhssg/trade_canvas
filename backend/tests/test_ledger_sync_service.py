@@ -5,7 +5,7 @@ from typing import Mapping
 
 import pytest
 
-from backend.app.ledger_sync_service import LedgerSyncService
+from backend.app.ledger.sync_service import LedgerSyncService
 from backend.app.service_errors import ServiceError
 
 

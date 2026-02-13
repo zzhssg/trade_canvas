@@ -13,6 +13,7 @@ Usage:
   MARKET_BACKFILL_PROBE_ROUNDS=2                (默认 2)
   MARKET_BACKFILL_PROBE_LIMIT=500               (默认 500)
   MARKET_BACKFILL_PROBE_DB_PATH=backend/data/market.db
+  MARKET_BACKFILL_PROBE_WHITELIST_PATH=backend/config/market_whitelist.json
   MARKET_BACKFILL_PROBE_BASE_URL=http://127.0.0.1:8000
   MARKET_BACKFILL_PROBE_TIMEOUT=25
   MARKET_BACKFILL_PROBE_REPORT_PATH=output/market_backfill_rounds_report_<transport>.json
@@ -37,6 +38,7 @@ transport="${MARKET_BACKFILL_PROBE_TRANSPORT:-live}"
 rounds="${MARKET_BACKFILL_PROBE_ROUNDS:-2}"
 limit="${MARKET_BACKFILL_PROBE_LIMIT:-500}"
 db_path="${MARKET_BACKFILL_PROBE_DB_PATH:-backend/data/market.db}"
+whitelist_path="${MARKET_BACKFILL_PROBE_WHITELIST_PATH:-backend/config/market_whitelist.json}"
 base_url="${MARKET_BACKFILL_PROBE_BASE_URL:-http://127.0.0.1:8000}"
 timeout_s="${MARKET_BACKFILL_PROBE_TIMEOUT:-25}"
 report_path="${MARKET_BACKFILL_PROBE_REPORT_PATH:-output/market_backfill_rounds_report_${transport}.json}"
@@ -56,6 +58,7 @@ cmd=(
   --rounds "$rounds"
   --limit "$limit"
   --db-path "$db_path"
+  --whitelist-path "$whitelist_path"
   --base-url "$base_url"
   --request-timeout "$timeout_s"
   --report-path "$report_path"

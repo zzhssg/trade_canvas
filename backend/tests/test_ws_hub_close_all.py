@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 
-from backend.app.ws_hub import CandleHub
+from backend.app.ws.hub import CandleHub
 
 
 class _FakeWs:

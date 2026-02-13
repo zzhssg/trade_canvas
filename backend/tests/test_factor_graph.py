@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.factor_graph import FactorGraph, FactorGraphError, FactorSpec
+from backend.app.factor.graph import FactorGraph, FactorGraphError, FactorSpec
 
 
 class FactorGraphTests(unittest.TestCase):

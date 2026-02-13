@@ -803,7 +803,7 @@ export function ChartView() {
         const rawText = typeof def["text"] === "string" ? def["text"] : "";
         const sizeRaw = Number(def["size"]);
 
-        // Pivot marker style normalization (backward compatible with legacy overlay defs).
+        // Pivot marker style normalization.
         // - major: never show "P" label
         // - minor: always render as a smaller circle dot than major
         const isPivotMajor = feature === "pivot.major";
@@ -2265,7 +2265,7 @@ export function ChartView() {
           }
         };
 
-        // Initial world frame (preferred) or overlay delta (legacy).
+        // Initial render path: world frame first, fallback to overlay delta on frame errors.
         try {
           if (ENABLE_WORLD_FRAME && !replayEnabled && worldFrameHealthyRef.current) {
             const frame = await loadWorldFrameLive();

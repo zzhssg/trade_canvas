@@ -11,7 +11,11 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
-from backend.app.storage import DualWriteCandleRepository
+from backend.app.storage import (
+    PostgresCandleRepository,
+    PostgresFactorRepository,
+    PostgresOverlayRepository,
+)
 
 
 class BackendArchitectureFlagsTests(unittest.TestCase):
@@ -39,8 +43,7 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             "TRADE_CANVAS_ENABLE_WHITELIST_INGEST",
             "TRADE_CANVAS_ENABLE_ONDEMAND_INGEST",
             "TRADE_CANVAS_ENABLE_PG_STORE",
-            "TRADE_CANVAS_ENABLE_DUAL_WRITE",
-            "TRADE_CANVAS_ENABLE_PG_READ",
+            "TRADE_CANVAS_ENABLE_PG_ONLY",
             "TRADE_CANVAS_ENABLE_WS_PUBSUB",
             "TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD",
             "TRADE_CANVAS_INGEST_ROLE",
@@ -120,15 +123,13 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
             self.assertIs(runtime.flags, container.flags)
             self.assertIs(runtime.runtime_flags, container.runtime_flags)
             self.assertIs(getattr(pipeline, "_hub", None), runtime.hub)
-            self.assertIsNone(getattr(pipeline, "_candle_mirror", None))
             self.assertIs(container.lifecycle.market_runtime, runtime)
             self.assertFalse(hasattr(container.lifecycle, "supervisor"))
         finally:
             client.close()
 
-    def test_dual_write_flag_wires_dual_write_store_without_pipeline_mirror(self) -> None:
+    def test_pg_store_flag_wires_all_domain_stores_to_postgres(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_PG_STORE"] = "1"
-        os.environ["TRADE_CANVAS_ENABLE_DUAL_WRITE"] = "1"
         os.environ["TRADE_CANVAS_POSTGRES_DSN"] = "postgresql://tc:tc@127.0.0.1:5432/tc"
         os.environ["TRADE_CANVAS_POSTGRES_SCHEMA"] = "trade_canvas"
         fake_pool = object()
@@ -137,10 +138,10 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
         try:
             app = cast(Any, client.app)
             container = app.state.container
-            self.assertIsInstance(container.store, DualWriteCandleRepository)
-            self.assertTrue(container.store.dual_write_enabled)
-            pipeline = container.market_runtime.ingest_ctx.ingest_pipeline
-            self.assertIsNone(getattr(pipeline, "_candle_mirror", None))
+            self.assertIsInstance(container.store, PostgresCandleRepository)
+            self.assertIsInstance(container.factor_store, PostgresFactorRepository)
+            self.assertIsInstance(container.overlay_store, PostgresOverlayRepository)
+            self.assertTrue(container.runtime_flags.enable_pg_store)
         finally:
             client.close()
 
@@ -150,6 +151,23 @@ class BackendArchitectureFlagsTests(unittest.TestCase):
         os.environ["TRADE_CANVAS_REDIS_URL"] = ""
         with self.assertRaisesRegex(ValueError, "redis_url_required_when_ws_pubsub_enabled"):
             create_app()
+
+    def test_pg_only_requires_pg_store(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_PG_STORE"] = "0"
+        os.environ["TRADE_CANVAS_ENABLE_PG_ONLY"] = "1"
+        os.environ["TRADE_CANVAS_POSTGRES_DSN"] = "postgresql://tc:tc@127.0.0.1:5432/tc"
+        with self.assertRaisesRegex(ValueError, "pg_store_required_when_pg_only_enabled"):
+            create_app()
+
+    def test_local_store_is_default_when_pg_store_disabled(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_PG_STORE"] = "0"
+        client = self._build_client()
+        try:
+            app = cast(Any, client.app)
+            container = app.state.container
+            self.assertFalse(container.runtime_flags.enable_pg_store)
+        finally:
+            client.close()
 
     def test_read_path_requires_strict_fresh_ledger(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "0"

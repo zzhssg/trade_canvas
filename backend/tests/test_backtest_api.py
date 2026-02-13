@@ -50,7 +50,7 @@ class BacktestApiTests(unittest.TestCase):
             os.environ.pop(key, None)
 
     def test_strategies_endpoint_parses_stdout(self) -> None:
-        from backend.app.freqtrade_runner import FreqtradeExecResult
+        from backend.app.freqtrade.runner import FreqtradeExecResult
 
         with patch.object(
             self.backtest_service,
@@ -82,7 +82,7 @@ class BacktestApiTests(unittest.TestCase):
             os.environ.pop("TRADE_CANVAS_FREQTRADE_MOCK", None)
 
     def test_run_backtest_requires_known_strategy(self) -> None:
-        from backend.app.freqtrade_runner import FreqtradeExecResult
+        from backend.app.freqtrade.runner import FreqtradeExecResult
 
         with patch.object(
             self.backtest_service,
@@ -105,7 +105,7 @@ class BacktestApiTests(unittest.TestCase):
             self.assertEqual(resp.status_code, 404)
 
     def test_run_backtest_appends_futures_pair_suffix(self) -> None:
-        from backend.app.freqtrade_runner import FreqtradeExecResult
+        from backend.app.freqtrade.runner import FreqtradeExecResult
 
         list_ok = FreqtradeExecResult(
             ok=True,
@@ -137,7 +137,7 @@ class BacktestApiTests(unittest.TestCase):
             self.assertEqual(called_kwargs["pair"], "BTC/USDT:USDT")
 
     def test_run_backtest_prints_stdout_and_stderr(self) -> None:
-        from backend.app.freqtrade_runner import FreqtradeExecResult
+        from backend.app.freqtrade.runner import FreqtradeExecResult
 
         list_ok = FreqtradeExecResult(
             ok=True,

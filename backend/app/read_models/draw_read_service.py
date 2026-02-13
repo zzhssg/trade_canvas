@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..overlay_store import OverlayInstructionVersionRow
+from ..overlay.store import OverlayInstructionVersionRow
 from ..schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1
 from ..timeframe import series_id_timeframe, timeframe_to_seconds
 from .draw_delta_steps import (

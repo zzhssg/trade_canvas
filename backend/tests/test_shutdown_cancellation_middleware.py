@@ -6,7 +6,7 @@ import unittest
 from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse, Response
 
-from backend.app.shutdown_cancellation_middleware import ShutdownCancellationMiddleware, ShutdownState
+from backend.app.lifecycle.shutdown_cancellation_middleware import ShutdownCancellationMiddleware, ShutdownState
 
 
 def _build_request(app: FastAPI) -> Request:

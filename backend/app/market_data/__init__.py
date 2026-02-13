@@ -22,7 +22,7 @@ from .orchestrator import (
 )
 from .read_services import StoreBackfillService, StoreCandleReadService, StoreFreshnessService
 from .ws_services import WsMessageParser, WsSubscriptionCoordinator, build_ws_error_payload
-from ..ws_protocol import (
+from ..ws.protocol import (
     WS_ERR_BAD_REQUEST,
     WS_ERR_CAPACITY,
     WS_ERR_MSG_INVALID_ENVELOPE,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.ingest_loop_guardrail import IngestLoopGuardrail, IngestLoopGuardrailConfig
+from backend.app.ingest.loop_guardrail import IngestLoopGuardrail, IngestLoopGuardrailConfig
 
 
 def test_guardrail_opens_when_crash_budget_exhausted() -> None:

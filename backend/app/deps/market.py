@@ -5,14 +5,14 @@ from typing import Annotated, Awaitable, Callable
 from fastapi import Depends
 
 from ..container import AppContainer
-from ..ingest_supervisor import IngestSupervisor
-from ..market_backfill_tracker import MarketBackfillProgressTracker
+from ..ingest.supervisor import IngestSupervisor
 from ..market_data import DefaultMarketDataOrchestrator, WsMessageParser, WsSubscriptionCoordinator
-from ..market_ingest_service import MarketIngestService
-from ..market_ledger_warmup_service import MarketLedgerWarmupService
-from ..market_list import BinanceMarketListService, MinIntervalLimiter
-from ..market_query_service import MarketQueryService
-from ..market_runtime import MarketIngestContext, MarketReadContext, MarketRealtimeContext
+from ..market.backfill_tracker import MarketBackfillProgressTracker
+from ..market.ingest_service import MarketIngestService
+from ..market.ledger_warmup_service import MarketLedgerWarmupService
+from ..market.list import BinanceMarketListService, MinIntervalLimiter
+from ..market.query_service import MarketQueryService
+from ..market.runtime import MarketIngestContext, MarketReadContext, MarketRealtimeContext
 from ..whitelist import MarketWhitelist
 from .core import get_app_container
 

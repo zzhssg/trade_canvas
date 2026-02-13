@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.app.market_backfill_tracker import MarketBackfillProgressTracker
+from backend.app.market.backfill_tracker import MarketBackfillProgressTracker
 
 
 class MarketBackfillProgressTrackerPersistenceTests(unittest.TestCase):

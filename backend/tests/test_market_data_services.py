@@ -20,7 +20,7 @@ from backend.app.market_data import (
     build_gap_backfill_handler,
     build_ws_error_payload,
 )
-from backend.app.runtime_metrics import RuntimeMetrics
+from backend.app.runtime.metrics import RuntimeMetrics
 from backend.app.schemas import CandleClosed
 from backend.app.store import CandleStore
 
@@ -140,6 +140,48 @@ def test_default_market_data_orchestrator_routes_read_and_ws_gap_heal() -> None:
         assert batch_out.gap_emitted is True
         assert [p["type"] for p in batch_out.payloads] == ["gap", "candles_batch"]
         assert batch_out.last_sent_time == 220
+
+
+def test_default_market_data_orchestrator_clamps_ahead_closed_for_read_and_ws(monkeypatch) -> None:
+    class _FakeWsDelivery:
+        async def heal_catchup_gap(self, *, series_id: str, effective_since: int | None, catchup: list[CandleClosed]):
+            _ = series_id
+            _ = effective_since
+            return catchup, None
+
+    with tempfile.TemporaryDirectory() as td:
+        store = CandleStore(db_path=Path(td) / "market.db")
+        series_id = "binance:futures:BTC/USDT:1h"
+        _upsert_times(store, series_id=series_id, times=[0, 3600, 7200])
+
+        monkeypatch.setattr("backend.app.market_data.orchestrator.time.time", lambda: 7201)
+
+        orchestrator = DefaultMarketDataOrchestrator(
+            reader=StoreCandleReadService(store=store),
+            freshness=StoreFreshnessService(store=store),
+            ws_delivery=_FakeWsDelivery(),
+        )
+
+        read = orchestrator.read_candles(CatchupReadRequest(series_id=series_id, since=None, limit=10))
+        assert [int(c.candle_time) for c in read.candles] == [0, 3600]
+
+        ws_out = asyncio.run(
+            orchestrator.build_ws_subscribe(
+                WsSubscribeRequest(
+                    series_id=series_id,
+                    since=7200,
+                    supports_batch=True,
+                    limit=10,
+                    get_last_sent=lambda: asyncio.sleep(0, result=7200),
+                )
+            )
+        )
+        assert ws_out.effective_since == 3600
+        assert ws_out.read_count == 0
+        assert ws_out.catchup_count == 0
+        assert ws_out.payloads == []
+        assert ws_out.last_sent_time == 3600
+        assert ws_out.gap_emitted is False
 
 
 def test_store_backfill_service_wraps_gap_and_tail_backfill() -> None:

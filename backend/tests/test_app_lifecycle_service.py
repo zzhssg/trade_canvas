@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from backend.app.app_lifecycle_service import AppLifecycleService
+from backend.app.lifecycle.service import AppLifecycleService
 
 
 class _FakeSupervisor:
@@ -66,7 +66,7 @@ def test_lifecycle_startup_delegates_sync_and_supervisor(monkeypatch) -> None:
         calls.append((bool(enabled), int(target_candles)))
         return object()
 
-    monkeypatch.setattr("backend.app.app_lifecycle_service.run_startup_kline_sync_for_runtime", _fake_sync)
+    monkeypatch.setattr("backend.app.lifecycle.service.run_startup_kline_sync_for_runtime", _fake_sync)
     supervisor = _FakeSupervisor(whitelist_ingest_enabled=True)
     runtime = _FakeRuntime(
         flags=_FakeFlags(enable_ondemand_ingest=False),
@@ -90,7 +90,7 @@ def test_lifecycle_startup_ondemand_can_start_reaper_without_whitelist(monkeypat
         _ = target_candles
         return object()
 
-    monkeypatch.setattr("backend.app.app_lifecycle_service.run_startup_kline_sync_for_runtime", _fake_sync)
+    monkeypatch.setattr("backend.app.lifecycle.service.run_startup_kline_sync_for_runtime", _fake_sync)
     supervisor = _FakeSupervisor(whitelist_ingest_enabled=False)
     runtime = _FakeRuntime(
         flags=_FakeFlags(enable_ondemand_ingest=True),

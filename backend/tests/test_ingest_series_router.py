@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from backend.app.ingest_series_router import IngestSeriesRouter, IngestSeriesRouterConfig
-from backend.app.ingest_source_registry import IngestSourceBinding, IngestSourceRegistry
+from backend.app.ingest.series_router import IngestSeriesRouter, IngestSeriesRouterConfig
+from backend.app.ingest.source_registry import IngestSourceBinding, IngestSourceRegistry
 
 
 def _build_router() -> IngestSeriesRouter:

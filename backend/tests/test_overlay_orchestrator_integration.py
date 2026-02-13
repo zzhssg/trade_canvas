@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.app.factor_store import FactorEventWrite, FactorStore
-from backend.app.overlay_orchestrator import OverlayOrchestrator
-from backend.app.overlay_store import OverlayStore
+from backend.app.factor.store import FactorEventWrite, FactorStore
+from backend.app.overlay.orchestrator import OverlayOrchestrator
+from backend.app.overlay.store import OverlayStore
 from backend.app.schemas import CandleClosed
 from backend.app.store import CandleStore
 

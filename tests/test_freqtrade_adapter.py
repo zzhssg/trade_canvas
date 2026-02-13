@@ -35,7 +35,7 @@ class TestFreqtradeAdapter(unittest.TestCase):
         self.assertFalse(df.empty)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "strategy.sqlite3"
+            db_path = Path(tmpdir) / "strategy.db"
             res = annotate_sma_cross(
                 df,
                 pair="BTC/USDT",
@@ -51,4 +51,3 @@ class TestFreqtradeAdapter(unittest.TestCase):
 
             # With this fixture, we expect at least one cross.
             self.assertGreaterEqual(int(out["tc_open_long"].sum()), 1)
-

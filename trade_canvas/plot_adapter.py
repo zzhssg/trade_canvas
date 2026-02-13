@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .store import OverlayEventRow, PlotPointRow, SqliteStore
+from .store import KernelStore, OverlayEventRow, PlotPointRow
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ class PlotDeltaAdapter:
     - Returns only incremental plot points and overlay events since a cursor
     """
 
-    def __init__(self, store: SqliteStore) -> None:
+    def __init__(self, store: KernelStore) -> None:
         self._store = store
 
     def get_delta(
@@ -114,4 +114,3 @@ def group_line_points(points: list[PlotPointRow]) -> dict[str, list[dict[str, An
     for p in points:
         out.setdefault(p.feature_key, []).append({"time": p.candle_time, "value": p.value})
     return out
-

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.app.factor_runtime_config import FactorSettings
+from backend.app.factor.runtime_config import FactorSettings
 
 
 def test_factor_settings_defaults_are_stable() -> None:
@@ -14,6 +14,6 @@ def test_factor_settings_defaults_are_stable() -> None:
 
 
 def test_factor_runtime_config_no_longer_reads_env_directly() -> None:
-    module_path = Path("backend/app/factor_runtime_config.py")
+    module_path = Path("backend/app/factor/runtime_config.py")
     text = module_path.read_text(encoding="utf-8")
     assert "os.environ" not in text

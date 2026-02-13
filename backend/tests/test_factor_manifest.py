@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from backend.app.factor_manifest import FactorManifestError, build_default_factor_manifest, build_factor_manifest
-from backend.app.factor_plugin_contract import FactorPluginSpec
+from backend.app.factor.manifest import FactorManifestError, build_default_factor_manifest, build_factor_manifest
+from backend.app.factor.plugin_contract import FactorPluginSpec
 
 
 class _TickPlugin:

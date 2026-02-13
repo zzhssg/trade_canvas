@@ -77,6 +77,7 @@ flowchart TD
 目标：形成唯一可复核证据链。
 
 必须满足：
+- 统一质量门禁：`bash scripts/quality_gate.sh`（禁兼容层/禁遗留双轨/禁临时债）
 - E2E：`bash scripts/e2e_acceptance.sh`（退出码 0）
 - 文档审计：`bash docs/scripts/doc_audit.sh`（退出码 0）
 - 证据产物：`output/playwright/` 与运行日志（失败时必须有 trace/screenshot）
@@ -159,14 +160,14 @@ bash scripts/worktree_plan_ctl.sh status 待验收
 bash scripts/worktree_acceptance.sh
 ```
 
-### 5.2 真执行（一键收尾：推进 plan 状态 + doc_audit + merge + remove）
+### 5.2 真执行（一键收尾：推进 plan 状态 + quality gate + doc_audit + merge + remove）
 
 ```bash
 # 推荐：脚本会自动从 .worktree-meta/<id>.json 读取 plan_path（中/高风险必填）
-bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status --run-doc-audit
+bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status
 
 # 若 metadata 没有 plan_path，可显式指定：
-bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status --run-doc-audit --plan-doc docs/plan/2026-02-05-xxx.md
+bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status --plan-doc docs/plan/2026-02-05-xxx.md
 ```
 
 约束：

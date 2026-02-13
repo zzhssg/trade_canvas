@@ -44,18 +44,24 @@ updated: 2026-02-13
 ### 主线 A：数据层迁移（SQLite -> PostgreSQL/TimescaleDB）
 
 - A1（准备态）：新增 PG/Timescale schema 与 repository 抽象，不改变线上读写路径。
-- A2（镜像态）：开启 `dual-write`，写路径同时写 SQLite 与 PG（主读仍 SQLite）。
+- A2（镜像态，已废弃）：曾规划 `dual-write`，现已改为 PG single-write。
 - A3（校验态）：引入对账与漂移检测（head_time/row_count/checksum），确保同输入同输出。
 - A4（切读态）：按接口逐步切换读来源（先 market candles，再 factor/draw/world），每步可独立回滚。
 
 #### M2 决策（2026-02-13）
 
-- 采用 **A / Shadow dual-write**：
-  - SQLite 成功即主流程成功（返回 200）。
-  - PG 写失败不阻断主流程，记录错误事件与指标，并进入对账漂移待修复队列。
+- 已切换为 **B / PG single-write（硬切）**：
+  - 移除 dual-write / pg-read 分叉，`TRADE_CANVAS_ENABLE_PG_STORE=1` 时 candles/factor/overlay 全部走 PG。
+  - 移除 `DataReconcileService` 与 `/api/market/debug/reconcile`（不再维护 SQLite 对账语义）。
 - 理由：
-  - 当前阶段目标是平滑灰度与容量验证，优先可用性；
-  - 避免在迁移初期因 PG 抖动放大线上失败面。
+  - 当前项目未上线、可丢历史数据，优先最快清理旧路径；
+  - 降低运行时复杂度与排障面，避免“双写+对账”长期残留。
+
+#### M6 收官（2026-02-13）
+
+- 已移除 SQLite 相关代码/开关/脚本路径，运行时不再支持 SQLite fallback。
+- `TRADE_CANVAS_ENABLE_PG_STORE=0` 时默认使用本地内存 store（开发/测试），不依赖 sqlite 驱动。
+- 新增零残留守卫，禁止 `TRADE_CANVAS_ENABLE_SQLITE_STORE` 与 `sqlite3` 回流到生产代码路径。
 
 ### 主线 B：实时层扩容（单进程内存广播 -> 跨实例 pub/sub）
 
@@ -77,21 +83,21 @@ updated: 2026-02-13
 - Touched: `backend/app/`, `backend/tests/`, `docs/core/`, `docs/plan/`, `scripts/`
 - Gate:
   - `bash docs/scripts/api_docs_audit.sh --list`
-  - `pytest -q backend/tests/test_postgres_schema_bootstrap.py backend/tests/test_postgres_store_dual_write.py backend/tests/test_ws_pubsub_scaleout.py backend/tests/test_e2e_user_story_market_scaleout.py`
+  - `pytest -q backend/tests/test_postgres_schema_bootstrap.py backend/tests/test_ws_pubsub_scaleout.py backend/tests/test_e2e_user_story_market_scaleout.py`
   - `pytest -q`
   - `python3 -m mypy backend/app`
   - `cd frontend && npm run build`
-  - `E2E_BACKEND_PORT=18080 E2E_FRONTEND_PORT=15180 TRADE_CANVAS_ENABLE_PG_STORE=1 TRADE_CANVAS_ENABLE_DUAL_WRITE=1 TRADE_CANVAS_ENABLE_PG_READ=1 TRADE_CANVAS_ENABLE_WS_PUBSUB=1 bash scripts/e2e_acceptance.sh`
+  - `E2E_BACKEND_PORT=18080 E2E_FRONTEND_PORT=15180 TRADE_CANVAS_ENABLE_PG_STORE=1 TRADE_CANVAS_ENABLE_WS_PUBSUB=1 bash scripts/e2e_acceptance.sh`
   - `bash docs/scripts/doc_audit.sh`
 - Evidence: `output/2026-02-13-scaleout-integrated/*`
 - Rollback:
-  - runtime: `TRADE_CANVAS_ENABLE_PG_READ=0 TRADE_CANVAS_ENABLE_DUAL_WRITE=0 TRADE_CANVAS_ENABLE_WS_PUBSUB=0`
+  - runtime: `TRADE_CANVAS_ENABLE_PG_STORE=0 TRADE_CANVAS_ENABLE_WS_PUBSUB=0`
   - code: `git revert <集成提交sha>`
 
 ### 一次性执行顺序（并行后仲裁）
 
 1. **控制面与装配收口**：统一开关解析、容器装配、依赖导出（不改对外契约）。
-2. **存储层落地**：补齐 sqlite/postgres/dual-write repository，并由 runtime builder 注入。
+2. **存储层落地**：补齐 local/postgres repository，并由 runtime builder 注入；随后移除 dual-write 分支。
 3. **主链路切换**：ingest/read/ws 路径全部改走 repository + publisher 抽象。
 4. **对账与观测**：补 reconcile service 与 debug API，固定证据输出。
 5. **门禁与文档**：一次性跑全门禁，补齐 API/架构文档并归档证据。
@@ -108,13 +114,13 @@ updated: 2026-02-13
 
 - 产出：PG 连接配置、schema bootstrap、`candles` hypertable、仓储接口。
 - 验收：新增单测验证 schema 创建与基本读写；旧链路不受影响。
-- 回滚：关闭 `TRADE_CANVAS_ENABLE_PG_STORE`，系统回到 SQLite 单轨。
+- 回滚：关闭 `TRADE_CANVAS_ENABLE_PG_STORE`，系统回到本地内存 store。
 
-### M2：写链路 dual-write + 对账（主读仍 SQLite）
+### M2：写链路收口（PG single-write）
 
-- 产出：ingest/factor/overlay 双写，漂移对账（debug endpoint 或周期任务）。
-- 验收：同一批 `candle_closed` 后 SQLite/PG head_time 与关键计数一致。
-- 回滚：关闭 `TRADE_CANVAS_ENABLE_DUAL_WRITE`。
+- 产出：ingest/factor/overlay 统一写 PG，移除 dual-write/pg-read 分叉与 reconcile 调试接口。
+- 验收：固定输入下 `head_time` 与历史读取一致，且主链路无 dual-write 依赖。
+- 回滚：关闭 `TRADE_CANVAS_ENABLE_PG_STORE`。
 
 ### M3：WS pub/sub 横向扩容（默认关闭）
 
@@ -122,11 +128,11 @@ updated: 2026-02-13
 - 验收：双实例下，A 实例 ingest，B 实例连接的客户端收到 `candle_closed`。
 - 回滚：关闭 `TRADE_CANVAS_ENABLE_WS_PUBSUB`，退回进程内广播。
 
-### M4：按接口切读到 PG（分步灰度）
+### M4：读链路统一 PG（分步灰度）
 
-- 产出：`/api/market/candles` -> PG（先行），再推进 factor/draw/world。
-- 验收：E2E 用户故事通过；对拍结果一致。
-- 回滚：关闭 `TRADE_CANVAS_ENABLE_PG_READ`，立即退回 SQLite 读。
+- 产出：`/api/market/candles`、factor/draw/world 在 PG store 开启时统一走 PG 仓储。
+- 验收：E2E 用户故事通过；同输入同输出保持稳定。
+- 回滚：关闭 `TRADE_CANVAS_ENABLE_PG_STORE`，回退本地内存 store。
 
 ### M5：容量验收与交付
 
@@ -143,32 +149,34 @@ updated: 2026-02-13
 - [x] 修改 `backend/app/runtime_flags.py`
   - 新增：
     - `TRADE_CANVAS_ENABLE_PG_STORE`
-    - `TRADE_CANVAS_ENABLE_DUAL_WRITE`
-    - `TRADE_CANVAS_ENABLE_PG_READ`
     - `TRADE_CANVAS_ENABLE_WS_PUBSUB`
     - `TRADE_CANVAS_ENABLE_CAPACITY_METRICS`
 
 ### 2) 数据层仓储抽象与实现
 
 - [x] 新增 `backend/app/storage/contracts.py`
-  - 定义 candle/factor/overlay repository 协议（避免路由/服务耦合 sqlite 细节）。
-- [x] 新增 `backend/app/storage/sqlite_*.py`
-  - 迁移现有 SQLite 逻辑到实现层（保持行为不变）。
+  - 定义 candle/factor/overlay repository 协议（避免路由/服务耦合存储细节）。
 - [x] 新增 `backend/app/storage/postgres_*.py`
   - 实现 PG 对应仓储；`candles` 使用 Timescale hypertable。
+- [x] 新增 `backend/app/storage/postgres_factor_repo.py`、`backend/app/storage/postgres_overlay_repo.py`
+  - 为 `factor/overlay` 提供 PostgreSQL 仓储实现（支持 PG-only 模式）。
 - [x] 修改 `backend/app/container.py`、`backend/app/market_runtime_builder.py`
-  - 按开关装配 sqlite/pg/dual-write 组合。
+  - 按开关装配 local/pg，且 PG store 开启时统一 single-write。
+- [x] 修改 `backend/app/runtime_flags.py`
+  - 增加 `TRADE_CANVAS_ENABLE_PG_ONLY`（开发阶段快速硬切主链路到 PostgreSQL）。
 
-### 3) 写链路双写与对账
+### 3) 写链路收口（PG single-write）
 
 - [x] 修改 `backend/app/pipelines/ingest_pipeline.py`
-  - 在不改变步骤语义前提下加入 dual-write hook。
+  - 保留步骤语义，清理 dual-write 分支后主链路仅依赖单写仓储。
 - [ ] 修改 `backend/app/factor_orchestrator.py`、`backend/app/overlay_orchestrator.py`
   - 输出写入委托到抽象仓储。
-- [x] 新增 `backend/app/data_reconcile_service.py`
-  - 比对 sqlite/pg 的 head_time、count、checksum。
+- [x] 删除 `backend/app/storage/dual_write_repos.py`、`backend/app/storage/sqlite_repos.py`
+  - 移除 dual-write 与 storage 层 legacy alias。
+- [x] 删除 `backend/app/data_reconcile_service.py`
+  - 下线旧对账服务。
 - [x] 修改 `backend/app/market_debug_routes.py`
-  - 增加受开关保护的对账调试接口。
+  - 移除 `/api/market/debug/reconcile`，保留 debug ingest/series_health/metrics。
 
 ### 4) WS 横向扩容
 
@@ -183,7 +191,6 @@ updated: 2026-02-13
 
 ### 5) 测试与容量门禁
 
-- [x] 新增 `backend/tests/test_postgres_store_dual_write.py`
 - [x] 新增 `backend/tests/test_ws_pubsub_scaleout.py`
 - [x] 新增 `backend/tests/test_e2e_user_story_market_scaleout.py`
 - [x] 新增 `scripts/load/ws_readonly_smoke.sh`（或等价脚本）
@@ -193,7 +200,7 @@ updated: 2026-02-13
 
 ### 核心风险
 
-1. **双写一致性漂移**：SQLite 成功、PG 失败（或反之）导致读切换后语义不一致。
+1. **迁移残留漂移**：旧 SQLite 路径未完全清理，导致行为分叉或运维误判。
 2. **WS 重复/丢消息**：跨实例 pub/sub 可能出现顺序问题或重复广播。
 3. **吞吐回退**：PG 连接池/索引策略不当导致读写性能下降。
 4. **运维复杂度提升**：引入 Redis + PG 后部署和排障复杂度上升。
@@ -201,8 +208,7 @@ updated: 2026-02-13
 ### 回滚策略
 
 - 数据层：
-  - 关闭 `TRADE_CANVAS_ENABLE_PG_READ`：读立即回 SQLite。
-  - 关闭 `TRADE_CANVAS_ENABLE_DUAL_WRITE`：停止 PG 旁路写。
+  - 关闭 `TRADE_CANVAS_ENABLE_PG_STORE`：读写回本地内存 store。
 - 实时层：
   - 关闭 `TRADE_CANVAS_ENABLE_WS_PUBSUB`：回退到进程内 hub。
 - 代码层：
@@ -211,9 +217,9 @@ updated: 2026-02-13
 ## 验收标准
 
 1. 功能一致性：主链路 E2E（ingest -> frame/live -> ws -> delta）通过。
-2. 对账一致性：在固定输入样本下，SQLite 与 PG 的 `head_time` 和关键计数一致。
+2. 主链路一致性：在固定输入样本下，PG store 开启/关闭两种模式都可复现。
 3. 容量指标：1k 只读连接 smoke 下，订阅成功率、消息送达率、p95 延迟达到目标阈值（阈值在执行阶段固化）。
-4. 回滚可行性：任意阶段可通过开关或 `git revert` 在 10 分钟内恢复到 SQLite + in-memory WS 路径。
+4. 回滚可行性：任意阶段可通过开关或 `git revert` 在 10 分钟内恢复到 local-store + in-memory WS 路径。
 
 ## E2E 用户故事（门禁）
 
@@ -258,15 +264,13 @@ updated: 2026-02-13
 - Expected outcome：
   - WS：收到 `candle_closed.candle_time == 1700000120`
   - API：`/api/market/candles?since=1700000060` 返回最后一根 `candle_time == 1700000120`
-  - 对账：SQLite/PG `head_time == 1700000120`
+  - 存储：PG `head_time == 1700000120`
 
 ### Preconditions（前置条件）
 
 - 环境变量（显式固定）：
   - `TRADE_CANVAS_ENABLE_PG_STORE=1`
-  - `TRADE_CANVAS_ENABLE_DUAL_WRITE=1`
   - `TRADE_CANVAS_ENABLE_WS_PUBSUB=1`
-  - `TRADE_CANVAS_ENABLE_PG_READ=1`（切读用例时）
 - 依赖服务：PostgreSQL + TimescaleDB + Redis（测试容器）。
 
 ### Main Flow（主流程步骤 + 断言）
@@ -281,9 +285,9 @@ updated: 2026-02-13
 2) 由 A 实例写入 closed candle
 - User action：调用 A 实例 ingest。
 - Requests：`POST /api/market/ingest/candle_closed`（candle_time=1700000120）。
-- Backend chain：`ingest_pipeline -> sqlite+pg dual-write -> ws publisher(redis)`。
-- Assertions：API 返回 success；对账接口显示 sqlite/pg head 一致。
-- Evidence：接口响应、debug metrics、对账输出。
+- Backend chain：`ingest_pipeline -> pg single-write -> ws publisher(redis)`。
+- Assertions：API 返回 success；PG head 与返回数据一致。
+- Evidence：接口响应、debug metrics。
 
 3) B 实例订阅端接收增量
 - User action：等待 B 实例 WS 消息。
@@ -295,18 +299,16 @@ updated: 2026-02-13
 ### Produced Data（产生的数据）
 
 - Tables / Files:
-  - `candles`（SQLite）
   - `candles` hypertable（PostgreSQL/TimescaleDB）
-  - `factor_events` / `overlay_instruction_versions`（双写阶段）
+  - `factor_events` / `overlay_instruction_versions`（PG）
 - how to inspect:
-  - SQLite：测试内查询
   - PG：`SELECT max(candle_time) ...`
   - WS：测试日志与消息快照
 
 ### Verification Commands（必须可复制运行）
 
-- `pytest -q backend/tests/test_postgres_store_dual_write.py backend/tests/test_ws_pubsub_scaleout.py backend/tests/test_e2e_user_story_market_scaleout.py`
-  - Expected：三个用例全部通过；关键断言包含 `1700000120`。
+- `pytest -q backend/tests/test_ws_pubsub_scaleout.py backend/tests/test_e2e_user_story_market_scaleout.py`
+  - Expected：两个用例全部通过；关键断言包含 `1700000120`。
 - `cd frontend && npm run build`
   - Expected：前端契约构建通过。
 - `bash scripts/e2e_acceptance.sh`
@@ -315,14 +317,17 @@ updated: 2026-02-13
 ### Rollback（回滚）
 
 - 最短回滚：
-  - 关 `TRADE_CANVAS_ENABLE_PG_READ` + `TRADE_CANVAS_ENABLE_WS_PUBSUB` + `TRADE_CANVAS_ENABLE_DUAL_WRITE`
-  - 保留 SQLite + in-memory WS 路径继续服务。
+  - 关 `TRADE_CANVAS_ENABLE_PG_STORE` + `TRADE_CANVAS_ENABLE_WS_PUBSUB`
+  - 回退到本地内存仓储 + in-memory WS 路径继续服务（仅开发/测试兜底）。
 
 ## 变更记录
 
 - 2026-02-13: 创建（草稿）
 - 2026-02-13: 补充企业级扩容迁移方案（PG/Timescale + WS scaleout + E2E 门禁）
 - 2026-02-13: M1 起步实现（PG/Redis 配置、runtime 开关、Postgres schema bootstrap 与单测）
-- 2026-02-13: M2 起步实现（sqlite/postgres/dual-write candle repository、容器按开关注入、dual-write 回归测试）
+- 2026-02-13: M2 起步实现（local/postgres/dual-write candle repository、容器按开关注入、dual-write 回归测试）
+- 2026-02-13: M2 收口实现（移除 dual-write/pg-read/reconcile 路径，PG store 启用后统一 single-write）
 - 2026-02-13: M3 起步实现（ws publisher 抽象、Redis publisher、CandleHub pubsub bridge、scaleout 回归测试）
 - 2026-02-13: M5 起步实现（ws readonly capacity smoke 脚本 + output/capacity 证据落盘约定）
+- 2026-02-13: M2 收官（移除 backend/app SQLite 实现与 replay sqlite 包，replay 改为 JSON package）
+- 2026-02-13: M6 收官（删除 `TRADE_CANVAS_ENABLE_SQLITE_STORE` 与脚本/测试残留，零残留守卫接入 quality gate）

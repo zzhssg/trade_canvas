@@ -42,7 +42,11 @@ def test_build_postgres_bootstrap_sql_includes_timescale_and_state_tables() -> N
     assert "CREATE EXTENSION IF NOT EXISTS timescaledb" in joined
     assert "CREATE TABLE IF NOT EXISTS trade_canvas.candles" in joined
     assert "CREATE TABLE IF NOT EXISTS trade_canvas.factor_series_state" in joined
+    assert "CREATE TABLE IF NOT EXISTS trade_canvas.factor_events" in joined
+    assert "CREATE TABLE IF NOT EXISTS trade_canvas.factor_head_snapshots" in joined
+    assert "CREATE TABLE IF NOT EXISTS trade_canvas.factor_series_fingerprint" in joined
     assert "CREATE TABLE IF NOT EXISTS trade_canvas.overlay_series_state" in joined
+    assert "CREATE TABLE IF NOT EXISTS trade_canvas.overlay_instruction_versions" in joined
     assert "create_hypertable('trade_canvas.candles'" in joined
 
 

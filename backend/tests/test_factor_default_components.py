@@ -3,13 +3,13 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from backend.app.factor_default_components import (
+from backend.app.factor.default_components import (
     FactorDefaultBundleSpec,
     FactorDefaultComponentsError,
     build_default_factor_components,
     build_factor_components_from_bundles,
 )
-from backend.app.factor_plugin_contract import FactorPluginSpec
+from backend.app.factor.plugin_contract import FactorPluginSpec
 
 
 class _TickPlugin:

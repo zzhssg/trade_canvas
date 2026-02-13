@@ -5,11 +5,11 @@ from typing import Annotated
 from fastapi import Depends
 
 from ..container import AppContainer
-from ..debug_hub import DebugHub
-from ..factor_store import FactorStore
-from ..overlay_store import OverlayStore
+from ..debug.hub import DebugHub
+from ..factor.store import FactorStore
+from ..overlay.store import OverlayStore
 from ..read_models import DrawReadService, FactorReadService, ReadRepairService, WorldReadService
-from ..runtime_metrics import RuntimeMetrics
+from ..runtime.metrics import RuntimeMetrics
 from ..store import CandleStore
 from .core import get_app_container
 

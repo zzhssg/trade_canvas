@@ -4,9 +4,9 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from ..backtest_service import BacktestService
+from ..backtest.service import BacktestService
 from ..container import AppContainer
-from ..worktree_manager import WorktreeManager
+from ..worktree.manager import WorktreeManager
 from .core import get_app_container
 
 

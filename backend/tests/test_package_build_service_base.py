@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from backend.app.package_build_service_base import PackageBuildServiceBase
+from backend.app.build.service_base import PackageBuildServiceBase
 
 
 class _Harness(PackageBuildServiceBase):

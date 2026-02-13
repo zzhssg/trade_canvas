@@ -22,17 +22,17 @@ metadata:
 # 1) 默认动作（推荐）：先做 review + 门禁预检查（dry-run，不会合并/删除）
 bash scripts/worktree_acceptance.sh
 
-# 2) 真执行（推荐）：推进 plan 状态（已上线）+ doc_audit + merge 到 main + 删除 worktree + 删除本地分支，并 push main
-bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status --run-doc-audit
+# 2) 真执行（推荐）：推进 plan 状态（已上线）+ quality gate + doc_audit + merge 到 main + 删除 worktree + 删除本地分支，并 push main
+bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status
 
 # 3) 合并后同时删除远端分支（可选）
-bash scripts/worktree_acceptance.sh --yes --push --delete-remote --auto-doc-status --run-doc-audit
+bash scripts/worktree_acceptance.sh --yes --push --delete-remote --auto-doc-status
 ```
 
 如果本次是中/高风险变更但 worktree metadata 没有填 `plan_path`，可显式指定：
 
 ```bash
-bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status --run-doc-audit --plan-doc docs/plan/2026-02-xx-my-feature.md
+bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status --plan-doc docs/plan/2026-02-xx-my-feature.md
 ```
 
 ---
@@ -43,4 +43,5 @@ bash scripts/worktree_acceptance.sh --yes --push --auto-doc-status --run-doc-aud
 - feature worktree 必须 clean（无未提交改动）
 - main worktree 也必须 clean
 - `git diff --check main...<branch>` 必须为 clean（否则直接失败）
+- `--yes` 时默认执行 `bash scripts/quality_gate.sh --base main`（可用 `--no-quality-gate` 特例跳过）
 - **计划门禁（中/高风险强制）**：若本次变更不属于低风险（仅 docs/test/style），必须存在 `docs/plan/...` 且其状态为 `已上线/online`（并要求 `updated=今天`）

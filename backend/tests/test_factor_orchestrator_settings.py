@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
-from backend.app.factor_orchestrator import FactorOrchestrator, FactorSettings
-from backend.app.factor_store import FactorEventRow, FactorStore
+from backend.app.factor.orchestrator import FactorOrchestrator, FactorSettings
+from backend.app.factor.store import FactorEventRow, FactorStore
 from backend.app.schemas import CandleClosed
 from backend.app.store import CandleStore
 

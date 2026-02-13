@@ -9,71 +9,15 @@
  */
 
 export interface paths {
-    "/api/market/candles": {
+    "/api/factor/catalog": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Market Candles */
-        get: operations["get_market_candles_api_market_candles_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/market/ingest/candle_closed": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Ingest Candle Closed */
-        post: operations["ingest_candle_closed_api_market_ingest_candle_closed_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/market/ingest/candle_forming": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Ingest Candle Forming */
-        post: operations["ingest_candle_forming_api_market_ingest_candle_forming_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/draw/delta": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Draw Delta
-         * @description Unified draw delta (v1 base):
-         *     - instruction_catalog_patch + active_ids (overlay instructions)
-         *     - series_points (indicator line points; v0 returns empty for now)
-         */
-        get: operations["get_draw_delta_api_draw_delta_get"];
+        /** Get Factor Catalog */
+        get: operations["get_factor_catalog_api_factor_catalog_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -91,11 +35,8 @@ export interface paths {
         };
         /**
          * Get Factor Slices
-         * @description v0 debug endpoint to inspect which factor snapshots are available at time t.
-         *
-         *     Note: v0 supports:
-         *     - pivot: history.major from factor events, head.minor computed on the fly
-         *     - pen: history.confirmed from factor events
+         * @description Read-side factor slices at aligned time t.
+         *     Returns history/head snapshots produced by the current modular factor pipeline.
          */
         get: operations["get_factor_slices_api_factor_slices_get"];
         put?: never;
@@ -106,19 +47,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/frame/live": {
+    "/api/draw/delta": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get World Frame Live
-         * @description Unified world frame (live): latest aligned world state.
-         *     v1 implementation is a projection of existing factor_slices + draw/delta.
-         */
-        get: operations["get_world_frame_live_api_frame_live_get"];
+        /** Get Draw Delta */
+        get: operations["get_draw_delta_api_draw_delta_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -127,18 +64,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/frame/at_time": {
+    "/api/dev/worktrees": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get World Frame At Time
-         * @description Unified world frame (replay point query): aligned world state at time t.
-         */
-        get: operations["get_world_frame_at_time_api_frame_at_time_get"];
+        /** List Worktrees */
+        get: operations["list_worktrees_api_dev_worktrees_get"];
+        put?: never;
+        /** Create Worktree */
+        post: operations["create_worktree_api_dev_worktrees_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/worktrees/{worktree_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Worktree */
+        get: operations["get_worktree_api_dev_worktrees__worktree_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Worktree */
+        delete: operations["delete_worktree_api_dev_worktrees__worktree_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/worktrees/{worktree_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Worktree Services */
+        post: operations["start_worktree_services_api_dev_worktrees__worktree_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/worktrees/{worktree_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop Worktree Services */
+        post: operations["stop_worktree_services_api_dev_worktrees__worktree_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/ports/allocate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Allocate Ports Endpoint */
+        get: operations["allocate_ports_endpoint_api_dev_ports_allocate_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -147,17 +151,124 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/replay/read_only": {
+    "/api/dev/worktrees/{worktree_id}/metadata": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Replay Read Only */
-        get: operations["get_replay_read_only_api_replay_read_only_get"];
+        get?: never;
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Worktree Metadata */
+        patch: operations["update_worktree_metadata_api_dev_worktrees__worktree_id__metadata_patch"];
+        trace?: never;
+    };
+    "/api/dev/market/ingest/candles_closed_batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ingest Candles Closed Batch */
+        post: operations["ingest_candles_closed_batch_api_dev_market_ingest_candles_closed_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/repair/overlay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Repair Overlay Ledger */
+        post: operations["repair_overlay_ledger_api_dev_repair_overlay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/backtest/strategies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Backtest Strategies */
+        get: operations["get_backtest_strategies_api_backtest_strategies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/backtest/pair_timeframes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Backtest Pair Timeframes */
+        get: operations["get_backtest_pair_timeframes_api_backtest_pair_timeframes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/backtest/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Backtest Job */
+        post: operations["run_backtest_job_api_backtest_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/replay/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare Replay
+         * @description Replay prepare:
+         *     - Ensures factor/overlay ledgers are computed up to aligned time.
+         *     - Returns aligned_time for replay loading.
+         */
+        post: operations["prepare_replay_api_replay_prepare_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -249,6 +360,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/frame/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get World Frame Live
+         * @description Unified world frame (live): latest aligned world state.
+         *     v1 implementation is a projection of existing factor_slices + draw/delta.
+         */
+        get: operations["get_world_frame_live_api_frame_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/frame/at_time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get World Frame At Time
+         * @description Unified world frame (replay point query): aligned world state at time t.
+         */
+        get: operations["get_world_frame_at_time_api_frame_at_time_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/delta/poll": {
         parameters: {
             query?: never;
@@ -259,10 +411,61 @@ export interface paths {
         /**
          * Poll World Delta
          * @description v1 world delta (live):
-         *     - Uses draw/delta cursor as the minimal incremental source (compat projection).
+         *     - Uses draw/delta cursor as the minimal incremental source.
          *     - Emits at most 1 record per poll (if cursor advances); otherwise returns empty records.
          */
         get: operations["poll_world_delta_api_delta_poll_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/replay/overlay_package/build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replay Overlay Package Build */
+        post: operations["replay_overlay_package_build_api_replay_overlay_package_build_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/replay/overlay_package/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Replay Overlay Package Status */
+        get: operations["replay_overlay_package_status_api_replay_overlay_package_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/replay/overlay_package/window": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Replay Overlay Package Window */
+        get: operations["replay_overlay_package_window_api_replay_overlay_package_window_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -288,6 +491,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/market/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Market Health */
+        get: operations["get_market_health_api_market_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/market/debug/ingest_state": {
         parameters: {
             query?: never;
@@ -297,6 +517,40 @@ export interface paths {
         };
         /** Get Market Ingest State */
         get: operations["get_market_ingest_state_api_market_debug_ingest_state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/market/debug/series_health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Market Series Health */
+        get: operations["get_market_series_health_api_market_debug_series_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/market/debug/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Market Runtime Metrics */
+        get: operations["get_market_runtime_metrics_api_market_debug_metrics_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -339,15 +593,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/backtest/strategies": {
+    "/api/market/candles": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Backtest Strategies */
-        get: operations["get_backtest_strategies_api_backtest_strategies_get"];
+        /** Get Market Candles */
+        get: operations["get_market_candles_api_market_candles_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -356,24 +610,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/backtest/pair_timeframes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Backtest Pair Timeframes */
-        get: operations["get_backtest_pair_timeframes_api_backtest_pair_timeframes_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/backtest/run": {
+    "/api/market/ingest/candle_closed": {
         parameters: {
             query?: never;
             header?: never;
@@ -382,63 +619,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Run Backtest Job */
-        post: operations["run_backtest_job_api_backtest_run_post"];
+        /** Ingest Candle Closed */
+        post: operations["ingest_candle_closed_api_market_ingest_candle_closed_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/dev/worktrees": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Worktrees
-         * @description List all worktrees with metadata and service status.
-         */
-        get: operations["list_worktrees_api_dev_worktrees_get"];
-        put?: never;
-        /**
-         * Create Worktree
-         * @description Create a new worktree with metadata.
-         */
-        post: operations["create_worktree_api_dev_worktrees_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dev/worktrees/{worktree_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Worktree
-         * @description Get a specific worktree by ID.
-         */
-        get: operations["get_worktree_api_dev_worktrees__worktree_id__get"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete Worktree
-         * @description Delete a worktree and archive its metadata.
-         */
-        delete: operations["delete_worktree_api_dev_worktrees__worktree_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dev/worktrees/{worktree_id}/start": {
+    "/api/market/ingest/candle_forming": {
         parameters: {
             query?: never;
             header?: never;
@@ -447,75 +636,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Start Worktree Services
-         * @description Start frontend + backend services for a worktree.
-         */
-        post: operations["start_worktree_services_api_dev_worktrees__worktree_id__start_post"];
+        /** Ingest Candle Forming */
+        post: operations["ingest_candle_forming_api_market_ingest_candle_forming_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/dev/worktrees/{worktree_id}/stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Stop Worktree Services
-         * @description Stop services for a worktree.
-         */
-        post: operations["stop_worktree_services_api_dev_worktrees__worktree_id__stop_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dev/ports/allocate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Allocate Ports Endpoint
-         * @description Get next available port pair.
-         */
-        get: operations["allocate_ports_endpoint_api_dev_ports_allocate_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dev/worktrees/{worktree_id}/metadata": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Update Worktree Metadata
-         * @description Update worktree metadata.
-         */
-        patch: operations["update_worktree_metadata_api_dev_worktrees__worktree_id__metadata_patch"];
         trace?: never;
     };
 }
@@ -750,6 +876,32 @@ export interface components {
             };
             next_cursor: components["schemas"]["DrawCursorV1"];
         };
+        /** FactorCatalogItemV1 */
+        FactorCatalogItemV1: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Default Visible
+             * @default true
+             */
+            default_visible: boolean;
+            /** Sub Features */
+            sub_features?: components["schemas"]["FactorCatalogSubFeatureV1"][];
+        };
+        /** FactorCatalogSubFeatureV1 */
+        FactorCatalogSubFeatureV1: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Default Visible
+             * @default true
+             */
+            default_visible: boolean;
+        };
         /** FactorMetaV1 */
         FactorMetaV1: {
             /** Series Id */
@@ -791,6 +943,16 @@ export interface components {
             server_head_time: number | null;
             /** Candles */
             candles: components["schemas"]["CandleClosed"][];
+        };
+        /** GetFactorCatalogResponseV1 */
+        GetFactorCatalogResponseV1: {
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Factors */
+            factors?: components["schemas"]["FactorCatalogItemV1"][];
         };
         /** GetFactorSlicesResponseV1 */
         "GetFactorSlicesResponseV1-Input": {
@@ -867,6 +1029,97 @@ export interface components {
             /** Candle Time */
             candle_time: number;
         };
+        /** IngestCandlesClosedBatchRequest */
+        IngestCandlesClosedBatchRequest: {
+            /** Series Id */
+            series_id: string;
+            /** Candles */
+            candles?: components["schemas"]["CandleClosed"][];
+            /**
+             * Publish Ws
+             * @default false
+             */
+            publish_ws: boolean;
+        };
+        /** IngestCandlesClosedBatchResponse */
+        IngestCandlesClosedBatchResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Series Id */
+            series_id: string;
+            /** Count */
+            count: number;
+            /** First Candle Time */
+            first_candle_time: number | null;
+            /** Last Candle Time */
+            last_candle_time: number | null;
+        };
+        /** MarketBackfillStatusResponse */
+        MarketBackfillStatusResponse: {
+            /** State */
+            state: string;
+            /** Progress Pct */
+            progress_pct: number | null;
+            /** Started At */
+            started_at: number | null;
+            /** Updated At */
+            updated_at: number | null;
+            /** Reason */
+            reason?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Error */
+            error?: string | null;
+            /**
+             * Recent
+             * @default false
+             */
+            recent: boolean;
+            /**
+             * Start Missing Seconds
+             * @default 0
+             */
+            start_missing_seconds: number;
+            /**
+             * Start Missing Candles
+             * @default 0
+             */
+            start_missing_candles: number;
+            /**
+             * Current Missing Seconds
+             * @default 0
+             */
+            current_missing_seconds: number;
+            /**
+             * Current Missing Candles
+             * @default 0
+             */
+            current_missing_candles: number;
+        };
+        /** MarketHealthResponse */
+        MarketHealthResponse: {
+            /** Series Id */
+            series_id: string;
+            /** Timeframe Seconds */
+            timeframe_seconds: number;
+            /** Now Time */
+            now_time: number;
+            /** Expected Latest Closed Time */
+            expected_latest_closed_time: number;
+            /** Head Time */
+            head_time: number | null;
+            /** Lag Seconds */
+            lag_seconds: number | null;
+            /** Missing Seconds */
+            missing_seconds: number | null;
+            /** Missing Candles */
+            missing_candles: number | null;
+            /** Status */
+            status: string;
+            /** Status Reason */
+            status_reason: string;
+            backfill: components["schemas"]["MarketBackfillStatusResponse"];
+        };
         /** OverlayInstructionPatchItemV1 */
         OverlayInstructionPatchItemV1: {
             /** Version Id */
@@ -889,6 +1142,33 @@ export interface components {
             /** Active Ids */
             active_ids?: string[];
         };
+        /** OverlayReplayDeltaMetaV1 */
+        OverlayReplayDeltaMetaV1: {
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Series Id */
+            series_id: string;
+            /** To Candle Time */
+            to_candle_time: number;
+            /** From Candle Time */
+            from_candle_time: number;
+            /** Total Candles */
+            total_candles: number;
+            /** Window Size */
+            window_size: number;
+            /** Snapshot Interval */
+            snapshot_interval: number;
+            /** Windows */
+            windows?: components["schemas"]["OverlayReplayWindowMetaV1"][];
+            /**
+             * Overlay Store Last Version Id
+             * @default 0
+             */
+            overlay_store_last_version_id: number;
+        };
         /** OverlayReplayDiffV1 */
         OverlayReplayDiffV1: {
             /** At Idx */
@@ -897,6 +1177,73 @@ export interface components {
             add_ids?: string[];
             /** Remove Ids */
             remove_ids?: string[];
+        };
+        /**
+         * OverlayReplayKlineBarV1
+         * @description Replay K-line bar used by the frontend chart.
+         *
+         *     NOTE:
+         *     - Use `time` (not candle_time) to match lightweight-charts conventions.
+         *     - `time` is unix seconds (candle open time), always aligned to closed candles.
+         */
+        OverlayReplayKlineBarV1: {
+            /**
+             * Time
+             * @description Unix seconds (candle open time)
+             */
+            time: number;
+            /** Open */
+            open: number;
+            /** High */
+            high: number;
+            /** Low */
+            low: number;
+            /** Close */
+            close: number;
+            /** Volume */
+            volume: number;
+        };
+        /** OverlayReplayWindowMetaV1 */
+        OverlayReplayWindowMetaV1: {
+            /** Window Index */
+            window_index: number;
+            /** Start Idx */
+            start_idx: number;
+            /**
+             * End Idx
+             * @description Exclusive end index
+             */
+            end_idx: number;
+            /** Start Time */
+            start_time: number;
+            /** End Time */
+            end_time: number;
+        };
+        /** OverlayReplayWindowV1 */
+        OverlayReplayWindowV1: {
+            /** Window Index */
+            window_index: number;
+            /** Start Idx */
+            start_idx: number;
+            /**
+             * End Idx
+             * @description Exclusive end index
+             */
+            end_idx: number;
+            /** Kline */
+            kline?: components["schemas"]["OverlayReplayKlineBarV1"][];
+            /** Catalog Base */
+            catalog_base?: components["schemas"]["OverlayInstructionPatchItemV1"][];
+            /** Catalog Patch */
+            catalog_patch?: components["schemas"]["OverlayInstructionPatchItemV1"][];
+            /** Checkpoints */
+            checkpoints?: components["schemas"]["OverlayReplayCheckpointV1"][];
+            /** Diffs */
+            diffs?: components["schemas"]["OverlayReplayDiffV1"][];
+            /** Event Catalog */
+            event_catalog?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** PlotLinePointV1 */
         PlotLinePointV1: {
@@ -907,6 +1254,32 @@ export interface components {
             time: number;
             /** Value */
             value: number;
+        };
+        /** RepairOverlayRequestV1 */
+        RepairOverlayRequestV1: {
+            /** Series Id */
+            series_id: string;
+            /** To Time */
+            to_time?: number | null;
+        };
+        /** RepairOverlayResponseV1 */
+        RepairOverlayResponseV1: {
+            /** Ok */
+            ok: boolean;
+            /** Series Id */
+            series_id: string;
+            /** Requested Time */
+            requested_time: number;
+            /** Aligned Time */
+            aligned_time: number;
+            /** Factor Head Time */
+            factor_head_time: number | null;
+            /** Overlay Head Time */
+            overlay_head_time: number | null;
+            /** Refreshed */
+            refreshed: boolean;
+            /** Steps */
+            steps?: string[];
         };
         /** ReplayBuildRequestV1 */
         ReplayBuildRequestV1: {
@@ -950,17 +1323,6 @@ export interface components {
             head_time?: number | null;
             /** Error */
             error?: string | null;
-        };
-        /** ReplayCoverageV1 */
-        ReplayCoverageV1: {
-            /** Required Candles */
-            required_candles: number;
-            /** Candles Ready */
-            candles_ready: number;
-            /** From Time */
-            from_time?: number | null;
-            /** To Time */
-            to_time?: number | null;
         };
         /** ReplayEnsureCoverageRequestV1 */
         ReplayEnsureCoverageRequestV1: {
@@ -1043,6 +1405,58 @@ export interface components {
             /** Volume */
             volume: number;
         };
+        /** ReplayOverlayPackageBuildRequestV1 */
+        ReplayOverlayPackageBuildRequestV1: {
+            /** Series Id */
+            series_id: string;
+            /**
+             * To Time
+             * @description Optional upper-bound time (unix seconds)
+             */
+            to_time?: number | null;
+            /** Window Candles */
+            window_candles?: number | null;
+            /** Window Size */
+            window_size?: number | null;
+            /** Snapshot Interval */
+            snapshot_interval?: number | null;
+        };
+        /** ReplayOverlayPackageBuildResponseV1 */
+        ReplayOverlayPackageBuildResponseV1: {
+            /**
+             * Status
+             * @description building | done
+             */
+            status: string;
+            /** Job Id */
+            job_id: string;
+            /** Cache Key */
+            cache_key: string;
+        };
+        /** ReplayOverlayPackageStatusResponseV1 */
+        ReplayOverlayPackageStatusResponseV1: {
+            /**
+             * Status
+             * @description building | done | error
+             */
+            status: string;
+            /** Job Id */
+            job_id: string;
+            /** Cache Key */
+            cache_key: string;
+            /** Error */
+            error?: string | null;
+            delta_meta?: components["schemas"]["OverlayReplayDeltaMetaV1"] | null;
+            /** Kline */
+            kline?: components["schemas"]["OverlayReplayKlineBarV1"][] | null;
+            preload_window?: components["schemas"]["OverlayReplayWindowV1"] | null;
+        };
+        /** ReplayOverlayPackageWindowResponseV1 */
+        ReplayOverlayPackageWindowResponseV1: {
+            /** Job Id */
+            job_id: string;
+            window: components["schemas"]["OverlayReplayWindowV1"];
+        };
         /** ReplayPackageMetadataV1 */
         ReplayPackageMetadataV1: {
             /**
@@ -1071,31 +1485,43 @@ export interface components {
             preload_offset: number;
             /**
              * Idx To Time
-             * @default replay_kline_bars.candle_time
+             * @default windows[*].kline[idx].time
              */
             idx_to_time: string;
         };
-        /** ReplayReadOnlyResponseV1 */
-        ReplayReadOnlyResponseV1: {
-            /**
-             * Status
-             * @description done | build_required | coverage_missing | out_of_sync
-             */
-            status: string;
-            /** Job Id */
-            job_id: string;
-            /** Cache Key */
-            cache_key: string;
-            coverage?: components["schemas"]["ReplayCoverageV1"] | null;
-            metadata?: components["schemas"]["ReplayPackageMetadataV1"] | null;
-            /** Compute Hint */
-            compute_hint?: string | null;
+        /** ReplayPrepareRequestV1 */
+        ReplayPrepareRequestV1: {
+            /** Series Id */
+            series_id: string;
+            /** To Time */
+            to_time?: number | null;
+            /** Window Candles */
+            window_candles?: number | null;
+        };
+        /** ReplayPrepareResponseV1 */
+        ReplayPrepareResponseV1: {
+            /** Ok */
+            ok: boolean;
+            /** Series Id */
+            series_id: string;
+            /** Requested Time */
+            requested_time: number;
+            /** Aligned Time */
+            aligned_time: number;
+            /** Window Candles */
+            window_candles: number;
+            /** Factor Head Time */
+            factor_head_time: number | null;
+            /** Overlay Head Time */
+            overlay_head_time: number | null;
+            /** Computed */
+            computed: boolean;
         };
         /** ReplayStatusResponseV1 */
         ReplayStatusResponseV1: {
             /**
              * Status
-             * @description building | done | error | build_required
+             * @description building | done | error
              */
             status: string;
             /** Job Id */
@@ -1274,13 +1700,9 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    get_market_candles_api_market_candles_get: {
+    get_factor_catalog_api_factor_catalog_get: {
         parameters: {
-            query: {
-                series_id: string;
-                since?: number | null;
-                limit?: number;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -1293,117 +1715,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GetCandlesResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ingest_candle_closed_api_market_ingest_candle_closed_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IngestCandleClosedRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IngestCandleClosedResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ingest_candle_forming_api_market_ingest_candle_forming_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IngestCandleFormingRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IngestCandleFormingResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_draw_delta_api_draw_delta_get: {
-        parameters: {
-            query: {
-                series_id: string;
-                cursor_version_id?: number;
-                window_candles?: number;
-                /** @description Optional replay upper-bound (Unix seconds) */
-                at_time?: number | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DrawDeltaV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["GetFactorCatalogResponseV1"];
                 };
             };
         };
@@ -1441,11 +1753,14 @@ export interface operations {
             };
         };
     };
-    get_world_frame_live_api_frame_live_get: {
+    get_draw_delta_api_draw_delta_get: {
         parameters: {
             query: {
                 series_id: string;
+                cursor_version_id?: number;
                 window_candles?: number;
+                /** @description Optional replay upper-bound (Unix seconds) */
+                at_time?: number | null;
             };
             header?: never;
             path?: never;
@@ -1459,481 +1774,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorldStateV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_world_frame_at_time_api_frame_at_time_get: {
-        parameters: {
-            query: {
-                series_id: string;
-                at_time: number;
-                window_candles?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorldStateV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_replay_read_only_api_replay_read_only_get: {
-        parameters: {
-            query: {
-                series_id: string;
-                to_time?: number | null;
-                window_candles?: number | null;
-                window_size?: number | null;
-                snapshot_interval?: number | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReplayReadOnlyResponseV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    post_replay_build_api_replay_build_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReplayBuildRequestV1"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReplayBuildResponseV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_replay_status_api_replay_status_get: {
-        parameters: {
-            query: {
-                job_id: string;
-                include_preload?: number;
-                include_history?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReplayStatusResponseV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_replay_window_api_replay_window_get: {
-        parameters: {
-            query: {
-                job_id: string;
-                target_idx: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReplayWindowResponseV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    post_replay_ensure_coverage_api_replay_ensure_coverage_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReplayEnsureCoverageRequestV1"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReplayEnsureCoverageResponseV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_replay_coverage_status_api_replay_coverage_status_get: {
-        parameters: {
-            query: {
-                job_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReplayCoverageStatusResponseV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    poll_world_delta_api_delta_poll_get: {
-        parameters: {
-            query: {
-                series_id: string;
-                after_id?: number;
-                limit?: number;
-                window_candles?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorldDeltaPollResponseV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_market_whitelist_api_market_whitelist_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string[];
-                    };
-                };
-            };
-        };
-    };
-    get_market_ingest_state_api_market_debug_ingest_state_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
-    get_top_markets_api_market_top_markets_get: {
-        parameters: {
-            query: {
-                exchange?: string;
-                market: string;
-                quote_asset?: string;
-                limit?: number;
-                force?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TopMarketsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    stream_top_markets_api_market_top_markets_stream_get: {
-        parameters: {
-            query: {
-                exchange?: string;
-                market: string;
-                quote_asset?: string;
-                limit?: number;
-                interval_s?: number;
-                max_events?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_backtest_strategies_api_backtest_strategies_get: {
-        parameters: {
-            query?: {
-                recursive?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StrategyListResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_backtest_pair_timeframes_api_backtest_pair_timeframes_get: {
-        parameters: {
-            query: {
-                pair: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BacktestPairTimeframesResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    run_backtest_job_api_backtest_run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BacktestRunRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BacktestRunResponse"];
+                    "application/json": components["schemas"]["DrawDeltaV1"];
                 };
             };
             /** @description Validation Error */
@@ -2174,6 +2015,861 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DevUpdateMetadataResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_candles_closed_batch_api_dev_market_ingest_candles_closed_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestCandlesClosedBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestCandlesClosedBatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    repair_overlay_ledger_api_dev_repair_overlay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepairOverlayRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepairOverlayResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_backtest_strategies_api_backtest_strategies_get: {
+        parameters: {
+            query?: {
+                recursive?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrategyListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_backtest_pair_timeframes_api_backtest_pair_timeframes_get: {
+        parameters: {
+            query: {
+                pair: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestPairTimeframesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_backtest_job_api_backtest_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BacktestRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacktestRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_replay_api_replay_prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplayPrepareRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayPrepareResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_replay_build_api_replay_build_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplayBuildRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayBuildResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_replay_status_api_replay_status_get: {
+        parameters: {
+            query: {
+                job_id: string;
+                include_preload?: number;
+                include_history?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayStatusResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_replay_window_api_replay_window_get: {
+        parameters: {
+            query: {
+                job_id: string;
+                target_idx: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayWindowResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_replay_ensure_coverage_api_replay_ensure_coverage_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplayEnsureCoverageRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayEnsureCoverageResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_replay_coverage_status_api_replay_coverage_status_get: {
+        parameters: {
+            query: {
+                job_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayCoverageStatusResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_world_frame_live_api_frame_live_get: {
+        parameters: {
+            query: {
+                series_id: string;
+                window_candles?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldStateV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_world_frame_at_time_api_frame_at_time_get: {
+        parameters: {
+            query: {
+                series_id: string;
+                at_time: number;
+                window_candles?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldStateV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    poll_world_delta_api_delta_poll_get: {
+        parameters: {
+            query: {
+                series_id: string;
+                after_id?: number;
+                limit?: number;
+                window_candles?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldDeltaPollResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replay_overlay_package_build_api_replay_overlay_package_build_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplayOverlayPackageBuildRequestV1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayOverlayPackageBuildResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replay_overlay_package_status_api_replay_overlay_package_status_get: {
+        parameters: {
+            query: {
+                job_id: string;
+                include_delta_package?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayOverlayPackageStatusResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replay_overlay_package_window_api_replay_overlay_package_window_get: {
+        parameters: {
+            query: {
+                job_id: string;
+                target_idx: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayOverlayPackageWindowResponseV1"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_market_whitelist_api_market_whitelist_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string[];
+                    };
+                };
+            };
+        };
+    };
+    get_market_health_api_market_health_get: {
+        parameters: {
+            query: {
+                series_id: string;
+                now_time?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketHealthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_market_ingest_state_api_market_debug_ingest_state_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    get_market_series_health_api_market_debug_series_health_get: {
+        parameters: {
+            query: {
+                series_id: string;
+                max_recent_gaps?: number;
+                recent_base_buckets?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_market_runtime_metrics_api_market_debug_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    get_top_markets_api_market_top_markets_get: {
+        parameters: {
+            query: {
+                exchange?: string;
+                market: "spot" | "futures";
+                quote_asset?: string;
+                limit?: number;
+                force?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopMarketsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_top_markets_api_market_top_markets_stream_get: {
+        parameters: {
+            query: {
+                exchange?: string;
+                market: "spot" | "futures";
+                quote_asset?: string;
+                limit?: number;
+                interval_s?: number;
+                max_events?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_market_candles_api_market_candles_get: {
+        parameters: {
+            query: {
+                series_id: string;
+                since?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetCandlesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_candle_closed_api_market_ingest_candle_closed_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestCandleClosedRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestCandleClosedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_candle_forming_api_market_ingest_candle_forming_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestCandleFormingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestCandleFormingResponse"];
                 };
             };
             /** @description Validation Error */

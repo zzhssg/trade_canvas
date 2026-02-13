@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
-from backend.app.overlay_store import OverlayStore
+from backend.app.overlay.store import OverlayStore
 from backend.app.store import CandleStore
 from backend.app.schemas import CandleClosed
 

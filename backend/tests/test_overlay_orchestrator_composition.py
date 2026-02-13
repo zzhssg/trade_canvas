@@ -5,10 +5,10 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from backend.app.factor_store import FactorStore
-from backend.app.overlay_ingest_reader import OverlayIngestInput
-from backend.app.overlay_orchestrator import OverlayOrchestrator, OverlaySettings
-from backend.app.overlay_store import OverlayStore
+from backend.app.factor.store import FactorStore
+from backend.app.overlay.ingest_reader import OverlayIngestInput
+from backend.app.overlay.orchestrator import OverlayOrchestrator, OverlaySettings
+from backend.app.overlay.store import OverlayStore
 from backend.app.schemas import CandleClosed
 from backend.app.store import CandleStore
 

@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Mapping
 
-from backend.app.ledger_sync_service import LedgerSyncService
-from backend.app.startup_kline_sync import run_startup_kline_sync, run_startup_kline_sync_for_runtime
+from backend.app.ledger.sync_service import LedgerSyncService
+from backend.app.lifecycle.startup_kline_sync import run_startup_kline_sync, run_startup_kline_sync_for_runtime
 
 
 class _FakeStore:
@@ -113,7 +113,7 @@ def _make_ledger_sync(
 
 
 def test_startup_kline_sync_disabled_returns_empty(monkeypatch) -> None:
-    monkeypatch.setattr("backend.app.startup_kline_sync.run_blocking", _inline_run_blocking)
+    monkeypatch.setattr("backend.app.lifecycle.startup_kline_sync.run_blocking", _inline_run_blocking)
     store = _FakeStore(heads={"binance:futures:BTC/USDT:1m": 0})
     backfill = _FakeBackfill(store=store)
     pipeline = _FakePipeline()
@@ -143,7 +143,7 @@ def test_startup_kline_sync_disabled_returns_empty(monkeypatch) -> None:
 
 
 def test_startup_kline_sync_updates_whitelist_series_and_marks_lagging(monkeypatch) -> None:
-    monkeypatch.setattr("backend.app.startup_kline_sync.run_blocking", _inline_run_blocking)
+    monkeypatch.setattr("backend.app.lifecycle.startup_kline_sync.run_blocking", _inline_run_blocking)
     series_1m = "binance:futures:BTC/USDT:1m"
     series_5m = "binance:futures:BTC/USDT:5m"
     store = _FakeStore(heads={series_1m: 0, series_5m: 0})
@@ -195,7 +195,7 @@ def test_startup_kline_sync_updates_whitelist_series_and_marks_lagging(monkeypat
 
 
 def test_startup_kline_sync_for_runtime_uses_whitelist_series(monkeypatch) -> None:
-    monkeypatch.setattr("backend.app.startup_kline_sync.run_blocking", _inline_run_blocking)
+    monkeypatch.setattr("backend.app.lifecycle.startup_kline_sync.run_blocking", _inline_run_blocking)
     series_id = "binance:futures:ETH/USDT:1m"
     store = _FakeStore(heads={series_id: 0})
     backfill = _FakeBackfill(store=store)
@@ -228,7 +228,7 @@ def test_startup_kline_sync_for_runtime_uses_whitelist_series(monkeypatch) -> No
 
 
 def test_startup_kline_sync_runtime_uses_runtime_ledger_sync_instance(monkeypatch) -> None:
-    monkeypatch.setattr("backend.app.startup_kline_sync.run_blocking", _inline_run_blocking)
+    monkeypatch.setattr("backend.app.lifecycle.startup_kline_sync.run_blocking", _inline_run_blocking)
     series_id = "binance:futures:ETH/USDT:1m"
     store = _FakeStore(heads={series_id: 0})
     backfill = _FakeBackfill(store=store)

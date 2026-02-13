@@ -22,12 +22,6 @@ class OverlayOrchestratorLike(Protocol):
     def reset_series(self, *, series_id: str) -> None: ...
 
 
-class CandleMirrorLike(Protocol):
-    def upsert_closed_batch(self, *, series_id: str, candles: list[CandleClosed]) -> int: ...
-
-    def delete_closed_times(self, *, series_id: str, candle_times: list[int]) -> int: ...
-
-
 class IngestStoreLike(Protocol):
     def connect(self) -> Any: ...
 
@@ -156,7 +150,6 @@ def merge_up_to_times(
 def rollback_new_candles(
     *,
     store: IngestStoreLike,
-    candle_mirror: CandleMirrorLike | None,
     enabled: bool,
     series_id: str,
     new_candle_times: list[int],
@@ -173,14 +166,6 @@ def rollback_new_candles(
                 candle_times=list(new_candle_times),
             )
             conn.commit()
-        if candle_mirror is not None and int(deleted) > 0:
-            try:
-                candle_mirror.delete_closed_times(
-                    series_id=series_id,
-                    candle_times=list(new_candle_times),
-                )
-            except Exception as mirror_exc:
-                return int(deleted), mirror_exc
         return int(deleted), None
     except Exception as exc:
         return 0, exc
@@ -189,7 +174,6 @@ def rollback_new_candles(
 def persist_closed_batch(
     *,
     store: IngestStoreLike,
-    candle_mirror: CandleMirrorLike | None,
     batch: IngestSeriesBatch,
 ) -> tuple[list[int], tuple[IngestStepResult, ...]]:
     t_step = time.perf_counter()
@@ -218,29 +202,6 @@ def persist_closed_batch(
             duration_ms=int((time.perf_counter() - t_step) * 1000),
         )
     ]
-    if candle_mirror is not None:
-        mirror_t0 = time.perf_counter()
-        try:
-            candle_mirror.upsert_closed_batch(
-                series_id=batch.series_id,
-                candles=list(batch.candles),
-            )
-            steps.append(
-                IngestStepResult(
-                    name=f"mirror.upsert_many_closed:{batch.series_id}",
-                    ok=True,
-                    duration_ms=int((time.perf_counter() - mirror_t0) * 1000),
-                )
-            )
-        except Exception as exc:
-            steps.append(
-                IngestStepResult(
-                    name=f"mirror.upsert_many_closed:{batch.series_id}",
-                    ok=False,
-                    duration_ms=int((time.perf_counter() - mirror_t0) * 1000),
-                    error=str(exc),
-                )
-            )
     return new_candle_times, tuple(steps)
 
 

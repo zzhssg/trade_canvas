@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.market_backfill_tracker import MarketBackfillProgressTracker
+from backend.app.market.backfill_tracker import MarketBackfillProgressTracker
 
 
 class MarketBackfillProgressTrackerTests(unittest.TestCase):

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from ..overlay_integrity_plugins import evaluate_overlay_integrity
-from ..overlay_store import OverlayInstructionVersionRow
+from ..overlay.integrity_plugins import evaluate_overlay_integrity
+from ..overlay.store import OverlayInstructionVersionRow
 from ..schemas import GetFactorSlicesResponseV1, OverlayInstructionPatchItemV1
 from ..service_errors import ServiceError
 

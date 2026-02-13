@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.runtime_metrics import RuntimeMetrics
+from backend.app.runtime.metrics import RuntimeMetrics
 
 
 class RuntimeMetricsTests(unittest.TestCase):
