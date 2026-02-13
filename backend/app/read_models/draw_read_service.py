@@ -7,6 +7,7 @@ from ..overlay.store import OverlayInstructionVersionRow
 from ..core.schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1
 from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from .draw_delta_steps import (
+    DrawDeltaDebugEmitRequest,
     assert_overlay_head_covers,
     build_patch,
     collect_active_ids,
@@ -161,15 +162,17 @@ class DrawReadService:
         next_cursor = DrawCursorV1(version_id=int(next_version_id), point_time=None)
 
         emit_draw_delta_debug_if_needed(
-            debug_enabled=self._debug_enabled(),
-            debug_hub=self.debug_hub,
-            series_id=series_id,
-            cursor_version_id=int(cursor_version_id),
-            next_version_id=int(next_cursor.version_id),
-            to_time=int(to_time),
-            patch_len=int(len(patch)),
-            active_len=int(len(active_ids)),
-            at_time=at_time,
+            DrawDeltaDebugEmitRequest(
+                debug_enabled=self._debug_enabled(),
+                debug_hub=self.debug_hub,
+                series_id=series_id,
+                cursor_version_id=int(cursor_version_id),
+                next_version_id=int(next_cursor.version_id),
+                to_time=int(to_time),
+                patch_len=int(len(patch)),
+                active_len=int(len(active_ids)),
+                at_time=at_time,
+            )
         )
         return DrawDeltaV1(
             series_id=series_id,

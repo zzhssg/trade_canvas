@@ -134,7 +134,7 @@ class BacktestApiTests(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
             # trading_mode=futures in config fixture => BTC/USDT should become BTC/USDT:USDT
             called_kwargs = mock_run.call_args.kwargs
-            self.assertEqual(called_kwargs["pair"], "BTC/USDT:USDT")
+            self.assertEqual(called_kwargs["request"].pair, "BTC/USDT:USDT")
 
     def test_run_backtest_prints_stdout_and_stderr(self) -> None:
         from backend.app.freqtrade.runner import FreqtradeExecResult

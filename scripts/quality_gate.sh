@@ -10,7 +10,8 @@ Purpose:
   Enforce clean-code gates for trade_canvas:
   - no compatibility/legacy markers in changed production files
   - no TODO/FIXME/HACK debt markers in changed production files
-  - file-size gates (py/tsx/hook)
+  - file-size gates (py/ts/tsx/hook)
+  - python structure gates (function params/dataclass fields)
   - optional delete-list check for legacy removal
   - run pytest/frontend build based on touched area
 
@@ -149,6 +150,15 @@ check_line_limits() {
     mark_failure "TSX component exceeds 400 lines: ${path} (${line_count})"
   fi
 
+  if [[ "$path" == *.ts && "$path" != *.d.ts && "$base_name" != use* && "$line_count" -gt 300 ]]; then
+    case "$path" in
+      frontend/src/contracts/openapi.ts) ;;
+      *)
+        mark_failure "TS module exceeds 300 lines: ${path} (${line_count})"
+        ;;
+    esac
+  fi
+
   if [[ ("$base_name" == use*.ts || "$base_name" == use*.tsx) && "$line_count" -gt 150 ]]; then
     mark_failure "Hook file exceeds 150 lines: ${path} (${line_count})"
   fi
@@ -182,9 +192,115 @@ check_banned_markers() {
   fi
 }
 
+check_python_structure_limits() {
+  local path="$1"
+  if [[ "$path" != *.py ]]; then
+    return 0
+  fi
+
+  local issues
+  issues="$(
+    python3 - "$path" <<'PY'
+from __future__ import annotations
+
+import ast
+import sys
+from pathlib import Path
+
+MAX_PARAMS = 8
+MAX_FIELDS = 15
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+problems: list[str] = []
+
+try:
+    tree = ast.parse(source)
+except SyntaxError as exc:
+    print(f"{path}:{exc.lineno}: syntax parse failed during quality gate: {exc.msg}")
+    raise SystemExit(0)
+
+for parent in ast.walk(tree):
+    for child in ast.iter_child_nodes(parent):
+        child._parent = parent  # type: ignore[attr-defined]
+
+
+def _is_dataclass_decorator(node: ast.AST) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id == "dataclass"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "dataclass"
+    if isinstance(node, ast.Call):
+        return _is_dataclass_decorator(node.func)
+    return False
+
+
+def _is_classvar(node: ast.AST | None) -> bool:
+    if node is None:
+        return False
+    if isinstance(node, ast.Name):
+        return node.id == "ClassVar"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "ClassVar"
+    if isinstance(node, ast.Subscript):
+        return _is_classvar(node.value)
+    return False
+
+
+def _parameter_count(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    args = node.args
+    count = len(args.posonlyargs) + len(args.args) + len(args.kwonlyargs)
+    if args.vararg is not None:
+        count += 1
+    if args.kwarg is not None:
+        count += 1
+
+    parent = getattr(node, "_parent", None)
+    if isinstance(parent, ast.ClassDef) and args.args:
+        first_name = args.args[0].arg
+        if first_name in {"self", "cls"}:
+            count -= 1
+    return count
+
+
+for node in ast.walk(tree):
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        count = _parameter_count(node)
+        if count > MAX_PARAMS:
+            problems.append(
+                f"{path}:{node.lineno}: function `{node.name}` has {count} params (max {MAX_PARAMS})"
+            )
+        continue
+
+    if isinstance(node, ast.ClassDef):
+        if not any(_is_dataclass_decorator(deco) for deco in node.decorator_list):
+            continue
+        field_count = 0
+        for stmt in node.body:
+            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                if _is_classvar(stmt.annotation):
+                    continue
+                field_count += 1
+        if field_count > MAX_FIELDS:
+            problems.append(
+                f"{path}:{node.lineno}: dataclass `{node.name}` has {field_count} fields (max {MAX_FIELDS})"
+            )
+
+if problems:
+    print("\n".join(problems))
+PY
+  )"
+
+  if [[ -n "$issues" ]]; then
+    echo "$issues" >&2
+    mark_failure "Python structure limit exceeded in ${path}"
+  fi
+}
+
 for path in "${prod_files[@]}"; do
   check_line_limits "$path"
   check_banned_markers "$path"
+  check_python_structure_limits "$path"
 done
 
 if [[ -n "$delete_list" ]]; then

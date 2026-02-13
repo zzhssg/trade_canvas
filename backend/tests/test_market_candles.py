@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -92,5 +93,15 @@ class MarketCandlesApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         payload = resp.json()
         self.assertEqual(payload["series_id"], series_id)
+        self.assertEqual(len(payload["candles"]), 0)
+
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            resp = self.client.get("/api/market/candles", params={"series_id": series_id, "limit": 2000})
+            self.assertEqual(resp.status_code, 200)
+            payload = resp.json()
+            if len(payload["candles"]) == 4:
+                break
+            time.sleep(0.05)
         self.assertEqual(len(payload["candles"]), 4)
         self.assertEqual(payload["server_head_time"], payload["candles"][-1]["candle_time"])

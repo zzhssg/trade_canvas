@@ -10,7 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.flags import resolve_env_float
-from .runner_commands import build_backtest_command, build_list_strategies_command, build_runner_env
+from .runner_commands import (
+    BacktestCommandRequest,
+    build_backtest_command,
+    build_list_strategies_command,
+    build_runner_env,
+)
 
 
 _STRATEGY_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -24,6 +29,24 @@ class FreqtradeExecResult:
     command: list[str]
     stdout: str
     stderr: str
+
+
+@dataclass(frozen=True)
+class BacktestRunRequest:
+    freqtrade_bin: str
+    userdir: Path | None
+    cwd: Path | None = None
+    config_path: Path | None = None
+    datadir: Path | None = None
+    strategy_name: str = ""
+    pair: str = ""
+    timeframe: str = ""
+    timerange: str | None = None
+    strategy_path: Path | None = None
+    timeout_s: float | None = None
+    export_dir: Path | None = None
+    export: str | None = None
+    extra_env: dict[str, str] | None = None
 
 
 def validate_strategy_name(strategy_name: str) -> bool:
@@ -188,45 +211,32 @@ async def list_strategies_async(
     )
 
 
-def run_backtest(
-    *,
-    freqtrade_bin: str,
-    userdir: Path | None,
-    cwd: Path | None = None,
-    config_path: Path | None,
-    datadir: Path | None = None,
-    strategy_name: str,
-    pair: str,
-    timeframe: str,
-    timerange: str | None = None,
-    strategy_path: Path | None = None,
-    export_dir: Path | None = None,
-    export: str | None = None,
-    extra_env: dict[str, str] | None = None,
-) -> FreqtradeExecResult:
-    if not validate_strategy_name(strategy_name):
+def run_backtest(request: BacktestRunRequest) -> FreqtradeExecResult:
+    if not validate_strategy_name(request.strategy_name):
         raise ValueError("Invalid strategy name")
 
     command = build_backtest_command(
-        userdir=userdir,
-        config_path=config_path,
-        datadir=datadir,
-        strategy_name=strategy_name,
-        pair=pair,
-        timeframe=timeframe,
-        timerange=timerange,
-        strategy_path=strategy_path,
-        export_dir=export_dir,
-        export=export,
+        BacktestCommandRequest(
+            userdir=request.userdir,
+            config_path=request.config_path,
+            datadir=request.datadir,
+            strategy_name=request.strategy_name,
+            pair=request.pair,
+            timeframe=request.timeframe,
+            timerange=request.timerange,
+            strategy_path=request.strategy_path,
+            export_dir=request.export_dir,
+            export=request.export,
+        )
     )
 
     start = time.monotonic()
-    env = build_runner_env(cwd=cwd, extra_env=extra_env)
+    env = build_runner_env(cwd=request.cwd, extra_env=request.extra_env)
     proc = subprocess.run(
         command,
         capture_output=True,
         text=True,
-        cwd=str(cwd) if cwd is not None else None,
+        cwd=str(request.cwd) if request.cwd is not None else None,
         env=env,
     )
     duration_ms = int((time.monotonic() - start) * 1000)
@@ -241,47 +251,33 @@ def run_backtest(
     )
 
 
-async def run_backtest_async(
-    *,
-    freqtrade_bin: str,
-    userdir: Path | None,
-    cwd: Path | None = None,
-    config_path: Path | None,
-    datadir: Path | None = None,
-    strategy_name: str,
-    pair: str,
-    timeframe: str,
-    timerange: str | None = None,
-    strategy_path: Path | None = None,
-    timeout_s: float | None = None,
-    export_dir: Path | None = None,
-    export: str | None = None,
-    extra_env: dict[str, str] | None = None,
-) -> FreqtradeExecResult:
-    if not validate_strategy_name(strategy_name):
+async def run_backtest_async(request: BacktestRunRequest) -> FreqtradeExecResult:
+    if not validate_strategy_name(request.strategy_name):
         raise ValueError("Invalid strategy name")
 
     command = build_backtest_command(
-        userdir=userdir,
-        config_path=config_path,
-        datadir=datadir,
-        strategy_name=strategy_name,
-        pair=pair,
-        timeframe=timeframe,
-        timerange=timerange,
-        strategy_path=strategy_path,
-        export_dir=export_dir,
-        export=export,
+        BacktestCommandRequest(
+            userdir=request.userdir,
+            config_path=request.config_path,
+            datadir=request.datadir,
+            strategy_name=request.strategy_name,
+            pair=request.pair,
+            timeframe=request.timeframe,
+            timerange=request.timerange,
+            strategy_path=request.strategy_path,
+            export_dir=request.export_dir,
+            export=request.export,
+        )
     )
 
     start = time.monotonic()
-    env = build_runner_env(cwd=cwd, extra_env=extra_env)
+    env = build_runner_env(cwd=request.cwd, extra_env=request.extra_env)
 
     rc, stdout, stderr = await _run_subprocess(
         command,
-        cwd=cwd,
+        cwd=request.cwd,
         env=env,
-        timeout_s=float(timeout_s if timeout_s is not None else _default_timeout_s()),
+        timeout_s=float(request.timeout_s if request.timeout_s is not None else _default_timeout_s()),
     )
     duration_ms = int((time.monotonic() - start) * 1000)
     ok = rc == 0

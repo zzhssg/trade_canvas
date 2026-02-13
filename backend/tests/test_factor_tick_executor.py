@@ -7,7 +7,13 @@ import pytest
 from backend.app.factor.runtime_config import FactorSettings
 from backend.app.factor.runtime_contract import FactorRuntimeContext
 from backend.app.factor.store import FactorEventWrite
-from backend.app.factor.tick_executor import FactorTickExecutor, FactorTickState
+from backend.app.factor.tick_state_slices import (
+    FactorTickAnchorState,
+    FactorTickPenState,
+    FactorTickPivotState,
+    FactorTickZhongshuState,
+)
+from backend.app.factor.tick_executor import FactorTickExecutor, FactorTickRunRequest, FactorTickState
 
 
 class _GraphStub:
@@ -70,18 +76,20 @@ def test_tick_executor_run_incremental_preserves_order_and_state() -> None:
     )
 
     out = executor.run_incremental(
-        series_id="s",
-        process_times=[60, 120],
-        tf_s=60,
-        settings=FactorSettings(),
-        candles=[],
-        time_to_idx={},
-        effective_pivots=[],
-        confirmed_pens=[],
-        zhongshu_state={},
-        anchor_current_ref=None,
-        anchor_strength=10.0,
-        last_major_idx=None,
+        request=FactorTickRunRequest(
+            series_id="s",
+            process_times=[60, 120],
+            tf_s=60,
+            settings=FactorSettings(),
+            candles=[],
+            time_to_idx={},
+            effective_pivots=[],
+            confirmed_pens=[],
+            zhongshu_state={},
+            anchor_current_ref=None,
+            anchor_strength=10.0,
+            last_major_idx=None,
+        ),
     )
 
     assert calls == [("pivot", 60), ("pen", 60), ("pivot", 120), ("pen", 120)]
@@ -111,18 +119,26 @@ def test_tick_executor_run_tick_steps_fail_fast_when_hook_missing() -> None:
         candles=[],
         time_to_idx={},
         events=[],
-        effective_pivots=[],
-        confirmed_pens=[],
-        zhongshu_state={},
-        anchor_current_ref=None,
-        anchor_strength=None,
-        last_major_idx=None,
-        major_candidates=[],
-        new_confirmed_pen_payloads=[],
-        formed_entries=[],
-        best_strong_pen_ref=None,
-        best_strong_pen_strength=None,
-        baseline_anchor_strength=None,
+        pivot=FactorTickPivotState(
+            effective_pivots=[],
+            last_major_idx=None,
+            major_candidates=[],
+        ),
+        pen=FactorTickPenState(
+            confirmed_pens=[],
+            new_confirmed_pen_payloads=[],
+        ),
+        zhongshu=FactorTickZhongshuState(
+            payload={},
+            formed_entries=[],
+        ),
+        anchor=FactorTickAnchorState(
+            current_ref=None,
+            strength=None,
+            best_strong_pen_ref=None,
+            best_strong_pen_strength=None,
+            baseline_strength=None,
+        ),
     )
     with pytest.raises(RuntimeError, match="factor_missing_run_tick:pivot"):
         executor.run_tick_steps(series_id="s", state=state)

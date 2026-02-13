@@ -7,6 +7,9 @@ from pathlib import Path
 
 from . import pen as pen_module
 from . import zhongshu as zhongshu_module
+from . import zhongshu_state_models as zhongshu_state_models_module
+from . import zhongshu_state_transitions as zhongshu_state_transitions_module
+from . import zhongshu_state_updates as zhongshu_state_updates_module
 from .graph import FactorGraph
 from .registry import FactorRegistry
 from .runtime_config import FactorSettings
@@ -36,6 +39,11 @@ def build_series_fingerprint(
         "factor_plugin_registry.py": _file_sha256(orchestrator_file.with_name("factor_plugin_registry.py")),
         "pen.py": _file_sha256(Path(getattr(pen_module, "__file__", ""))),
         "zhongshu.py": _file_sha256(Path(getattr(zhongshu_module, "__file__", ""))),
+        "zhongshu_state_models.py": _file_sha256(Path(getattr(zhongshu_state_models_module, "__file__", ""))),
+        "zhongshu_state_transitions.py": _file_sha256(
+            Path(getattr(zhongshu_state_transitions_module, "__file__", ""))
+        ),
+        "zhongshu_state_updates.py": _file_sha256(Path(getattr(zhongshu_state_updates_module, "__file__", ""))),
     }
 
     for plugin in sorted(registry.plugins(), key=lambda p: str(p.spec.factor_name)):

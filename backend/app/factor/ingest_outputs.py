@@ -17,6 +17,15 @@ class HeadBuildState:
     anchor_current_ref: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
+class HeadSnapshotBuildRequest:
+    series_id: str
+    state: HeadBuildState
+    topo_order: list[str]
+    registry: Any
+    runtime: Any
+
+
 def connection_total_changes(conn: Any) -> int | None:
     raw = getattr(conn, "total_changes", None)
     if raw is None:
@@ -29,35 +38,19 @@ def connection_total_changes(conn: Any) -> int | None:
 
 def build_head_snapshots(
     *,
-    series_id: str,
-    up_to: int,
-    candles: list[Any],
-    effective_pivots: list[PivotMajorPoint],
-    confirmed_pens: list[dict[str, Any]],
-    zhongshu_state: dict[str, Any],
-    anchor_current_ref: dict[str, Any] | None,
-    topo_order: list[str],
-    registry: Any,
-    runtime: Any,
+    request: HeadSnapshotBuildRequest,
 ) -> dict[str, dict[str, Any]]:
-    state = HeadBuildState(
-        up_to=int(up_to),
-        candles=candles,
-        effective_pivots=effective_pivots,
-        confirmed_pens=confirmed_pens,
-        zhongshu_state=zhongshu_state,
-        anchor_current_ref=anchor_current_ref,
-    )
+    state = request.state
     out: dict[str, dict[str, Any]] = {}
-    for factor_name in topo_order:
-        plugin = registry.require(str(factor_name))
+    for factor_name in request.topo_order:
+        plugin = request.registry.require(str(factor_name))
         build_head = getattr(plugin, "build_head_snapshot", None)
         if not callable(build_head):
             continue
         head = build_head(
-            series_id=series_id,
+            series_id=request.series_id,
             state=state,
-            runtime=runtime,
+            runtime=request.runtime,
         )
         if isinstance(head, dict):
             out[str(factor_name)] = head

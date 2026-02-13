@@ -9,6 +9,7 @@ from ..factor.slices import build_pen_head_candidate, build_pen_head_preview
 from ..factor.zhongshu import build_alive_zhongshu_from_confirmed_pens
 from .renderer_contract import OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput
 from .renderer_structure_helpers import (
+    PolylineRequest,
     append_polyline,
     build_pen_indexes,
     render_alive_zhongshu,
@@ -184,12 +185,14 @@ class StructureOverlayRenderer:
         if anchor_points:
             append_polyline(
                 out=out,
-                instruction_id="anchor.current",
-                visible_time=int(ctx.to_time),
-                feature="anchor.current",
-                points=anchor_points,
-                color="#f59e0b",
-                line_style="dashed" if anchor_from_candidate else None,
+                request=PolylineRequest(
+                    instruction_id="anchor.current",
+                    visible_time=int(ctx.to_time),
+                    feature="anchor.current",
+                    points=anchor_points,
+                    color="#f59e0b",
+                    line_style="dashed" if anchor_from_candidate else None,
+                ),
             )
 
         current_pointer_start = int(current_ref.get("start_time") or 0) if isinstance(current_ref, dict) else 0
@@ -207,40 +210,46 @@ class StructureOverlayRenderer:
             )
             append_polyline(
                 out=out,
-                instruction_id=instruction_id,
-                visible_time=max(1, switch_time),
-                feature="anchor.history",
-                points=history_points,
-                color="rgba(59,130,246,0.55)",
-                line_width=1,
+                request=PolylineRequest(
+                    instruction_id=instruction_id,
+                    visible_time=max(1, switch_time),
+                    feature="anchor.history",
+                    points=history_points,
+                    color="rgba(59,130,246,0.55)",
+                    line_width=1,
+                ),
             )
 
         if isinstance(pen_extending, dict):
             append_polyline(
                 out=out,
-                instruction_id="pen.extending",
-                visible_time=int(ctx.to_time),
-                feature="pen.extending",
-                points=[
-                    {"time": int(pen_extending.get("start_time") or 0), "value": float(pen_extending.get("start_price") or 0.0)},
-                    {"time": int(pen_extending.get("end_time") or 0), "value": float(pen_extending.get("end_price") or 0.0)},
-                ],
-                color="#ffffff",
-                line_style="dashed",
+                request=PolylineRequest(
+                    instruction_id="pen.extending",
+                    visible_time=int(ctx.to_time),
+                    feature="pen.extending",
+                    points=[
+                        {"time": int(pen_extending.get("start_time") or 0), "value": float(pen_extending.get("start_price") or 0.0)},
+                        {"time": int(pen_extending.get("end_time") or 0), "value": float(pen_extending.get("end_price") or 0.0)},
+                    ],
+                    color="#ffffff",
+                    line_style="dashed",
+                ),
             )
 
         if isinstance(pen_candidate, dict):
             append_polyline(
                 out=out,
-                instruction_id="pen.candidate",
-                visible_time=int(ctx.to_time),
-                feature="pen.candidate",
-                points=[
-                    {"time": int(pen_candidate.get("start_time") or 0), "value": float(pen_candidate.get("start_price") or 0.0)},
-                    {"time": int(pen_candidate.get("end_time") or 0), "value": float(pen_candidate.get("end_price") or 0.0)},
-                ],
-                color="#ffffff",
-                line_style="dashed",
+                request=PolylineRequest(
+                    instruction_id="pen.candidate",
+                    visible_time=int(ctx.to_time),
+                    feature="pen.candidate",
+                    points=[
+                        {"time": int(pen_candidate.get("start_time") or 0), "value": float(pen_candidate.get("start_price") or 0.0)},
+                        {"time": int(pen_candidate.get("end_time") or 0), "value": float(pen_candidate.get("end_price") or 0.0)},
+                    ],
+                    color="#ffffff",
+                    line_style="dashed",
+                ),
             )
 
         return out

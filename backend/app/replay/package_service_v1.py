@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,18 @@ def _replay_pkg_root() -> Path:
     return resolve_artifacts_root() / "replay_package_v1"
 
 
+@dataclass(frozen=True)
+class ReplayPackageServiceConfig:
+    window_candles: int = 2000
+    window_size: int = 500
+    snapshot_interval: int = 25
+    ingest_pipeline: IngestPipeline | None = None
+    replay_enabled: bool = False
+    coverage_enabled: bool = False
+    ccxt_backfill_enabled: bool = False
+    market_history_source: str = ""
+
+
 class ReplayPackageServiceV1(PackageBuildServiceBase):
     def __init__(
         self,
@@ -36,29 +49,23 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
         factor_store: FactorStore,
         overlay_store: OverlayStore,
         factor_slices_service: FactorSlicesService,
-        window_candles: int = 2000,
-        window_size: int = 500,
-        snapshot_interval: int = 25,
-        ingest_pipeline: IngestPipeline | None = None,
-        replay_enabled: bool = False,
-        coverage_enabled: bool = False,
-        ccxt_backfill_enabled: bool = False,
-        market_history_source: str = "",
+        config: ReplayPackageServiceConfig | None = None,
     ) -> None:
         super().__init__()
+        cfg = config or ReplayPackageServiceConfig()
         self._candle_store = candle_store
         self._factor_store = factor_store
         self._overlay_store = overlay_store
         self._factor_slices_service = factor_slices_service
-        self._ingest_pipeline = ingest_pipeline
-        self._replay_enabled = bool(replay_enabled)
-        self._coverage_enabled = bool(coverage_enabled)
-        self._ccxt_backfill_enabled = bool(ccxt_backfill_enabled)
-        self._market_history_source = str(market_history_source).strip().lower()
+        self._ingest_pipeline = cfg.ingest_pipeline
+        self._replay_enabled = bool(cfg.replay_enabled)
+        self._coverage_enabled = bool(cfg.coverage_enabled)
+        self._ccxt_backfill_enabled = bool(cfg.ccxt_backfill_enabled)
+        self._market_history_source = str(cfg.market_history_source).strip().lower()
         self._defaults = {
-            "window_candles": int(window_candles),
-            "window_size": int(window_size),
-            "snapshot_interval": int(snapshot_interval),
+            "window_candles": int(cfg.window_candles),
+            "window_size": int(cfg.window_size),
+            "snapshot_interval": int(cfg.snapshot_interval),
             "preload_offset": 0,
         }
         self._reader = ReplayPackageReaderV1(candle_store=self._candle_store, root_dir=_replay_pkg_root())

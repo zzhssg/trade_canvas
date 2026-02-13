@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Query
 
 from ..deps import (
     MarketIngestServiceDep,
@@ -24,6 +24,7 @@ router = APIRouter()
 
 @router.get("/api/market/candles", response_model=GetCandlesResponse)
 def get_market_candles(
+    background_tasks: BackgroundTasks,
     series_id: str = Query(..., min_length=1),
     since: SinceQuery = None,
     limit: LimitQuery = 500,
@@ -35,8 +36,16 @@ def get_market_candles(
         series_id=series_id,
         since=None if since is None else int(since),
         limit=int(limit),
+        ensure_coverage=False,
     )
-    warmup_service.ensure_ledgers_warm(
+    if since is None and query_service.auto_tail_backfill_enabled():
+        background_tasks.add_task(
+            query_service.ensure_tail_coverage,
+            series_id=series_id,
+            limit=int(limit),
+        )
+    background_tasks.add_task(
+        warmup_service.ensure_ledgers_warm,
         series_id=series_id,
         store_head_time=None if response.server_head_time is None else int(response.server_head_time),
     )

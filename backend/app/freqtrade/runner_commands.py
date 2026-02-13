@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 _FREQTRADE_BOOTSTRAP_CODE = (
@@ -35,32 +36,48 @@ def build_list_strategies_command(
     return command
 
 
-def build_backtest_command(
-    *,
-    userdir: Path | None,
-    config_path: Path | None,
-    datadir: Path | None,
-    strategy_name: str,
-    pair: str,
-    timeframe: str,
-    timerange: str | None,
-    strategy_path: Path | None,
-    export_dir: Path | None,
-    export: str | None,
-) -> list[str]:
-    command = [sys.executable, "-c", _FREQTRADE_BOOTSTRAP_CODE, "backtesting", "--strategy", strategy_name, "--logfile", "/dev/null", "--no-color", "--timeframe", timeframe, "--pairs", pair]
-    if userdir is not None:
-        command.extend(["--userdir", str(userdir)])
-    if strategy_path is not None:
-        command.extend(["--strategy-path", str(strategy_path)])
-    if config_path is not None:
-        command.extend(["-c", str(config_path)])
-    if datadir is not None:
-        command.extend(["--datadir", str(datadir)])
-    if timerange:
-        command.extend(["--timerange", timerange])
-    if export:
-        command.extend(["--export", export])
-    if export_dir is not None:
-        command.extend(["--backtest-directory", str(export_dir)])
+@dataclass(frozen=True)
+class BacktestCommandRequest:
+    userdir: Path | None
+    config_path: Path | None
+    datadir: Path | None
+    strategy_name: str
+    pair: str
+    timeframe: str
+    timerange: str | None
+    strategy_path: Path | None
+    export_dir: Path | None
+    export: str | None
+
+
+def build_backtest_command(request: BacktestCommandRequest) -> list[str]:
+    command = [
+        sys.executable,
+        "-c",
+        _FREQTRADE_BOOTSTRAP_CODE,
+        "backtesting",
+        "--strategy",
+        request.strategy_name,
+        "--logfile",
+        "/dev/null",
+        "--no-color",
+        "--timeframe",
+        request.timeframe,
+        "--pairs",
+        request.pair,
+    ]
+    if request.userdir is not None:
+        command.extend(["--userdir", str(request.userdir)])
+    if request.strategy_path is not None:
+        command.extend(["--strategy-path", str(request.strategy_path)])
+    if request.config_path is not None:
+        command.extend(["-c", str(request.config_path)])
+    if request.datadir is not None:
+        command.extend(["--datadir", str(request.datadir)])
+    if request.timerange:
+        command.extend(["--timerange", request.timerange])
+    if request.export:
+        command.extend(["--export", request.export])
+    if request.export_dir is not None:
+        command.extend(["--backtest-directory", str(request.export_dir)])
     return command

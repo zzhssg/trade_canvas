@@ -35,6 +35,7 @@ curl --noproxy '*' -sS \
 - `server_head_time` 是服务端已落库的 closed head（用于“前端 catchup 是否追到头”的判断）。
 - 读路径会忽略“超出 latest-closed 窗口”的 ahead 数据（例如历史脏写入的当前 forming 桶），避免把未收盘桶当作 closed 返回给客户端。
 - 当 `TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY=1` 时，自动 tail coverage（`to_time=None`）会只补到“上一根已收盘 K 线”；不会把当前 forming 桶写入 closed store。
+- 当 `since` 缺省且启用自动 tail coverage 时，接口先返回当前本地快照，再在响应后触发后台补齐与 ledger warmup；因此首次请求可能返回空 `candles`，客户端应短轮询同一接口获取补齐结果。
 
 ## POST /api/market/ingest/candle_closed
 

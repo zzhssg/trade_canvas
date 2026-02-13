@@ -8,7 +8,12 @@ from ..debug.hub import DebugHub
 from ..factor.orchestrator import FactorOrchestrator
 from ..ingest.supervisor import IngestSupervisor
 from ..ledger.sync_service import LedgerSyncService
-from .runtime_components import build_ingest_context, build_read_context
+from .runtime_components import (
+    IngestContextBuildRequest,
+    ReadContextBuildRequest,
+    build_ingest_context,
+    build_read_context,
+)
 from ..market_data import (
     WsMessageParser,
     WsSubscriptionCoordinator,
@@ -150,16 +155,15 @@ def build_market_runtime(
         ingest_pipeline=ingest_pipeline,
     )
     read_build = build_read_context(
-        settings=settings,
-        store=store,
-        hub=bootstrap.hub,
-        debug_hub=debug_hub,
-        factor_orchestrator=factor_orchestrator,
-        overlay_orchestrator=overlay_orchestrator,
-        ingest_pipeline=bootstrap.ingest_pipeline,
-        ledger_sync_service=bootstrap.ledger_sync_service,
-        runtime_flags=bootstrap.runtime_flags,
-        runtime_metrics=runtime_metrics,
+        ReadContextBuildRequest(
+            settings=settings,
+            store=store,
+            hub=bootstrap.hub,
+            debug_hub=debug_hub,
+            ledger_sync_service=bootstrap.ledger_sync_service,
+            runtime_flags=bootstrap.runtime_flags,
+            runtime_metrics=runtime_metrics,
+        )
     )
     derived_initial_backfill = _build_derived_initial_backfill(
         store=store,
@@ -168,16 +172,18 @@ def build_market_runtime(
         runtime_flags=bootstrap.runtime_flags,
     )
     ingest_context = build_ingest_context(
-        store=store,
-        hub=bootstrap.hub,
-        factor_orchestrator=factor_orchestrator,
-        overlay_orchestrator=overlay_orchestrator,
-        debug_hub=debug_hub,
-        runtime_flags=bootstrap.runtime_flags,
-        runtime_metrics=runtime_metrics,
-        whitelist_series_ids=read_build.context.whitelist.series_ids,
-        whitelist_ingest_on=read_build.whitelist_ingest_on,
-        ingest_pipeline=bootstrap.ingest_pipeline,
+        IngestContextBuildRequest(
+            store=store,
+            hub=bootstrap.hub,
+            factor_orchestrator=factor_orchestrator,
+            overlay_orchestrator=overlay_orchestrator,
+            debug_hub=debug_hub,
+            runtime_flags=bootstrap.runtime_flags,
+            runtime_metrics=runtime_metrics,
+            whitelist_series_ids=read_build.context.whitelist.series_ids,
+            whitelist_ingest_on=read_build.whitelist_ingest_on,
+            ingest_pipeline=bootstrap.ingest_pipeline,
+        )
     )
     realtime_context = _build_realtime_context(
         hub=bootstrap.hub,

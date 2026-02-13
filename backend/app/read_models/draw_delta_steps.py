@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from ..overlay.integrity_plugins import evaluate_overlay_integrity
@@ -46,6 +47,19 @@ class DebugHubLike(Protocol):
         series_id: str | None = None,
         data: dict | None = None,
     ) -> None: ...
+
+
+@dataclass(frozen=True)
+class DrawDeltaDebugEmitRequest:
+    debug_enabled: bool
+    debug_hub: DebugHubLike
+    series_id: str
+    cursor_version_id: int
+    next_version_id: int
+    to_time: int
+    patch_len: int
+    active_len: int
+    at_time: int | None
 
 
 def overlay_out_of_sync_error() -> ServiceError:
@@ -232,33 +246,22 @@ def build_patch(
     ]
 
 
-def emit_draw_delta_debug_if_needed(
-    *,
-    debug_enabled: bool,
-    debug_hub: DebugHubLike,
-    series_id: str,
-    cursor_version_id: int,
-    next_version_id: int,
-    to_time: int,
-    patch_len: int,
-    active_len: int,
-    at_time: int | None,
-) -> None:
-    if not bool(debug_enabled):
+def emit_draw_delta_debug_if_needed(request: DrawDeltaDebugEmitRequest) -> None:
+    if not bool(request.debug_enabled):
         return
-    if int(patch_len) <= 0 and int(next_version_id) <= int(cursor_version_id):
+    if int(request.patch_len) <= 0 and int(request.next_version_id) <= int(request.cursor_version_id):
         return
-    debug_hub.emit(
+    request.debug_hub.emit(
         pipe="read",
         event="read.http.draw_delta",
-        series_id=series_id,
+        series_id=request.series_id,
         message="get draw delta",
         data={
-            "cursor_version_id": int(cursor_version_id),
-            "next_version_id": int(next_version_id),
-            "to_time": int(to_time),
-            "patch_len": int(patch_len),
-            "active_len": int(active_len),
-            "at_time": None if at_time is None else int(at_time),
+            "cursor_version_id": int(request.cursor_version_id),
+            "next_version_id": int(request.next_version_id),
+            "to_time": int(request.to_time),
+            "patch_len": int(request.patch_len),
+            "active_len": int(request.active_len),
+            "at_time": None if request.at_time is None else int(request.at_time),
         },
     )

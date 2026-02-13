@@ -31,9 +31,6 @@ class ReplayPackageReaderV1:
     def package_path(self, cache_key: str) -> Path:
         return self.cache_dir(cache_key) / "replay_package.json"
 
-    def db_path(self, cache_key: str) -> Path:
-        return self.package_path(cache_key)
-
     def cache_exists(self, cache_key: str) -> bool:
         return self.package_path(cache_key).exists()
 

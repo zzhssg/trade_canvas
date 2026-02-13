@@ -4,7 +4,7 @@ import time
 
 from ..runtime.blocking import run_blocking
 from ..core.schemas import CandleClosed
-from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
+from ..core.timeframe import expected_latest_closed_time, series_id_timeframe, timeframe_to_seconds
 from ..ws.hub import CandleHub
 from ..ws.protocol import WS_MSG_CANDLE_CLOSED, WS_MSG_CANDLES_BATCH
 from .contracts import (
@@ -52,20 +52,10 @@ class DefaultMarketDataOrchestrator(MarketDataOrchestrator):
         self._freshness = freshness
         self._ws_delivery = ws_delivery
 
-    @staticmethod
-    def _expected_latest_closed_time(*, now_time: int, timeframe_seconds: int) -> int:
-        tf = max(1, int(timeframe_seconds))
-        aligned = (int(now_time) // int(tf)) * int(tf)
-        if aligned <= 0:
-            return 0
-        if aligned >= int(tf):
-            return int(aligned - int(tf))
-        return 0
-
     def _latest_closed_time(self, *, series_id: str) -> int:
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
         now = int(time.time())
-        return self._expected_latest_closed_time(
+        return expected_latest_closed_time(
             now_time=now,
             timeframe_seconds=int(tf_s),
         )

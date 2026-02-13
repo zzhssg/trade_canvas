@@ -29,9 +29,18 @@ def timeframe_to_seconds(timeframe: str) -> int:
     return n * 24 * 60 * 60
 
 
+def expected_latest_closed_time(*, now_time: int, timeframe_seconds: int) -> int:
+    tf_s = max(1, int(timeframe_seconds))
+    aligned = (int(now_time) // int(tf_s)) * int(tf_s)
+    if aligned <= 0:
+        return 0
+    if aligned >= int(tf_s):
+        return int(aligned - int(tf_s))
+    return 0
+
+
 def series_id_timeframe(series_id: str) -> str:
     parts = series_id.split(":")
     if len(parts) < 1:
         raise ValueError("invalid series_id")
     return parts[-1]
-

@@ -58,21 +58,30 @@ class MarketQueryService:
             target = min(int(target), max(1, int(max_candles)))
         return int(target)
 
+    def auto_tail_backfill_enabled(self) -> bool:
+        return bool(self.runtime_flags.enable_market_auto_tail_backfill)
+
+    def ensure_tail_coverage(self, *, series_id: str, limit: int) -> None:
+        if not self.auto_tail_backfill_enabled():
+            return
+        self.backfill.ensure_tail_coverage(
+            series_id=series_id,
+            target_candles=self._effective_backfill_target(limit=int(limit)),
+            to_time=None,
+        )
+
     def get_candles(
         self,
         *,
         series_id: str,
         since: int | None,
         limit: int,
+        ensure_coverage: bool = True,
     ) -> GetCandlesResponse:
         t0 = time.perf_counter()
         try:
-            if bool(self.runtime_flags.enable_market_auto_tail_backfill):
-                self.backfill.ensure_tail_coverage(
-                    series_id=series_id,
-                    target_candles=self._effective_backfill_target(limit=int(limit)),
-                    to_time=None,
-                )
+            if bool(ensure_coverage):
+                self.ensure_tail_coverage(series_id=series_id, limit=int(limit))
             read_result = self.market_data.read_candles(
                 CatchupReadRequest(
                     series_id=series_id,

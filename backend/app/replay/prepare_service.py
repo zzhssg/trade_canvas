@@ -8,6 +8,11 @@ from ..core.schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
 from ..core.ports import DebugHubPort
 
 
+class _LedgerRefreshOutcomeLike(Protocol):
+    @property
+    def refreshed(self) -> bool: ...
+
+
 class _LedgerSyncLike(Protocol):
     def resolve_aligned_point(
         self,
@@ -18,7 +23,7 @@ class _LedgerSyncLike(Protocol):
         no_data_detail: str = "no_data",
     ) -> LedgerAlignedPoint: ...
 
-    def refresh_if_needed(self, *, series_id: str, up_to_time: int): ...
+    def refresh_if_needed(self, *, series_id: str, up_to_time: int) -> _LedgerRefreshOutcomeLike: ...
 
     def require_heads_ready(
         self,

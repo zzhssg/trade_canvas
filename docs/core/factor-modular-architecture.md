@@ -137,6 +137,16 @@ flowchart LR
 3. `docs/core/contracts/factor_*.md`
    - 更新契约与字段语义。
 
+推荐脚手架（避免手工复制漏改）：
+
+```bash
+python3 scripts/new_factor_scaffold.py --factor trend_break --depends-on pivot,pen
+```
+
+该命令会生成：
+- `backend/app/factor/processor_trend_break.py`
+- `backend/app/factor/bundles/trend_break.py`
+
 按需改：
 - `backend/app/overlay/renderer_plugins.py`（facade 入口；具体实现见 `renderer_marker.py` / `renderer_pen.py` / `renderer_structure.py`）
 - `backend/app/freqtrade/signal_strategies/<strategy>.py`（需要策略信号列时）

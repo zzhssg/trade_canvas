@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from .rebuild_loader import FactorBootstrapState, FactorRebuildStateLoader, RebuildEventBuckets
-from .runtime_config import FactorSettings
-from .store import FactorEventWrite
-from .tick_executor import FactorTickExecutionResult, FactorTickExecutor, FactorTickState
-from .pen import PivotMajorPoint
+from .tick_executor import (
+    FactorTickExecutionResult,
+    FactorTickExecutor,
+    FactorTickRunRequest,
+    FactorTickState,
+)
 
 
 def run_tick_steps(*, tick_executor: FactorTickExecutor, series_id: str, state: FactorTickState) -> None:
@@ -16,34 +18,10 @@ def run_tick_steps(*, tick_executor: FactorTickExecutor, series_id: str, state: 
 def run_ticks(
     *,
     tick_executor: FactorTickExecutor,
-    series_id: str,
-    process_times: list[int],
-    tf_s: int,
-    settings: FactorSettings,
-    candles: list[Any],
-    time_to_idx: dict[int, int],
-    effective_pivots: list[PivotMajorPoint],
-    confirmed_pens: list[dict[str, Any]],
-    zhongshu_state: dict[str, Any],
-    anchor_current_ref: dict[str, Any] | None,
-    anchor_strength: float | None,
-    last_major_idx: int | None,
-    events: list[FactorEventWrite],
+    request: FactorTickRunRequest,
 ) -> FactorTickExecutionResult:
     return tick_executor.run_incremental(
-        series_id=series_id,
-        process_times=process_times,
-        tf_s=int(tf_s),
-        settings=settings,
-        candles=candles,
-        time_to_idx=time_to_idx,
-        effective_pivots=effective_pivots,
-        confirmed_pens=confirmed_pens,
-        zhongshu_state=zhongshu_state,
-        anchor_current_ref=anchor_current_ref,
-        anchor_strength=anchor_strength,
-        last_major_idx=last_major_idx,
-        events=events,
+        request=request,
     )
 
 

@@ -1,36 +1,42 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from .renderer_contract import OverlayRenderOutput
 
 
+@dataclass(frozen=True)
+class PolylineRequest:
+    instruction_id: str
+    visible_time: int
+    feature: str
+    points: list[dict[str, Any]]
+    color: str
+    line_width: int = 2
+    line_style: str | None = None
+    entry_direction: int | None = None
+
+
 def append_polyline(
     *,
     out: OverlayRenderOutput,
-    instruction_id: str,
-    visible_time: int,
-    feature: str,
-    points: list[dict[str, Any]],
-    color: str,
-    line_width: int = 2,
-    line_style: str | None = None,
-    entry_direction: int | None = None,
+    request: PolylineRequest,
 ) -> None:
-    if len(points) < 2:
+    if len(request.points) < 2:
         return
     payload: dict[str, Any] = {
         "type": "polyline",
-        "feature": feature,
-        "points": points,
-        "color": color,
-        "lineWidth": int(line_width),
+        "feature": request.feature,
+        "points": request.points,
+        "color": request.color,
+        "lineWidth": int(request.line_width),
     }
-    if line_style:
-        payload["lineStyle"] = str(line_style)
-    if entry_direction in {-1, 1}:
-        payload["entryDirection"] = int(entry_direction)
-    out.polyline_defs.append((instruction_id, int(visible_time), payload))
+    if request.line_style:
+        payload["lineStyle"] = str(request.line_style)
+    if request.entry_direction in {-1, 1}:
+        payload["entryDirection"] = int(request.entry_direction)
+    out.polyline_defs.append((request.instruction_id, int(request.visible_time), payload))
 
 
 def build_pen_indexes(
@@ -118,21 +124,25 @@ def render_dead_zhongshu(
         )
         append_polyline(
             out=out,
-            instruction_id=f"{base_id}:top",
-            visible_time=visible_time,
-            feature="zhongshu.dead",
-            points=[{"time": start_time, "value": zg}, {"time": end_time, "value": zg}],
-            color=border_color,
-            entry_direction=entry_direction,
+            request=PolylineRequest(
+                instruction_id=f"{base_id}:top",
+                visible_time=visible_time,
+                feature="zhongshu.dead",
+                points=[{"time": start_time, "value": zg}, {"time": end_time, "value": zg}],
+                color=border_color,
+                entry_direction=entry_direction,
+            ),
         )
         append_polyline(
             out=out,
-            instruction_id=f"{base_id}:bottom",
-            visible_time=visible_time,
-            feature="zhongshu.dead",
-            points=[{"time": start_time, "value": zd}, {"time": end_time, "value": zd}],
-            color=border_color,
-            entry_direction=entry_direction,
+            request=PolylineRequest(
+                instruction_id=f"{base_id}:bottom",
+                visible_time=visible_time,
+                feature="zhongshu.dead",
+                points=[{"time": start_time, "value": zd}, {"time": end_time, "value": zd}],
+                color=border_color,
+                entry_direction=entry_direction,
+            ),
         )
 
 
@@ -155,19 +165,23 @@ def render_alive_zhongshu(
     )
     append_polyline(
         out=out,
-        instruction_id="zhongshu.alive:top",
-        visible_time=int(to_time),
-        feature="zhongshu.alive",
-        points=[{"time": start_time, "value": zg}, {"time": end_time, "value": zg}],
-        color=border_color,
-        entry_direction=entry_direction,
+        request=PolylineRequest(
+            instruction_id="zhongshu.alive:top",
+            visible_time=int(to_time),
+            feature="zhongshu.alive",
+            points=[{"time": start_time, "value": zg}, {"time": end_time, "value": zg}],
+            color=border_color,
+            entry_direction=entry_direction,
+        ),
     )
     append_polyline(
         out=out,
-        instruction_id="zhongshu.alive:bottom",
-        visible_time=int(to_time),
-        feature="zhongshu.alive",
-        points=[{"time": start_time, "value": zd}, {"time": end_time, "value": zd}],
-        color=border_color,
-        entry_direction=entry_direction,
+        request=PolylineRequest(
+            instruction_id="zhongshu.alive:bottom",
+            visible_time=int(to_time),
+            feature="zhongshu.alive",
+            points=[{"time": start_time, "value": zd}, {"time": end_time, "value": zd}],
+            color=border_color,
+            entry_direction=entry_direction,
+        ),
     )

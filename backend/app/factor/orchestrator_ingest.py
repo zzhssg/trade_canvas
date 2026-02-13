@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from .store import FactorEventWrite
+from .tick_executor import FactorTickRunRequest
 from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 
 
@@ -81,19 +82,21 @@ def ingest_closed(
     events: list[FactorEventWrite] = []
 
     tick_result = orchestrator._run_ticks(
-        series_id=series_id,
-        process_times=process_times,
-        tf_s=int(tf_s),
-        settings=settings,
-        candles=candles,
-        time_to_idx=time_to_idx,
-        effective_pivots=effective_pivots,
-        confirmed_pens=confirmed_pens,
-        zhongshu_state=zhongshu_state,
-        anchor_current_ref=anchor_current_ref,
-        anchor_strength=anchor_strength,
-        last_major_idx=last_major_idx,
-        events=events,
+        request=FactorTickRunRequest(
+            series_id=series_id,
+            process_times=process_times,
+            tf_s=int(tf_s),
+            settings=settings,
+            candles=candles,
+            time_to_idx=time_to_idx,
+            effective_pivots=effective_pivots,
+            confirmed_pens=confirmed_pens,
+            zhongshu_state=zhongshu_state,
+            anchor_current_ref=anchor_current_ref,
+            anchor_strength=anchor_strength,
+            last_major_idx=last_major_idx,
+            events=events,
+        ),
     )
     effective_pivots = tick_result.effective_pivots
     confirmed_pens = tick_result.confirmed_pens

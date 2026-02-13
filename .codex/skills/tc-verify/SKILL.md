@@ -50,7 +50,8 @@ bash scripts/quality_gate.sh --fast
 ```
 
 `quality_gate.sh` 默认检查：
-- 文件体量门禁（Python/TSX/hook 行数约束）
+- 文件体量门禁（Python/TS/TSX/hook 行数约束）
+- Python 结构门禁（函数参数 ≤8、dataclass 字段 ≤15）
 - 兼容/遗留关键词门禁（新增兼容层直接 fail）
 - 临时债标记门禁（`TODO/FIXME/HACK` 默认 fail）
 - 按触达面自动执行 `pytest -q` 与 `cd frontend && npm run build`

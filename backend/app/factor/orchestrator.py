@@ -8,7 +8,7 @@ from ..debug.hub import DebugHub
 from .fingerprint import build_series_fingerprint
 from .fingerprint_rebuild import FactorFingerprintRebuildCoordinator
 from .graph import FactorGraph, FactorSpec
-from .ingest_outputs import build_head_snapshots, persist_ingest_outputs
+from .ingest_outputs import HeadBuildState, HeadSnapshotBuildRequest, build_head_snapshots, persist_ingest_outputs
 from .orchestrator_ingest import ingest_closed
 from .orchestrator_ops import (
     build_incremental_bootstrap_state,
@@ -21,7 +21,12 @@ from .manifest import build_default_factor_manifest
 from .processor_anchor import AnchorProcessor
 from .registry import FactorRegistry
 from .rebuild_loader import FactorBootstrapState, FactorRebuildStateLoader, RebuildEventBuckets
-from .tick_executor import FactorTickExecutionResult, FactorTickExecutor, FactorTickState
+from .tick_executor import (
+    FactorTickExecutionResult,
+    FactorTickExecutor,
+    FactorTickRunRequest,
+    FactorTickState,
+)
 from .runtime_contract import FactorRuntimeContext
 from .runtime_config import (
     FactorSettings,
@@ -112,35 +117,11 @@ class FactorOrchestrator:
     def _run_ticks(
         self,
         *,
-        series_id: str,
-        process_times: list[int],
-        tf_s: int,
-        settings: FactorSettings,
-        candles: list[Any],
-        time_to_idx: dict[int, int],
-        effective_pivots: list[PivotMajorPoint],
-        confirmed_pens: list[dict[str, Any]],
-        zhongshu_state: dict[str, Any],
-        anchor_current_ref: dict[str, Any] | None,
-        anchor_strength: float | None,
-        last_major_idx: int | None,
-        events: list[FactorEventWrite],
+        request: FactorTickRunRequest,
     ) -> FactorTickExecutionResult:
         return run_ticks(
             tick_executor=self._tick_executor(),
-            series_id=series_id,
-            process_times=process_times,
-            tf_s=tf_s,
-            settings=settings,
-            candles=candles,
-            time_to_idx=time_to_idx,
-            effective_pivots=effective_pivots,
-            confirmed_pens=confirmed_pens,
-            zhongshu_state=zhongshu_state,
-            anchor_current_ref=anchor_current_ref,
-            anchor_strength=anchor_strength,
-            last_major_idx=last_major_idx,
-            events=events,
+            request=request,
         )
 
     def _rebuild_loader(self) -> FactorRebuildStateLoader:
@@ -190,17 +171,22 @@ class FactorOrchestrator:
         candles: list[Any],
         up_to: int,
     ) -> dict[str, dict[str, Any]]:
-        return build_head_snapshots(
-            series_id=series_id,
+        state = HeadBuildState(
             up_to=int(up_to),
             candles=candles,
             effective_pivots=effective_pivots,
             confirmed_pens=confirmed_pens,
             zhongshu_state=zhongshu_state,
             anchor_current_ref=anchor_current_ref,
-            topo_order=[str(name) for name in self._graph.topo_order],
-            registry=self._registry,
-            runtime=self._tick_runtime,
+        )
+        return build_head_snapshots(
+            request=HeadSnapshotBuildRequest(
+                series_id=series_id,
+                state=state,
+                topo_order=[str(name) for name in self._graph.topo_order],
+                registry=self._registry,
+                runtime=self._tick_runtime,
+            ),
         )
 
     def _persist_ingest_outputs(

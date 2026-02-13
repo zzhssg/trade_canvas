@@ -10,7 +10,7 @@ from ..market.health_service import compute_missing_to_time
 from ..core.schemas import CandleClosed
 from ..core.series_id import parse_series_id
 from ..storage.candle_store import CandleStore
-from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
+from ..core.timeframe import expected_latest_closed_time, series_id_timeframe, timeframe_to_seconds
 from .backfill_rollup import best_effort_backfill_from_base_1m
 from .contracts import (
     BackfillGapRequest,
@@ -71,16 +71,6 @@ class StoreBackfillService(BackfillService):
         self._enable_strict_closed_only = bool(enable_strict_closed_only)
         self._ccxt_timeout_ms = max(1000, int(ccxt_timeout_ms))
 
-    @staticmethod
-    def _expected_latest_closed_time(*, now_time: int, timeframe_seconds: int) -> int:
-        tf = max(1, int(timeframe_seconds))
-        aligned = (int(now_time) // int(tf)) * int(tf)
-        if aligned <= 0:
-            return 0
-        if aligned >= int(tf):
-            return int(aligned - int(tf))
-        return 0
-
     def _best_effort_backfill_from_base_1m(
         self,
         *,
@@ -121,7 +111,7 @@ class StoreBackfillService(BackfillService):
             now = int(time.time())
             aligned_now = int(now // int(tf_s)) * int(tf_s)
             if self._enable_strict_closed_only:
-                end_time = self._expected_latest_closed_time(
+                end_time = expected_latest_closed_time(
                     now_time=int(now),
                     timeframe_seconds=int(tf_s),
                 )

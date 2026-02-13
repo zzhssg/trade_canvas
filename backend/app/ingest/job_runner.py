@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
+from .binance_ws import BinanceWsIngestLoopRequest
 from .loop_guardrail import IngestLoopGuardrail
 from .settings import WhitelistIngestSettings
 from ..pipelines import IngestPipeline
@@ -55,20 +56,22 @@ class IngestJobRunner:
         async def runner() -> None:
             try:
                 await ingest_fn(
-                    series_id=series_id,
-                    store=self._store,
-                    hub=self._hub,
-                    ingest_pipeline=self._ingest_pipeline,
-                    settings=self._settings,
-                    stop=stop,
-                    market_history_source=config.market_history_source,
-                    derived_enabled=config.derived_enabled,
-                    derived_base_timeframe=config.derived_base_timeframe,
-                    derived_timeframes=config.derived_timeframes,
-                    batch_max=config.batch_max,
-                    flush_s=config.flush_s,
-                    forming_min_interval_ms=config.forming_min_interval_ms,
-                    loop_guardrail=guardrail,
+                    request=BinanceWsIngestLoopRequest(
+                        series_id=series_id,
+                        store=self._store,
+                        hub=self._hub,
+                        ingest_pipeline=self._ingest_pipeline,
+                        settings=self._settings,
+                        stop=stop,
+                        market_history_source=config.market_history_source,
+                        derived_enabled=config.derived_enabled,
+                        derived_base_timeframe=config.derived_base_timeframe,
+                        derived_timeframes=config.derived_timeframes,
+                        batch_max=config.batch_max,
+                        flush_s=config.flush_s,
+                        forming_min_interval_ms=config.forming_min_interval_ms,
+                        loop_guardrail=guardrail,
+                    )
                 )
                 if guardrail is not None:
                     guardrail.on_success()

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from .backfill_tracker import BackfillProgressSnapshot
 from ..core.series_id import parse_series_id
-from ..core.timeframe import timeframe_to_seconds
+from ..core.timeframe import expected_latest_closed_time, timeframe_to_seconds
 
 if TYPE_CHECKING:
     from ..market_data import FreshnessSnapshot
@@ -53,16 +53,6 @@ class _MarketDataLike(Protocol):
 
 class _BackfillProgressLike(Protocol):
     def snapshot(self, *, series_id: str) -> BackfillProgressSnapshot: ...
-
-
-def _expected_latest_closed_time(*, now_time: int, timeframe_seconds: int) -> int:
-    tf = max(1, int(timeframe_seconds))
-    aligned = (int(now_time) // tf) * tf
-    if aligned <= 0:
-        return 0
-    if aligned >= tf:
-        return int(aligned - tf)
-    return 0
 
 
 def _missing_to_target(*, head_time: int | None, target_time: int, timeframe_seconds: int) -> tuple[int | None, int | None]:
@@ -116,14 +106,17 @@ def build_market_health_snapshot(
     now = int(now_time) if now_time is not None else int(time.time())
     series = parse_series_id(series_id)
     tf_s = int(timeframe_to_seconds(series.timeframe))
-    expected_latest_closed_time = _expected_latest_closed_time(now_time=now, timeframe_seconds=tf_s)
+    expected_latest_closed_time_value = expected_latest_closed_time(
+        now_time=now,
+        timeframe_seconds=tf_s,
+    )
 
     freshness = market_data.freshness(series_id=series_id, now_time=now)
     head_time = freshness.head_time
     lag_seconds = freshness.lag_seconds
     missing_seconds, missing_candles = _missing_to_target(
         head_time=head_time,
-        target_time=expected_latest_closed_time,
+        target_time=expected_latest_closed_time_value,
         timeframe_seconds=tf_s,
     )
 
@@ -139,7 +132,7 @@ def build_market_health_snapshot(
     if head_time is None:
         status = "red"
         status_reason = "missing_head"
-    elif int(head_time) > int(expected_latest_closed_time):
+    elif int(head_time) > int(expected_latest_closed_time_value):
         status = "yellow"
         status_reason = "head_ahead_of_closed_window"
     elif int(missing_seconds or 0) <= 0:
@@ -159,7 +152,7 @@ def build_market_health_snapshot(
         series_id=series_id,
         timeframe_seconds=tf_s,
         now_time=now,
-        expected_latest_closed_time=expected_latest_closed_time,
+        expected_latest_closed_time=expected_latest_closed_time_value,
         head_time=head_time,
         lag_seconds=lag_seconds,
         missing_seconds=missing_seconds,

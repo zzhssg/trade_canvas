@@ -123,12 +123,15 @@ class MarketSyncE2EUserStoryTests(unittest.TestCase):
             self.client.close()
             with TestClient(create_app()) as client:
                 resp = client.get("/api/market/candles", params={"series_id": self.series_id, "limit": 2})
+                resp2 = client.get("/api/market/candles", params={"series_id": self.series_id, "limit": 2})
 
         self.assertEqual(resp.status_code, 200, resp.text)
         payload = resp.json()
+        payload2 = resp2.json()
         self.assertEqual(calls, [(60, 120)])
         self.assertEqual(payload["series_id"], self.series_id)
-        self.assertTrue(len(payload["candles"]) > 0)
+        self.assertEqual(len(payload["candles"]), 0)
+        self.assertTrue(len(payload2["candles"]) > 0)
 
     def test_ws_catchup_and_live(self) -> None:
         for t in (100, 160, 220):

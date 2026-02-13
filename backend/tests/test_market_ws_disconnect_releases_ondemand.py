@@ -15,8 +15,8 @@ class MarketWebSocketDisconnectReleasesOndemandTests(unittest.TestCase):
     def setUp(self) -> None:
         self._orig_ingest_loop = ingest_supervisor_mod.run_binance_ws_ingest_loop
 
-        async def _dummy_ingest_loop(*, stop, **_kwargs):  # type: ignore[no-untyped-def]
-            await stop.wait()
+        async def _dummy_ingest_loop(*, request, **_kwargs):  # type: ignore[no-untyped-def]
+            await request.stop.wait()
 
         ingest_supervisor_mod.run_binance_ws_ingest_loop = _dummy_ingest_loop
 

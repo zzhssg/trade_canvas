@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from dataclasses import dataclass
 from typing import SupportsFloat, SupportsInt, cast
 
 from .loop_guardrail import IngestLoopGuardrail
@@ -14,6 +15,24 @@ from .ws_hotpath import flush_ws_buffer, publish_forming_with_derived, should_em
 from ..ws.hub import CandleHub
 from .settings import WhitelistIngestSettings
 from ..market.derived_timeframes import DerivedTimeframeFanout
+
+
+@dataclass(frozen=True)
+class BinanceWsIngestLoopRequest:
+    series_id: str
+    store: CandleStore
+    hub: CandleHub
+    ingest_pipeline: IngestPipeline | None
+    settings: WhitelistIngestSettings
+    stop: asyncio.Event
+    market_history_source: str = ""
+    derived_enabled: bool = False
+    derived_base_timeframe: str = "1m"
+    derived_timeframes: tuple[str, ...] = ()
+    batch_max: int = 200
+    flush_s: float = 0.5
+    forming_min_interval_ms: int = 250
+    loop_guardrail: IngestLoopGuardrail | None = None
 
 
 def _coerce_int(value: object) -> int | None:
@@ -108,23 +127,14 @@ def parse_binance_kline_payload_any(payload: object) -> tuple[CandleClosed, bool
     ), is_final
 
 
-async def run_binance_ws_ingest_loop(
-    *,
-    series_id: str,
-    store: CandleStore,
-    hub: CandleHub,
-    ingest_pipeline: IngestPipeline | None = None,
-    settings: WhitelistIngestSettings,
-    stop: asyncio.Event,
-    market_history_source: str = "",
-    derived_enabled: bool = False,
-    derived_base_timeframe: str = "1m",
-    derived_timeframes: tuple[str, ...] = (),
-    batch_max: int = 200,
-    flush_s: float = 0.5,
-    forming_min_interval_ms: int = 250,
-    loop_guardrail: IngestLoopGuardrail | None = None,
-) -> None:
+async def run_binance_ws_ingest_loop(request: BinanceWsIngestLoopRequest) -> None:
+    series_id = request.series_id
+    store = request.store
+    hub = request.hub
+    ingest_pipeline = request.ingest_pipeline
+    settings = request.settings
+    stop = request.stop
+    loop_guardrail = request.loop_guardrail
     series = parse_series_id(series_id)
 
     if series.exchange != "binance":
@@ -133,7 +143,7 @@ async def run_binance_ws_ingest_loop(
     if ingest_pipeline is None:
         raise RuntimeError("ingest_pipeline_not_configured")
 
-    history_source = str(market_history_source).strip().lower()
+    history_source = str(request.market_history_source).strip().lower()
     if store.head_time(series_id) is None and history_source == "freqtrade":
         try:
             from ..market.history_bootstrapper import maybe_bootstrap_from_freqtrade
@@ -150,21 +160,21 @@ async def run_binance_ws_ingest_loop(
 
     url = build_binance_kline_ws_url(series)
 
-    batch_max = max(1, int(batch_max))
-    flush_s = max(0.05, float(flush_s))
+    batch_max = max(1, int(request.batch_max))
+    flush_s = max(0.05, float(request.flush_s))
 
     last_emitted_time = store.head_time(series_id) or 0
     buf: list[CandleClosed] = []
     last_flush_at = time.time()
 
-    forming_min_interval_ms = max(0, int(forming_min_interval_ms))
+    forming_min_interval_ms = max(0, int(request.forming_min_interval_ms))
     forming_min_interval_s = forming_min_interval_ms / 1000.0
     last_forming_emit_at = 0.0
     last_forming_candle_time: int | None = None
 
-    use_derived = bool(derived_enabled)
-    base_timeframe = str(derived_base_timeframe).strip() or "1m"
-    derived_targets = tuple(str(tf).strip() for tf in (derived_timeframes or ()) if str(tf).strip())
+    use_derived = bool(request.derived_enabled)
+    base_timeframe = str(request.derived_base_timeframe).strip() or "1m"
+    derived_targets = tuple(str(tf).strip() for tf in (request.derived_timeframes or ()) if str(tf).strip())
 
     fanout: DerivedTimeframeFanout | None = None
     if use_derived:

@@ -13,10 +13,17 @@ from backend.app.core.schemas import GetCandlesResponse
 
 class _QueryStub:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, int | None, int]] = []
+        self.calls: list[tuple[str, int | None, int, bool]] = []
 
-    def get_candles(self, *, series_id: str, since: int | None, limit: int) -> GetCandlesResponse:
-        self.calls.append((str(series_id), None if since is None else int(since), int(limit)))
+    def get_candles(
+        self,
+        *,
+        series_id: str,
+        since: int | None,
+        limit: int,
+        ensure_coverage: bool = True,
+    ) -> GetCandlesResponse:
+        self.calls.append((str(series_id), None if since is None else int(since), int(limit), bool(ensure_coverage)))
         return GetCandlesResponse(series_id=str(series_id), server_head_time=220, candles=[])
 
 
@@ -49,7 +56,7 @@ def test_market_candles_route_calls_warmup_after_query_response() -> None:
             )
 
         assert resp.status_code == 200, resp.text
-        assert query_stub.calls == [("binance:futures:BTC/USDT:1m", 100, 10)]
+        assert query_stub.calls == [("binance:futures:BTC/USDT:1m", 100, 10, False)]
         assert warmup_stub.calls == [("binance:futures:BTC/USDT:1m", 220)]
     finally:
         os.environ.pop("TRADE_CANVAS_DB_PATH", None)

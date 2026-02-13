@@ -9,6 +9,7 @@ from typing import Awaitable, Callable
 from .components import BacktestPreflight, BacktestResultInspector
 from ..freqtrade.config import build_backtest_config, load_json, write_temp_config
 from ..freqtrade.data import list_available_timeframes
+from ..freqtrade.runner import BacktestRunRequest as FreqtradeBacktestRunRequest
 from ..freqtrade.runner import FreqtradeExecResult, parse_strategy_list, validate_strategy_name
 from ..core.schemas import BacktestPairTimeframesResponse, BacktestRunRequest, BacktestRunResponse, StrategyListResponse
 from ..core.service_errors import ServiceError
@@ -172,21 +173,23 @@ class BacktestService:
         export_dir.mkdir(parents=True, exist_ok=True)
         try:
             result = await self._run_backtest(
-                freqtrade_bin=self._settings.freqtrade_bin,
-                userdir=userdir,
-                cwd=self._project_root,
-                config_path=tmp_config,
-                datadir=datadir_path,
-                strategy_name=payload.strategy_name,
-                pair=pair,
-                timeframe=payload.timeframe,
-                timerange=payload.timerange,
-                strategy_path=self._settings.freqtrade_strategy_path,
-                export="trades",
-                export_dir=export_dir,
-                extra_env={
-                    "TRADE_CANVAS_FREQTRADE_OFFLINE_MARKETS_PAIRS": pair.split(":", 1)[0],
-                },
+                request=FreqtradeBacktestRunRequest(
+                    freqtrade_bin=self._settings.freqtrade_bin,
+                    userdir=userdir,
+                    cwd=self._project_root,
+                    config_path=tmp_config,
+                    datadir=datadir_path,
+                    strategy_name=payload.strategy_name,
+                    pair=pair,
+                    timeframe=payload.timeframe,
+                    timerange=payload.timerange,
+                    strategy_path=self._settings.freqtrade_strategy_path,
+                    export="trades",
+                    export_dir=export_dir,
+                    extra_env={
+                        "TRADE_CANVAS_FREQTRADE_OFFLINE_MARKETS_PAIRS": pair.split(":", 1)[0],
+                    },
+                ),
             )
         finally:
             try:

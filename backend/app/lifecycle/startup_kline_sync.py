@@ -2,74 +2,19 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Mapping, Protocol
+from typing import Mapping
 
 from ..runtime.blocking import run_blocking
-from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
-
-
-class _StoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-
-class _AlignedStoreLike(_StoreLike, Protocol):
-    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
-
-
-class _BackfillLike(Protocol):
-    def ensure_tail_coverage(self, *, series_id: str, target_candles: int, to_time: int | None) -> int: ...
-
-
-class _LedgerRefreshOutcomeLike(Protocol):
-    @property
-    def refreshed(self) -> bool: ...
-
-
-class _LedgerSyncLike(Protocol):
-    def refresh_if_needed(self, *, series_id: str, up_to_time: int) -> _LedgerRefreshOutcomeLike: ...
-
-
-class _DebugHubLike(Protocol):
-    def emit(
-        self,
-        *,
-        pipe: str,
-        event: str,
-        level: str = "info",
-        message: str,
-        series_id: str | None = None,
-        data: dict | None = None,
-    ) -> None: ...
-
-
-class _RuntimeLike(Protocol):
-    @property
-    def store(self) -> _AlignedStoreLike: ...
-
-    @property
-    def read_ctx(self) -> _RuntimeReadCtxLike: ...
-
-    @property
-    def ledger_sync_service(self) -> _LedgerSyncLike: ...
-
-    @property
-    def debug_hub(self) -> _DebugHubLike: ...
-
-
-class _RuntimeReadCtxLike(Protocol):
-    @property
-    def backfill(self) -> _BackfillLike: ...
-
-    @property
-    def whitelist(self) -> object: ...
-
-
-def _runtime_backfill(runtime: _RuntimeLike) -> _BackfillLike:
-    return runtime.read_ctx.backfill
-
-
-def _runtime_ledger_sync(runtime: _RuntimeLike) -> _LedgerSyncLike:
-    return runtime.ledger_sync_service
+from ..core.timeframe import expected_latest_closed_time, series_id_timeframe, timeframe_to_seconds
+from .startup_kline_sync_contracts import (
+    BackfillLike as _BackfillLike,
+    DebugHubLike as _DebugHubLike,
+    LedgerSyncLike as _LedgerSyncLike,
+    RuntimeLike as _RuntimeLike,
+    StoreLike as _StoreLike,
+    runtime_backfill as _runtime_backfill,
+    runtime_ledger_sync as _runtime_ledger_sync,
+)
 
 
 @dataclass(frozen=True)
@@ -95,16 +40,6 @@ class StartupKlineSyncResult:
     series_results: tuple[StartupKlineSyncSeriesResult, ...]
 
 
-def _expected_latest_closed_time(*, now_time: int, timeframe_seconds: int) -> int:
-    tf_s = max(1, int(timeframe_seconds))
-    aligned = (int(now_time) // int(tf_s)) * int(tf_s)
-    if aligned <= 0:
-        return 0
-    if aligned >= int(tf_s):
-        return int(aligned - int(tf_s))
-    return 0
-
-
 def _target_time_for_series(*, series_id: str, now_time: int) -> int | None:
     try:
         tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
@@ -112,7 +47,7 @@ def _target_time_for_series(*, series_id: str, now_time: int) -> int | None:
         return None
     if int(tf_s) <= 0:
         return None
-    return _expected_latest_closed_time(now_time=int(now_time), timeframe_seconds=int(tf_s))
+    return expected_latest_closed_time(now_time=int(now_time), timeframe_seconds=int(tf_s))
 
 
 def _sync_one_series(

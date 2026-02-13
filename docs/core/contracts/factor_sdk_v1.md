@@ -2,7 +2,7 @@
 title: Factor SDK Contract v1（因子开发 SDK）
 status: done
 created: 2026-02-07
-updated: 2026-02-11
+updated: 2026-02-13
 ---
 
 # Factor SDK Contract v1（因子开发 SDK）
@@ -132,12 +132,12 @@ SDK 不绑定具体存储，但必须满足下列语义：
 1. 声明 `FactorSpec`（name/depends_on/logic_hash）。
 2. 实现 `apply_closed(ctx)`，产出 history/head。
 3. 保证 `event_key` 幂等（重复 ingest 不产生重复语义）。
-4. 在 `factor_default_components` 注册默认配对装配（`tick_plugin_builder + slice_plugin_builder`，manifest 自动消费）。
-5. 实现写路径插件钩子（至少 `run_tick`；按需实现 `bootstrap_from_history`/`build_head_snapshot`）。
-6. 在 `XxxSlicePlugin.bucket_specs` 注册 slice 事件桶映射（`event_kind -> bucket_name`，单点维护）。
-7. 实现并注册 slice 插件（实现层可对应 `build_default_factor_slice_plugins()`）。
-8. （按需）若该因子需要直接输出策略列/信号，补 `freqtrade_signal_plugins` 插件而非改 adapter 主流程。
-9. （按需）若该因子引入 overlay 与 factor 快照一致性约束，补 `overlay_integrity_plugins` 插件而非改 `draw_routes` 主流程。
+4. 推荐先跑脚手架命令：`python3 scripts/new_factor_scaffold.py --factor <name> --depends-on <deps>`。
+5. 在 `backend/app/factor/processor_<name>.py` 填充写路径插件逻辑（至少 `run_tick`；按需实现 `bootstrap_from_history`/`build_head_snapshot`）。
+6. 在 `backend/app/factor/bundles/<name>.py` 填充 slice 插件逻辑并导出 `build_bundle()`。
+7. 在 `XxxSlicePlugin.bucket_specs` 注册 slice 事件桶映射（`event_kind -> bucket_name`，单点维护）。
+8. （按需）若该因子需要直接输出策略列/信号，补 `backend/app/freqtrade/signal_strategies/` 插件而非改 adapter 主流程。
+9. （按需）若该因子引入 overlay 与 factor 快照一致性约束，补 `backend/app/overlay/integrity_plugins.py` 插件而非改 `draw_routes` 主流程。
 10. 补齐测试：
    - `seed ≡ incremental`
    - 重复 ingest 幂等

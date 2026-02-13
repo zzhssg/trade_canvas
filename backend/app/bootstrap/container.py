@@ -6,6 +6,7 @@ from pathlib import Path
 from ..lifecycle.service import AppLifecycleService
 from ..runtime.blocking import configure_blocking_executor
 from ..core.config import Settings
+from .container_accessors import AppContainerAccessors
 from .container_builders import (
     build_backtest_service,
     build_domain_core,
@@ -13,55 +14,33 @@ from .container_builders import (
     build_read_repair_service,
     build_replay_services,
 )
-from ..backtest.service import BacktestService
-from ..debug.hub import DebugHub
-from ..factor.orchestrator import FactorOrchestrator
-from ..factor.slices_service import FactorSlicesService
-from ..factor.store import FactorStore
-from ..runtime.flags import RuntimeFlags, load_runtime_flags
-from ..ledger.sync_service import LedgerSyncService
-from ..market.runtime import MarketRuntime
+from .container_contexts import (
+    CoreContainerContext,
+    DevContainerContext,
+    FactorContainerContext,
+    MarketContainerContext,
+    ReadContainerContext,
+    ReplayContainerContext,
+    StoreContainerContext,
+)
 from ..market.runtime_builder import build_market_runtime
-from ..overlay.orchestrator import OverlayOrchestrator
-from ..overlay.package_service_v1 import OverlayReplayPackageServiceV1
-from ..overlay.store import OverlayStore
-from ..read_models import DrawReadService, FactorReadService, ReadRepairService, WorldReadService
-from ..replay.prepare_service import ReplayPrepareService
-from ..replay.package_service_v1 import ReplayPackageServiceV1
 from ..runtime.api_gates import ApiGateConfig
 from ..runtime.flags import RuntimeFlags, load_runtime_flags
 from ..runtime.metrics import RuntimeMetrics
-from ..storage.candle_store import CandleStore
 from ..storage import PostgresPool, PostgresPoolSettings, bootstrap_postgres_schema
 from ..worktree.manager import WorktreeManager
 
 
 @dataclass(frozen=True)
-class AppContainer:
+class AppContainer(AppContainerAccessors):
     project_root: Path
-    settings: Settings
-    runtime_flags: RuntimeFlags
-    api_gates: ApiGateConfig
-    store: CandleStore
-    factor_store: FactorStore
-    factor_orchestrator: FactorOrchestrator
-    factor_slices_service: FactorSlicesService
-    factor_read_service: FactorReadService
-    draw_read_service: DrawReadService
-    world_read_service: WorldReadService
-    read_repair_service: ReadRepairService
-    ledger_sync_service: LedgerSyncService
-    overlay_store: OverlayStore
-    overlay_orchestrator: OverlayOrchestrator
-    replay_prepare_service: ReplayPrepareService
-    replay_service: ReplayPackageServiceV1
-    overlay_pkg_service: OverlayReplayPackageServiceV1
-    backtest_service: BacktestService
-    debug_hub: DebugHub
-    runtime_metrics: RuntimeMetrics
-    market_runtime: MarketRuntime
-    lifecycle: AppLifecycleService
-    worktree_manager: WorktreeManager
+    core: CoreContainerContext
+    stores: StoreContainerContext
+    factor: FactorContainerContext
+    read: ReadContainerContext
+    replay: ReplayContainerContext
+    market: MarketContainerContext
+    dev: DevContainerContext
 
 
 def _maybe_bootstrap_postgres(*, settings: Settings, runtime_flags: RuntimeFlags) -> PostgresPool | None:
@@ -140,29 +119,48 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         runtime_flags=runtime_flags,
     )
     worktree_manager = WorktreeManager(repo_root=project_root)
-    return AppContainer(
-        project_root=project_root,
+    core_ctx = CoreContainerContext(
         settings=settings,
         runtime_flags=runtime_flags,
         api_gates=api_gates,
+        debug_hub=core.debug_hub,
+        runtime_metrics=runtime_metrics,
+        worktree_manager=worktree_manager,
+    )
+    store_ctx = StoreContainerContext(
         store=core.store,
         factor_store=core.factor_store,
+        overlay_store=core.overlay_store,
+    )
+    factor_ctx = FactorContainerContext(
         factor_orchestrator=core.factor_orchestrator,
         factor_slices_service=core.factor_slices_service,
         factor_read_service=read_core_services.factor_read_service,
+        ledger_sync_service=ledger_sync_service,
+        overlay_orchestrator=core.overlay_orchestrator,
+    )
+    read_ctx = ReadContainerContext(
         draw_read_service=read_core_services.draw_read_service,
         world_read_service=read_core_services.world_read_service,
         read_repair_service=read_repair_service,
-        ledger_sync_service=ledger_sync_service,
-        overlay_store=core.overlay_store,
-        overlay_orchestrator=core.overlay_orchestrator,
+    )
+    replay_ctx = ReplayContainerContext(
         replay_prepare_service=replay_services.replay_prepare_service,
         replay_service=replay_services.replay_service,
         overlay_pkg_service=replay_services.overlay_pkg_service,
-        backtest_service=backtest_service,
-        debug_hub=core.debug_hub,
-        runtime_metrics=runtime_metrics,
+    )
+    market_ctx = MarketContainerContext(
         market_runtime=runtime_build.runtime,
         lifecycle=lifecycle,
-        worktree_manager=worktree_manager,
+    )
+    dev_ctx = DevContainerContext(backtest_service=backtest_service)
+    return AppContainer(
+        project_root=project_root,
+        core=core_ctx,
+        stores=store_ctx,
+        factor=factor_ctx,
+        read=read_ctx,
+        replay=replay_ctx,
+        market=market_ctx,
+        dev=dev_ctx,
     )

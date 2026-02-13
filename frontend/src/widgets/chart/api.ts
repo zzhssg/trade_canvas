@@ -46,6 +46,7 @@ export async function fetchCandles(params: {
   seriesId: string;
   since?: number;
   limit: number;
+  bypassCache?: boolean;
 }): Promise<{ candles: Candle[]; headTime: number | null }> {
   const url = new URL(apiUrl("/api/market/candles"), window.location.origin);
   url.searchParams.set("series_id", params.seriesId);
@@ -56,8 +57,10 @@ export async function fetchCandles(params: {
   const now = Date.now();
   pruneFetchCache(now);
 
-  const cached = candlesFetchCache.get(key);
-  if (cached && now - cached.at <= CANDLES_FETCH_CACHE_MS) return cached.promise;
+  if (!params.bypassCache) {
+    const cached = candlesFetchCache.get(key);
+    if (cached && now - cached.at <= CANDLES_FETCH_CACHE_MS) return cached.promise;
+  }
 
   const promise = (async () => {
     const res = await fetch(key);
@@ -66,11 +69,13 @@ export async function fetchCandles(params: {
     return { candles: payload.candles.map(toChartCandle), headTime: payload.server_head_time };
   })();
 
-  candlesFetchCache.set(key, { at: now, promise });
-  promise.catch(() => {
-    const cur = candlesFetchCache.get(key);
-    if (cur?.promise === promise) candlesFetchCache.delete(key);
-  });
+  if (!params.bypassCache) {
+    candlesFetchCache.set(key, { at: now, promise });
+    promise.catch(() => {
+      const cur = candlesFetchCache.get(key);
+      if (cur?.promise === promise) candlesFetchCache.delete(key);
+    });
+  }
   return promise;
 }
 

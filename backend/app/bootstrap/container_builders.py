@@ -19,7 +19,7 @@ from ..overlay.store import OverlayStore
 from ..pipelines import IngestPipeline
 from ..read_models import DrawReadService, FactorReadService, ReadRepairService, WorldReadService
 from ..replay.prepare_service import ReplayPrepareService
-from ..replay.package_service_v1 import ReplayPackageServiceV1
+from ..replay.package_service_v1 import ReplayPackageServiceConfig, ReplayPackageServiceV1
 from ..runtime.flags import RuntimeFlags
 from ..storage.candle_store import CandleStore
 from ..storage import PostgresCandleRepository, PostgresFactorRepository, PostgresOverlayRepository, PostgresPool
@@ -191,11 +191,13 @@ def build_replay_services(
         factor_store=core.factor_store,
         overlay_store=core.overlay_store,
         factor_slices_service=core.factor_slices_service,
-        ingest_pipeline=ingest_pipeline,
-        replay_enabled=bool(runtime_flags.enable_replay_v1),
-        coverage_enabled=bool(runtime_flags.enable_replay_ensure_coverage),
-        ccxt_backfill_enabled=bool(runtime_flags.enable_ccxt_backfill),
-        market_history_source=str(runtime_flags.market_history_source),
+        config=ReplayPackageServiceConfig(
+            ingest_pipeline=ingest_pipeline,
+            replay_enabled=bool(runtime_flags.enable_replay_v1),
+            coverage_enabled=bool(runtime_flags.enable_replay_ensure_coverage),
+            ccxt_backfill_enabled=bool(runtime_flags.enable_ccxt_backfill),
+            market_history_source=str(runtime_flags.market_history_source),
+        ),
     )
     overlay_pkg_service = OverlayReplayPackageServiceV1(
         candle_store=core.store,
