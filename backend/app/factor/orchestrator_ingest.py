@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from .ingest_outputs import HeadBuildState
+from .orchestrator_ops import build_incremental_bootstrap_state
 from .store import FactorEventWrite
 from .tick_executor import FactorTickRunRequest
 from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
@@ -113,7 +114,8 @@ def ingest_closed(
     time_to_idx = candle_batch.time_to_idx
     process_times = candle_batch.process_times
 
-    bootstrap_state = orchestrator._build_incremental_bootstrap_state(
+    bootstrap_state = build_incremental_bootstrap_state(
+        loader=orchestrator._rebuild_loader(),
         series_id=series_id,
         head_time=int(head_time),
         lookback_candles=int(window_plan.lookback_candles),

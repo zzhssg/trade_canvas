@@ -32,6 +32,25 @@ def _is_more_extreme(prev: PivotMajorPoint, cur: PivotMajorPoint) -> bool:
     return float(cur.pivot_price) < float(prev.pivot_price)
 
 
+def build_confirmed_pen(
+    *,
+    start: PivotMajorPoint,
+    end: PivotMajorPoint,
+    confirmer: PivotMajorPoint,
+) -> ConfirmedPen:
+    direction = 1 if float(end.pivot_price) > float(start.pivot_price) else -1
+    return ConfirmedPen(
+        start_time=int(start.pivot_time),
+        end_time=int(end.pivot_time),
+        start_price=float(start.pivot_price),
+        end_price=float(end.pivot_price),
+        direction=int(direction),
+        visible_time=int(confirmer.visible_time),
+        start_idx=start.pivot_idx,
+        end_idx=end.pivot_idx,
+    )
+
+
 def build_confirmed_pens_from_major_pivots(majors: list[PivotMajorPoint]) -> list[ConfirmedPen]:
     """
     Build confirmed pens (append-only semantics) from confirmed major pivots.
@@ -72,19 +91,6 @@ def build_confirmed_pens_from_major_pivots(majors: list[PivotMajorPoint]) -> lis
         p0 = effective[-3]
         p1 = effective[-2]
         confirmer = effective[-1]
-        direction = 1 if float(p1.pivot_price) > float(p0.pivot_price) else -1
-        out.append(
-            ConfirmedPen(
-                start_time=int(p0.pivot_time),
-                end_time=int(p1.pivot_time),
-                start_price=float(p0.pivot_price),
-                end_price=float(p1.pivot_price),
-                direction=int(direction),
-                visible_time=int(confirmer.visible_time),
-                start_idx=p0.pivot_idx,
-                end_idx=p1.pivot_idx,
-            )
-        )
+        out.append(build_confirmed_pen(start=p0, end=p1, confirmer=confirmer))
 
     return out
-

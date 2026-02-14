@@ -12,7 +12,7 @@ from .plugin_contract import FactorCatalogSpec, FactorCatalogSubFeatureSpec, Fac
 from .runtime_contract import FactorRuntimeContext
 from .semantics import is_more_extreme_pivot
 from .store import FactorEventWrite
-from .pen import ConfirmedPen, PivotMajorPoint
+from .pen import ConfirmedPen, PivotMajorPoint, build_confirmed_pen
 
 
 class _PenTickState(Protocol):
@@ -120,19 +120,7 @@ class PenProcessor:
         p0 = effective[-3]
         p1 = effective[-2]
         confirmer = effective[-1]
-        direction = 1 if float(p1.pivot_price) > float(p0.pivot_price) else -1
-        return [
-            ConfirmedPen(
-                start_time=int(p0.pivot_time),
-                end_time=int(p1.pivot_time),
-                start_price=float(p0.pivot_price),
-                end_price=float(p1.pivot_price),
-                direction=int(direction),
-                visible_time=int(confirmer.visible_time),
-                start_idx=p0.pivot_idx,
-                end_idx=p1.pivot_idx,
-            )
-        ]
+        return [build_confirmed_pen(start=p0, end=p1, confirmer=confirmer)]
 
     def build_confirmed_event(
         self,

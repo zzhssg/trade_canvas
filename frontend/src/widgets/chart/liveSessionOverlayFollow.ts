@@ -6,6 +6,15 @@ export function computePenPointCount(args: StartChartLiveSessionOptions): number
   return args.enablePenSegmentColor ? args.penSegmentsRef.current.length * 2 : args.penPointsRef.current.length;
 }
 
+function parseHttpStatus(error: unknown): number | null {
+  if (!(error instanceof Error)) return null;
+  const [prefix] = String(error.message).split(":", 1);
+  if (!prefix?.startsWith("HTTP ")) return null;
+  const status = Number(prefix.slice(5));
+  if (!Number.isFinite(status)) return null;
+  return status;
+}
+
 export async function loadWorldFrameLiveWithRetry(args: StartChartLiveSessionOptions): Promise<WorldStateV1 | null> {
   const retryLimit = 6;
   const retryDelayMs = 200;
@@ -103,7 +112,8 @@ export function runOverlayFollowNow(
           void args.fetchAndApplyAnchorHighlightAtTime(time);
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (parseHttpStatus(error) === 409) return;
         args.worldFrameHealthyRef.current = false;
       })
       .finally(() => {

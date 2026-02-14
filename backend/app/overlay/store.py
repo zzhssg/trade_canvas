@@ -229,19 +229,6 @@ class OverlayStore:
             rows = rows[: int(limit)]
         return rows
 
-    def get_latest_def_for_instruction(
-        self,
-        *,
-        series_id: str,
-        instruction_id: str,
-    ) -> dict[str, Any] | None:
-        with self.connect() as conn:
-            return self.get_latest_def_for_instruction_in_conn(
-                conn,
-                series_id=series_id,
-                instruction_id=instruction_id,
-            )
-
     def get_latest_def_for_instruction_in_conn(
         self,
         conn: _OverlayStoreConnection,

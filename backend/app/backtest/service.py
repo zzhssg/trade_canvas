@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from .components import BacktestPreflight, BacktestResultInspector
-from ..freqtrade.config import build_backtest_config, load_json, write_temp_config
+from ..freqtrade.config import build_backtest_config, write_temp_config
 from ..freqtrade.data import list_available_timeframes
 from ..freqtrade.runner import BacktestRunRequest as FreqtradeBacktestRunRequest
 from ..freqtrade.runner import FreqtradeExecResult, parse_strategy_list, validate_strategy_name
@@ -83,32 +83,22 @@ class BacktestService:
     async def get_pair_timeframes(self, *, pair: str) -> BacktestPairTimeframesResponse:
         if self._freqtrade_mock_enabled:
             return BacktestPairTimeframesResponse(pair=pair, trading_mode="mock", datadir="", available_timeframes=[])
-
-        if self._settings.freqtrade_config_path is None:
-            raise ServiceError(
-                status_code=500,
-                detail="Freqtrade config not configured. Set TRADE_CANVAS_FREQTRADE_CONFIG.",
-                code="backtest.config_missing",
-            )
-        if not self._settings.freqtrade_config_path.exists():
-            raise ServiceError(
-                status_code=500,
-                detail=f"Freqtrade config not found: {self._settings.freqtrade_config_path}",
-                code="backtest.config_not_found",
-            )
-
-        base_cfg = load_json(self._settings.freqtrade_config_path)
+        base_cfg = self._preflight.load_base_backtest_config()
         trading_mode = str(base_cfg.get("trading_mode") or "spot")
         stake_currency = str(base_cfg.get("stake_currency") or "USDT")
-
         datadir_raw = base_cfg.get("datadir")
-        datadir_path = Path(datadir_raw) if isinstance(datadir_raw, str) and datadir_raw else Path("user_data/data")
+        if isinstance(datadir_raw, str) and datadir_raw:
+            datadir_path = Path(datadir_raw)
+        else:
+            datadir_path = (self._project_root / "freqtrade_user_data" / "data").resolve()
         if not datadir_path.is_absolute():
-            datadir_path = (self._settings.freqtrade_config_path.parent / datadir_path).resolve()
+            datadir_path = (self._project_root / datadir_path).resolve()
 
-        effective_pair = pair
-        if trading_mode == "futures" and "/" in effective_pair and ":" not in effective_pair:
-            effective_pair = f"{effective_pair}:{stake_currency}"
+        effective_pair = self._preflight.resolve_pair_for_trading_mode(
+            pair=pair,
+            trading_mode=trading_mode,
+            stake_currency=stake_currency,
+        )
 
         available = list_available_timeframes(
             datadir=datadir_path,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -56,3 +57,8 @@ def error_status_payload(
     out: dict[str, Any] = build_status_payload(status="error", job_id=job_id, cache_key=cache_key)
     out["error"] = tracked_job.error if tracked_job is not None else "unknown_error"
     return out
+
+
+def hash_short(payload: str, *, length: int = 24) -> str:
+    limit = max(1, int(length))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:limit]

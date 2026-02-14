@@ -1,19 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
+from ..core.ports import AlignedStorePort, HeadStorePort
 from ..core.service_errors import ServiceError
-
-
-class AlignedStoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
-
-
-class HeadStoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
 
 
 @dataclass(frozen=True)
@@ -30,7 +20,7 @@ class LedgerHeadTimes:
 
 def require_aligned_point(
     *,
-    store: AlignedStoreLike,
+    store: AlignedStorePort,
     series_id: str,
     to_time: int | None,
     no_data_code: str,
@@ -50,8 +40,8 @@ def require_aligned_point(
 
 def require_ledger_heads_ready(
     *,
-    factor_store: HeadStoreLike,
-    overlay_store: HeadStoreLike,
+    factor_store: HeadStorePort,
+    overlay_store: HeadStorePort,
     series_id: str,
     aligned_time: int,
     factor_out_of_sync_code: str,

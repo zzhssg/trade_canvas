@@ -1,13 +1,25 @@
-import type { MutableRefObject } from "react";
+import { Suspense, lazy, type MutableRefObject } from "react";
 
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 
-import { FibTool } from "./draw_tools/FibTool";
-import { MeasureTool } from "./draw_tools/MeasureTool";
-import { PositionTool } from "./draw_tools/PositionTool";
 import type { FibInst, PositionInst } from "./draw_tools/types";
 import type { DrawMeasureState } from "./draw_tools/useDrawToolState";
 import type { LiveLoadStatus } from "./liveSessionRuntimeTypes";
+
+const FibTool = lazy(async () => {
+  const module = await import("./draw_tools/FibTool");
+  return { default: module.FibTool };
+});
+
+const MeasureTool = lazy(async () => {
+  const module = await import("./draw_tools/MeasureTool");
+  return { default: module.MeasureTool };
+});
+
+const PositionTool = lazy(async () => {
+  const module = await import("./draw_tools/PositionTool");
+  return { default: module.PositionTool };
+});
 
 export type ChartViewOverlayLayerProps = {
   replayEnabled: boolean;
@@ -38,6 +50,16 @@ export type ChartViewOverlayLayerProps = {
 
 export function ChartViewOverlayLayer(props: ChartViewOverlayLayerProps) {
   const noop = () => {};
+  const shouldRenderMeasureTool =
+    props.activeChartTool === "measure" ||
+    props.measureState.start != null ||
+    props.measureState.current != null ||
+    props.measureState.locked;
+  const shouldRenderPositionTools =
+    props.activeChartTool === "position_long" || props.activeChartTool === "position_short" || props.positionTools.length > 0;
+  const shouldRenderFibTools = props.activeChartTool === "fib" || props.fibTools.length > 0 || props.fibPreviewTool != null;
+  const shouldRenderDrawLayer =
+    props.enableDrawTools && (shouldRenderMeasureTool || shouldRenderPositionTools || shouldRenderFibTools);
   const showReplayLoading = props.replayEnabled && props.candlesLength === 0;
   const showLoadingMask =
     showReplayLoading ||
@@ -63,67 +85,75 @@ export function ChartViewOverlayLayer(props: ChartViewOverlayLayerProps) {
         </>
       ) : null}
 
-      {props.enableDrawTools ? (
-        <div className="pointer-events-none absolute inset-0 z-30">
-          <MeasureTool
-            enabled={props.activeChartTool === "measure"}
-            containerRef={props.containerRef}
-            candleTimesSec={props.candleTimesSec}
-            startPoint={props.measureState.start}
-            currentPoint={props.measureState.current}
-            locked={props.measureState.locked}
-          />
+      {shouldRenderDrawLayer ? (
+        <Suspense fallback={null}>
+          <div className="pointer-events-none absolute inset-0 z-30">
+            {shouldRenderMeasureTool ? (
+              <MeasureTool
+                enabled={props.activeChartTool === "measure"}
+                containerRef={props.containerRef}
+                candleTimesSec={props.candleTimesSec}
+                startPoint={props.measureState.start}
+                currentPoint={props.measureState.current}
+                locked={props.measureState.locked}
+              />
+            ) : null}
 
-          {props.positionTools.map((tool) => (
-            <PositionTool
-              key={tool.id}
-              chartRef={props.chartRef}
-              seriesRef={props.seriesRef}
-              containerRef={props.containerRef}
-              candleTimesSec={props.candleTimesSec}
-              tool={tool}
-              isActive={props.activeToolId === tool.id}
-              interactive={true}
-              onUpdate={props.onUpdatePositionTool}
-              onRemove={props.onRemovePositionTool}
-              onSelect={props.onSelectTool}
-              onInteractionLockChange={props.onInteractionLockChange}
-            />
-          ))}
+            {shouldRenderPositionTools
+              ? props.positionTools.map((tool) => (
+                  <PositionTool
+                    key={tool.id}
+                    chartRef={props.chartRef}
+                    seriesRef={props.seriesRef}
+                    containerRef={props.containerRef}
+                    candleTimesSec={props.candleTimesSec}
+                    tool={tool}
+                    isActive={props.activeToolId === tool.id}
+                    interactive={true}
+                    onUpdate={props.onUpdatePositionTool}
+                    onRemove={props.onRemovePositionTool}
+                    onSelect={props.onSelectTool}
+                    onInteractionLockChange={props.onInteractionLockChange}
+                  />
+                ))
+              : null}
 
-          {props.fibTools.map((tool) => (
-            <FibTool
-              key={tool.id}
-              chartRef={props.chartRef}
-              seriesRef={props.seriesRef}
-              containerRef={props.containerRef}
-              candleTimesSec={props.candleTimesSec}
-              tool={tool}
-              isActive={props.activeToolId === tool.id}
-              interactive={true}
-              onUpdate={props.onUpdateFibTool}
-              onRemove={props.onRemoveFibTool}
-              onSelect={props.onSelectTool}
-              onInteractionLockChange={props.onInteractionLockChange}
-            />
-          ))}
+            {shouldRenderFibTools
+              ? props.fibTools.map((tool) => (
+                  <FibTool
+                    key={tool.id}
+                    chartRef={props.chartRef}
+                    seriesRef={props.seriesRef}
+                    containerRef={props.containerRef}
+                    candleTimesSec={props.candleTimesSec}
+                    tool={tool}
+                    isActive={props.activeToolId === tool.id}
+                    interactive={true}
+                    onUpdate={props.onUpdateFibTool}
+                    onRemove={props.onRemoveFibTool}
+                    onSelect={props.onSelectTool}
+                    onInteractionLockChange={props.onInteractionLockChange}
+                  />
+                ))
+              : null}
 
-          {props.fibPreviewTool ? (
-            <FibTool
-              key="__fib_preview__"
-              chartRef={props.chartRef}
-              seriesRef={props.seriesRef}
-              containerRef={props.containerRef}
-              candleTimesSec={props.candleTimesSec}
-              tool={props.fibPreviewTool}
-              isActive={false}
-              interactive={false}
-              onUpdate={noop}
-              onRemove={noop}
-              onSelect={noop}
-            />
-          ) : null}
-        </div>
+            {props.fibPreviewTool ? (
+              <FibTool
+                key="__fib_preview__"
+                chartRef={props.chartRef}
+                seriesRef={props.seriesRef}
+                containerRef={props.containerRef}
+                candleTimesSec={props.candleTimesSec}
+                tool={props.fibPreviewTool}
+                isActive={false}
+                interactive={false}
+                onUpdate={noop}
+                onRemove={noop}
+                onSelect={noop}
+              />
+            ) : null}
+          </div>
+        </Suspense>
       ) : null}
 
       {props.error ? (

@@ -1,22 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
+from ..storage.contracts import CandleRepository
 
-class _CandleStoreLike(Protocol):
-    def first_time(self, series_id: str) -> int | None: ...
-
-    def count_closed_between_times(self, series_id: str, *, start_time: int, end_time: int) -> int: ...
-
-    def get_closed_between_times(
-        self,
-        series_id: str,
-        *,
-        start_time: int,
-        end_time: int,
-        limit: int = 20000,
-    ) -> list[Any]: ...
+_CandleStoreLike = CandleRepository[Any]
 
 
 @dataclass(frozen=True)

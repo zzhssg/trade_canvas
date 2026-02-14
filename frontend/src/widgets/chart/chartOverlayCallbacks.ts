@@ -72,47 +72,23 @@ export function useOverlayRenderCallbacks(args: UseOverlayRenderCallbacksArgs) {
   );
 
   const rebuildPivotMarkersFromOverlay = useCallback(() => {
-    args.pivotMarkersRef.current = rebuildPivotMarkersFromOverlayRuntime({
-      candlesRef: args.candlesRef,
-      overlayActiveIdsRef: args.overlayActiveIdsRef,
-      overlayCatalogRef: args.overlayCatalogRef,
-      effectiveVisible: args.effectiveVisible
-    });
+    args.pivotMarkersRef.current = rebuildPivotMarkersFromOverlayRuntime(args);
   }, [args.effectiveVisible]);
 
   const rebuildAnchorSwitchMarkersFromOverlay = useCallback(() => {
-    const markers = rebuildAnchorSwitchMarkersFromOverlayRuntime({
-      candlesRef: args.candlesRef,
-      overlayActiveIdsRef: args.overlayActiveIdsRef,
-      overlayCatalogRef: args.overlayCatalogRef,
-      effectiveVisible: args.effectiveVisible
-    });
+    const markers = rebuildAnchorSwitchMarkersFromOverlayRuntime(args);
     args.anchorSwitchMarkersRef.current = markers;
     args.setAnchorSwitchCount(markers.length);
   }, [args.effectiveVisible]);
 
   const rebuildPenPointsFromOverlay = useCallback(() => {
-    args.penPointsRef.current = rebuildPenPointsFromOverlayRuntime({
-      candlesRef: args.candlesRef,
-      overlayActiveIdsRef: args.overlayActiveIdsRef,
-      overlayCatalogRef: args.overlayCatalogRef
-    });
+    args.penPointsRef.current = rebuildPenPointsFromOverlayRuntime(args);
   }, []);
 
   const rebuildOverlayPolylinesFromOverlay = useCallback(() => {
     rebuildOverlayPolylinesFromOverlayRuntime({
-      chart: args.chartRef.current,
-      candlesRef: args.candlesRef,
-      overlayActiveIdsRef: args.overlayActiveIdsRef,
-      overlayCatalogRef: args.overlayCatalogRef,
-      effectiveVisible: args.effectiveVisible,
-      enableAnchorTopLayer: args.enableAnchorTopLayer,
-      overlayPolylineSeriesByIdRef: args.overlayPolylineSeriesByIdRef,
-      anchorTopLayerPathsRef: args.anchorTopLayerPathsRef,
-      setAnchorTopLayerPathCount: args.setAnchorTopLayerPathCount,
-      setZhongshuCount: args.setZhongshuCount,
-      setAnchorCount: args.setAnchorCount,
-      setOverlayPaintEpoch: args.setOverlayPaintEpoch
+      ...args,
+      chart: args.chartRef.current
     });
   }, [args.effectiveVisible]);
 
@@ -172,17 +148,8 @@ export function usePenWorldCallbacks(args: UsePenWorldCallbacksArgs) {
   const applyPenAndAnchorFromFactorSlices = useCallback(
     (slices: GetFactorSlicesResponseV1) => {
       applyPenAndAnchorFromFactorSlicesRuntime({
-        slices,
-        candlesRef: args.candlesRef,
-        replayEnabled: args.replayEnabled,
-        enablePenSegmentColor: args.enablePenSegmentColor,
-        segmentRenderLimit: args.segmentRenderLimit,
-        penSegmentsRef: args.penSegmentsRef,
-        penPointsRef: args.penPointsRef,
-        replayPenPreviewPointsRef: args.replayPenPreviewPointsRef,
-        anchorPenPointsRef: args.anchorPenPointsRef,
-        anchorPenIsDashedRef: args.anchorPenIsDashedRef,
-        setAnchorHighlightEpoch: args.setAnchorHighlightEpoch
+        ...args,
+        slices
       });
     },
     [args.replayEnabled, args.setAnchorHighlightEpoch]
@@ -191,16 +158,9 @@ export function usePenWorldCallbacks(args: UsePenWorldCallbacksArgs) {
   const fetchAndApplyAnchorHighlightAtTime = useCallback(
     async (time: number) => {
       await fetchAndApplyAnchorHighlightAtTimeRuntime({
+        ...args,
         time,
-        seriesId: args.seriesId,
-        windowCandles: args.windowCandles,
-        replayEnabled: args.replayEnabled,
-        activeSeriesIdRef: args.activeSeriesIdRef,
-        factorPullPendingTimeRef: args.factorPullPendingTimeRef,
-        factorPullInFlightRef: args.factorPullInFlightRef,
-        lastFactorAtTimeRef: args.lastFactorAtTimeRef,
         applyPenAndAnchorFromFactorSlices,
-        setReplaySlices: args.setReplaySlices
       });
     },
     [applyPenAndAnchorFromFactorSlices, args.replayEnabled, args.seriesId, args.setReplaySlices, args.windowCandles]
@@ -209,22 +169,8 @@ export function usePenWorldCallbacks(args: UsePenWorldCallbacksArgs) {
   const applyWorldFrame = useCallback(
     (frame: WorldStateV1) => {
       applyWorldFrameRuntime({
+        ...args,
         frame,
-        overlayCatalogRef: args.overlayCatalogRef,
-        overlayActiveIdsRef: args.overlayActiveIdsRef,
-        overlayCursorVersionRef: args.overlayCursorVersionRef,
-        applyOverlayDelta: args.applyOverlayDelta,
-        rebuildPivotMarkersFromOverlay: args.rebuildPivotMarkersFromOverlay,
-        rebuildAnchorSwitchMarkersFromOverlay: args.rebuildAnchorSwitchMarkersFromOverlay,
-        syncMarkers: args.syncMarkers,
-        rebuildPenPointsFromOverlay: args.rebuildPenPointsFromOverlay,
-        rebuildOverlayPolylinesFromOverlay: args.rebuildOverlayPolylinesFromOverlay,
-        enablePenSegmentColor: args.enablePenSegmentColor,
-        penSegmentsRef: args.penSegmentsRef,
-        penPointsRef: args.penPointsRef,
-        setPenPointCount: args.setPenPointCount,
-        effectiveVisible: args.effectiveVisible,
-        penSeriesRef: args.penSeriesRef,
         applyPenAndAnchorFromFactorSlices
       });
     },

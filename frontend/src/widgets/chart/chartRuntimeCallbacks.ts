@@ -63,99 +63,30 @@ type UseChartRuntimeCallbacksArgs = {
 };
 
 export function useChartRuntimeCallbacks(args: UseChartRuntimeCallbacksArgs) {
-  const overlay = useOverlayRenderCallbacks({
-    chartRef: args.chartRef,
-    markersApiRef: args.markersApiRef,
-    candlesRef: args.candlesRef,
-    overlayActiveIdsRef: args.overlayActiveIdsRef,
-    overlayCatalogRef: args.overlayCatalogRef,
-    overlayCursorVersionRef: args.overlayCursorVersionRef,
-    overlayPolylineSeriesByIdRef: args.overlayPolylineSeriesByIdRef,
-    anchorTopLayerPathsRef: args.anchorTopLayerPathsRef,
-    pivotMarkersRef: args.pivotMarkersRef,
-    anchorSwitchMarkersRef: args.anchorSwitchMarkersRef,
-    entryMarkersRef: args.entryMarkersRef,
-    effectiveVisible: args.effectiveVisible,
-    enableAnchorTopLayer: args.enableAnchorTopLayer,
-    setPivotCount: args.setPivotCount,
-    setAnchorSwitchCount: args.setAnchorSwitchCount,
-    setAnchorTopLayerPathCount: args.setAnchorTopLayerPathCount,
-    setZhongshuCount: args.setZhongshuCount,
-    setAnchorCount: args.setAnchorCount,
-    setOverlayPaintEpoch: args.setOverlayPaintEpoch,
-    penPointsRef: args.penPointsRef
-  });
-
-  const penWorld = usePenWorldCallbacks({
-    seriesId: args.seriesId,
-    windowCandles: args.windowCandles,
-    replayEnabled: args.replayEnabled,
-    enablePenSegmentColor: args.enablePenSegmentColor,
-    segmentRenderLimit: args.segmentRenderLimit,
-    activeSeriesIdRef: args.activeSeriesIdRef,
-    candlesRef: args.candlesRef,
-    penSegmentsRef: args.penSegmentsRef,
-    penPointsRef: args.penPointsRef,
-    replayPenPreviewPointsRef: args.replayPenPreviewPointsRef,
-    anchorPenPointsRef: args.anchorPenPointsRef,
-    anchorPenIsDashedRef: args.anchorPenIsDashedRef,
-    factorPullPendingTimeRef: args.factorPullPendingTimeRef,
-    factorPullInFlightRef: args.factorPullInFlightRef,
-    lastFactorAtTimeRef: args.lastFactorAtTimeRef,
-    overlayCatalogRef: args.overlayCatalogRef,
-    overlayActiveIdsRef: args.overlayActiveIdsRef,
-    overlayCursorVersionRef: args.overlayCursorVersionRef,
-    penSeriesRef: args.penSeriesRef,
-    setAnchorHighlightEpoch: args.setAnchorHighlightEpoch,
-    setReplaySlices: args.setReplaySlices,
+  const overlay = useOverlayRenderCallbacks(args);
+  const overlayCallbacks = {
     applyOverlayDelta: overlay.applyOverlayDelta,
     rebuildPivotMarkersFromOverlay: overlay.rebuildPivotMarkersFromOverlay,
     rebuildAnchorSwitchMarkersFromOverlay: overlay.rebuildAnchorSwitchMarkersFromOverlay,
     syncMarkers: overlay.syncMarkers,
     rebuildPenPointsFromOverlay: overlay.rebuildPenPointsFromOverlay,
-    rebuildOverlayPolylinesFromOverlay: overlay.rebuildOverlayPolylinesFromOverlay,
-    setPenPointCount: args.setPenPointCount,
-    effectiveVisible: args.effectiveVisible
+    rebuildOverlayPolylinesFromOverlay: overlay.rebuildOverlayPolylinesFromOverlay
+  };
+
+  const penWorld = usePenWorldCallbacks({
+    ...args,
+    ...overlayCallbacks
   });
 
   const replayOverlay = useReplayOverlayRuntime({
-    timeframe: args.timeframe,
-    windowCandles: args.windowCandles,
-    replayEnabled: args.replayEnabled,
-    enablePenSegmentColor: args.enablePenSegmentColor,
-    replayPatchRef: args.replayPatchRef,
-    replayPatchAppliedIdxRef: args.replayPatchAppliedIdxRef,
-    replayWindowIndexRef: args.replayWindowIndexRef,
-    overlayCatalogRef: args.overlayCatalogRef,
-    overlayActiveIdsRef: args.overlayActiveIdsRef,
+    ...args,
     recomputeActiveIdsFromCatalog: overlay.recomputeActiveIdsFromCatalog,
-    setReplayDrawInstructions: args.setReplayDrawInstructions,
-    rebuildPivotMarkersFromOverlay: overlay.rebuildPivotMarkersFromOverlay,
-    rebuildAnchorSwitchMarkersFromOverlay: overlay.rebuildAnchorSwitchMarkersFromOverlay,
-    rebuildPenPointsFromOverlay: overlay.rebuildPenPointsFromOverlay,
-    rebuildOverlayPolylinesFromOverlay: overlay.rebuildOverlayPolylinesFromOverlay,
-    syncMarkers: overlay.syncMarkers,
-    effectiveVisible: args.effectiveVisible,
-    penSeriesRef: args.penSeriesRef,
-    penPointsRef: args.penPointsRef,
-    penSegmentsRef: args.penSegmentsRef,
-    setPenPointCount: args.setPenPointCount
+    ...overlayCallbacks
   });
 
   const requestReplayFrameAtTime = useReplayFrameRequest({
-    replayEnabled: args.replayEnabled,
-    seriesId: args.seriesId,
-    windowCandles: args.windowCandles,
-    replayFrameLatestTimeRef: args.replayFrameLatestTimeRef,
-    replayFramePendingTimeRef: args.replayFramePendingTimeRef,
-    replayFramePullInFlightRef: args.replayFramePullInFlightRef,
-    setReplayFrameLoading: args.setReplayFrameLoading,
-    setReplayFrameError: args.setReplayFrameError,
-    setReplayFrame: args.setReplayFrame,
+    ...args,
     applyPenAndAnchorFromFactorSlices: penWorld.applyPenAndAnchorFromFactorSlices,
-    setReplaySlices: args.setReplaySlices,
-    setReplayCandle: args.setReplayCandle,
-    setReplayDrawInstructions: args.setReplayDrawInstructions
   });
 
   return {

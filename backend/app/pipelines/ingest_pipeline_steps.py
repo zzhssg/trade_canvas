@@ -4,49 +4,14 @@ import time
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol, Sequence
 
+from ..core.ports import FactorOrchestratorPort, OverlayOrchestratorPort
 from ..core.schemas import CandleClosed
+from ..storage.contracts import CandleRepository
 
 
-class FactorIngestResultLike(Protocol):
-    @property
-    def rebuilt(self) -> bool: ...
-
-
-class FactorOrchestratorLike(Protocol):
-    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> FactorIngestResultLike: ...
-
-
-class OverlayOrchestratorLike(Protocol):
-    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None: ...
-
-    def reset_series(self, *, series_id: str) -> None: ...
-
-
-class IngestStoreLike(Protocol):
-    def connect(self) -> Any: ...
-
-    def existing_closed_times_in_conn(
-        self,
-        conn: Any,
-        *,
-        series_id: str,
-        candle_times: list[int],
-    ) -> set[int]: ...
-
-    def upsert_many_closed_in_conn(
-        self,
-        conn: Any,
-        series_id: str,
-        candles: list[CandleClosed],
-    ) -> None: ...
-
-    def delete_closed_times_in_conn(
-        self,
-        conn: Any,
-        *,
-        series_id: str,
-        candle_times: list[int],
-    ) -> int: ...
+FactorOrchestratorLike = FactorOrchestratorPort
+OverlayOrchestratorLike = OverlayOrchestratorPort
+IngestStoreLike = CandleRepository[Any]
 
 
 class RollbackNewCandlesFn(Protocol):

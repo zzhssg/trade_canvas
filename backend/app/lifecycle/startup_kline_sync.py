@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..core.ports import AlignedStorePort, BackfillPort, DebugHubPort
 from ..ledger.ports import LedgerSyncPreparePort
 from ..runtime.blocking import run_blocking
 from ..core.timeframe import expected_latest_closed_time, series_id_timeframe, timeframe_to_seconds
-from .startup_kline_sync_contracts import (
-    RuntimeLike as _RuntimeLike,
-    runtime_backfill as _runtime_backfill,
-    runtime_ledger_sync as _runtime_ledger_sync,
-)
+
+if TYPE_CHECKING:
+    from ..market.runtime import MarketRuntime
 
 
 @dataclass(frozen=True)
@@ -47,6 +46,29 @@ def _target_time_for_series(*, series_id: str, now_time: int) -> int | None:
     return expected_latest_closed_time(now_time=int(now_time), timeframe_seconds=int(tf_s))
 
 
+def _series_result(
+    *,
+    series_id: str,
+    target_time: int | None,
+    before_head_time: int | None,
+    after_head_time: int | None = None,
+    covered_candles: int = 0,
+    refreshed: bool = False,
+    error: str | BaseException | None = None,
+) -> StartupKlineSyncSeriesResult:
+    before = None if before_head_time is None else int(before_head_time)
+    after = before if after_head_time is None else int(after_head_time)
+    return StartupKlineSyncSeriesResult(
+        series_id=str(series_id),
+        target_time=None if target_time is None else int(target_time),
+        before_head_time=before,
+        after_head_time=after,
+        covered_candles=max(0, int(covered_candles)),
+        refreshed=bool(refreshed),
+        error=None if error is None else str(error),
+    )
+
+
 def _sync_one_series(
     *,
     store: AlignedStorePort,
@@ -59,23 +81,17 @@ def _sync_one_series(
     before_head_time = store.head_time(series_id)
     target_time = _target_time_for_series(series_id=series_id, now_time=int(now_time))
     if target_time is None:
-        return StartupKlineSyncSeriesResult(
+        return _series_result(
             series_id=str(series_id),
             target_time=None,
             before_head_time=before_head_time,
-            after_head_time=before_head_time,
-            covered_candles=0,
-            refreshed=False,
             error="invalid_series_timeframe",
         )
     if int(target_time) <= 0:
-        return StartupKlineSyncSeriesResult(
+        return _series_result(
             series_id=str(series_id),
             target_time=int(target_time),
             before_head_time=before_head_time,
-            after_head_time=before_head_time,
-            covered_candles=0,
-            refreshed=False,
             error=None,
         )
 
@@ -94,7 +110,7 @@ def _sync_one_series(
     refreshed = bool(refresh_outcome.refreshed)
 
     after_head_time = store.head_time(series_id)
-    return StartupKlineSyncSeriesResult(
+    return _series_result(
         series_id=str(series_id),
         target_time=int(target_time),
         before_head_time=before_head_time,
@@ -170,14 +186,11 @@ async def run_startup_kline_sync(
                 now_time=int(fixed_now_time),
             )
         except Exception as exc:
-            item = StartupKlineSyncSeriesResult(
+            item = _series_result(
                 series_id=str(series_id),
                 target_time=None,
                 before_head_time=store.head_time(series_id),
-                after_head_time=store.head_time(series_id),
-                covered_candles=0,
-                refreshed=False,
-                error=str(exc),
+                error=exc,
             )
         out.append(item)
         if debug_hub is not None:
@@ -229,7 +242,7 @@ async def run_startup_kline_sync(
     return result
 
 
-def _runtime_whitelist_series_ids(runtime: _RuntimeLike) -> tuple[str, ...]:
+def _runtime_whitelist_series_ids(runtime: MarketRuntime) -> tuple[str, ...]:
     raw = getattr(runtime.read_ctx.whitelist, "series_ids", ())
     if not isinstance(raw, tuple):
         try:
@@ -241,15 +254,14 @@ def _runtime_whitelist_series_ids(runtime: _RuntimeLike) -> tuple[str, ...]:
 
 async def run_startup_kline_sync_for_runtime(
     *,
-    runtime: _RuntimeLike,
+    runtime: MarketRuntime,
     enabled: bool,
     target_candles: int,
 ) -> StartupKlineSyncResult:
-    ledger_sync = _runtime_ledger_sync(runtime)
     return await run_startup_kline_sync(
         store=runtime.store,
-        backfill=_runtime_backfill(runtime),
-        ledger_sync=ledger_sync,
+        backfill=runtime.read_ctx.backfill,
+        ledger_sync=runtime.ledger_sync_service,
         series_ids=_runtime_whitelist_series_ids(runtime),
         enabled=bool(enabled),
         target_candles=int(target_candles),

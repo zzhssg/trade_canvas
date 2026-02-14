@@ -1,13 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 
 import { useUiStore } from "../state/uiStore";
 import { useTopMarkets } from "../services/useTopMarkets";
 import { ENABLE_DEBUG_TOOL } from "../debug/debug";
-import { DebugPanel } from "./DebugPanel";
-import { ReplayPanel } from "./ReplayPanel";
 
 const ALL_TABS = ["Market", "Strategy", "Indicators", "Replay", "Debug"] as const;
 type SidebarTabKey = (typeof ALL_TABS)[number];
+
+const ReplayPanel = lazy(async () => {
+  const module = await import("./ReplayPanel");
+  return { default: module.ReplayPanel };
+});
+
+const DebugPanel = lazy(async () => {
+  const module = await import("./DebugPanel");
+  return { default: module.DebugPanel };
+});
 
 export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
   const { activeSidebarTab, setActiveSidebarTab, sidebarCollapsed, toggleSidebarCollapsed } = useUiStore();
@@ -100,12 +108,16 @@ export function Sidebar({ side = "left" }: { side?: "left" | "right" }) {
           ) : null}
           {activeSidebarTab === "Replay" ? (
             <Section title="Replay">
-              <ReplayPanel />
+              <Suspense fallback={<PanelLoadingHint />}>
+                <ReplayPanel />
+              </Suspense>
             </Section>
           ) : null}
           {activeSidebarTab === "Debug" ? (
             <Section title="Debug / Logs">
-              <DebugPanel />
+              <Suspense fallback={<PanelLoadingHint />}>
+                <DebugPanel />
+              </Suspense>
             </Section>
           ) : null}
         </div>
@@ -121,6 +133,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       {children}
     </div>
   );
+}
+
+function PanelLoadingHint() {
+  return <div className="text-xs text-white/50">Loading panel...</div>;
 }
 
 function MarketPanel() {

@@ -1,33 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Protocol
 
+from ..core.ports import AlignedStorePort, HeadStorePort, IngestPipelineSyncPort
 from .alignment import LedgerAlignedPoint, LedgerHeadTimes, require_aligned_point, require_ledger_heads_ready
-
-
-class _StoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
-
-
-class _HeadStoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-
-class _PipelineStepLike(Protocol):
-    @property
-    def name(self) -> str: ...
-
-
-class _RefreshResultLike(Protocol):
-    @property
-    def steps(self) -> tuple[_PipelineStepLike, ...] | list[_PipelineStepLike]: ...
-
-
-class _IngestPipelineLike(Protocol):
-    def refresh_series_sync(self, *, up_to_times: Mapping[str, int]) -> _RefreshResultLike: ...
 
 
 @dataclass(frozen=True)
@@ -46,13 +22,13 @@ class LedgerRefreshOutcome:
 
 @dataclass(frozen=True)
 class LedgerSyncService:
-    store: _StoreLike
-    factor_store: _HeadStoreLike
-    overlay_store: _HeadStoreLike
-    ingest_pipeline: _IngestPipelineLike
+    store: AlignedStorePort
+    factor_store: HeadStorePort
+    overlay_store: HeadStorePort
+    ingest_pipeline: IngestPipelineSyncPort
 
     @staticmethod
-    def _safe_head_time(store: _HeadStoreLike, *, series_id: str) -> int | None:
+    def _safe_head_time(store: HeadStorePort, *, series_id: str) -> int | None:
         try:
             head = store.head_time(series_id)
         except Exception:

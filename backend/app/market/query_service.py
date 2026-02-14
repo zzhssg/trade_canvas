@@ -2,56 +2,30 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from threading import Lock
-from typing import Protocol
 
 from ..market_data import CatchupReadRequest, MarketDataOrchestrator
-from ..core.ports import BackfillPort, DebugHubPort
+from ..core.ports import BackfillPort, DebugHubPort, MarketQueryFlagsPort
 from ..runtime.metrics import RuntimeMetrics
 from ..core.schemas import GetCandlesResponse
-
-class _RuntimeFlagsLike(Protocol):
-    @property
-    def enable_market_auto_tail_backfill(self) -> bool: ...
-
-    @property
-    def market_auto_tail_backfill_max_candles(self) -> int | None: ...
-
-    @property
-    def enable_debug_api(self) -> bool: ...
-
-
-_DebugHubLike = DebugHubPort
+from .series_cooldown_slots import SeriesCooldownSlots
 
 
 @dataclass(frozen=True)
 class MarketQueryService:
     market_data: MarketDataOrchestrator
     backfill: BackfillPort
-    runtime_flags: _RuntimeFlagsLike
-    debug_hub: _DebugHubLike
+    runtime_flags: MarketQueryFlagsPort
+    debug_hub: DebugHubPort
     runtime_metrics: RuntimeMetrics | None = None
     backfill_cooldown_seconds: float = 2.0
-    _backfill_guard_lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
-    _backfill_guard_state: dict[str, tuple[bool, float]] = field(default_factory=dict, init=False, repr=False, compare=False)
+    _backfill_slots: SeriesCooldownSlots = field(init=False, repr=False, compare=False)
 
-    def _try_acquire_backfill_slot(self, *, series_id: str) -> bool:
-        cooldown = max(0.1, float(self.backfill_cooldown_seconds))
-        now = float(time.monotonic())
-        with self._backfill_guard_lock:
-            in_flight, last_run = self._backfill_guard_state.get(series_id, (False, 0.0))
-            if bool(in_flight):
-                return False
-            if now - float(last_run) < cooldown:
-                return False
-            self._backfill_guard_state[series_id] = (True, now)
-            return True
-
-    def _release_backfill_slot(self, *, series_id: str) -> None:
-        now = float(time.monotonic())
-        with self._backfill_guard_lock:
-            _, last_run = self._backfill_guard_state.get(series_id, (False, 0.0))
-            self._backfill_guard_state[series_id] = (False, max(float(last_run), now))
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "_backfill_slots",
+            SeriesCooldownSlots(cooldown_seconds=float(self.backfill_cooldown_seconds)),
+        )
 
     def _effective_backfill_target(self, *, limit: int) -> int:
         target = max(1, int(limit))
@@ -66,7 +40,7 @@ class MarketQueryService:
     def ensure_tail_coverage(self, *, series_id: str, limit: int) -> None:
         if not self.auto_tail_backfill_enabled():
             return
-        if not self._try_acquire_backfill_slot(series_id=series_id):
+        if not self._backfill_slots.try_acquire(series_id=series_id):
             return
         try:
             self.backfill.ensure_tail_coverage(
@@ -75,7 +49,7 @@ class MarketQueryService:
                 to_time=None,
             )
         finally:
-            self._release_backfill_slot(series_id=series_id)
+            self._backfill_slots.release(series_id=series_id)
 
     def get_candles(
         self,

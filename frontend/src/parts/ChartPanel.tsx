@@ -1,8 +1,6 @@
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 
-import { ChartView } from "../widgets/ChartView";
 import { useCenterScrollLock } from "../layout/centerScrollLock";
-import { FactorPanel } from "./FactorPanel";
 import { LiveKlineLamp } from "./LiveKlineLamp";
 import { useReplayStore } from "../state/replayStore";
 import { useUiStore } from "../state/uiStore";
@@ -11,6 +9,14 @@ import { useTopMarkets } from "../services/useTopMarkets";
 const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
 const ENABLE_REPLAY_V1 = String(import.meta.env.VITE_ENABLE_REPLAY_V1 ?? "1") === "1";
 const ENABLE_KLINE_HEALTH_LAMP_V2 = String(import.meta.env.VITE_ENABLE_KLINE_HEALTH_LAMP_V2 ?? "0") === "1";
+const ChartView = lazy(async () => {
+  const module = await import("../widgets/ChartView");
+  return { default: module.ChartView };
+});
+const FactorPanel = lazy(async () => {
+  const module = await import("./FactorPanel");
+  return { default: module.FactorPanel };
+});
 
 export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
   const { exchange, market, setMarket, symbol, setSymbol, timeframe, setTimeframe } = useUiStore();
@@ -133,7 +139,9 @@ export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
             </button>
           </div>
         </div>
-        <FactorPanel />
+        <Suspense fallback={<FactorPanelLoadingFallback />}>
+          <FactorPanel />
+        </Suspense>
         <div
           className="relative z-0 min-h-0 flex-1 overflow-hidden rounded-lg border border-white/10 bg-black/20"
           data-chart-area="true"
@@ -142,9 +150,19 @@ export function ChartPanel({ mode }: { mode: "live" | "replay" }) {
           onMouseEnter={() => scrollLock?.lock()}
           onMouseLeave={() => scrollLock?.unlock()}
         >
-          <ChartView />
+          <Suspense fallback={<ChartViewLoadingFallback />}>
+            <ChartView />
+          </Suspense>
         </div>
       </div>
     </div>
   );
+}
+
+function FactorPanelLoadingFallback() {
+  return <div className="h-[112px] rounded-lg border border-white/10 bg-white/5 text-transparent">loading</div>;
+}
+
+function ChartViewLoadingFallback() {
+  return <div className="absolute inset-0 grid place-items-center text-xs text-white/50">Loading chart...</div>;
 }

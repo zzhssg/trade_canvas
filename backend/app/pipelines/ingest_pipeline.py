@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
-from typing import Mapping, Protocol, Sequence
+from typing import Mapping, Sequence
 
+from ..core.ports import CandleHubPort
 from ..runtime.blocking import run_blocking
 from ..core.schemas import CandleClosed
 from ..storage.candle_store import CandleStore
@@ -22,14 +23,6 @@ from .ingest_pipeline_steps import (
 )
 
 
-class _HubLike(Protocol):
-    async def publish_closed(self, *, series_id: str, candle: CandleClosed) -> None: ...
-
-    async def publish_closed_batch(self, *, series_id: str, candles: list[CandleClosed]) -> None: ...
-
-    async def publish_system(self, *, series_id: str, event: str, message: str, data: dict) -> None: ...
-
-
 class IngestPipeline:
     def __init__(
         self,
@@ -37,7 +30,7 @@ class IngestPipeline:
         store: CandleStore,
         factor_orchestrator: FactorOrchestratorLike | None,
         overlay_orchestrator: OverlayOrchestratorLike | None,
-        hub: _HubLike | None,
+        hub: CandleHubPort | None,
         overlay_compensate_on_error: bool = False,
         candle_compensate_on_error: bool = False,
     ) -> None:

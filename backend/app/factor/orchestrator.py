@@ -11,7 +11,6 @@ from .graph import FactorGraph, FactorSpec
 from .ingest_outputs import HeadBuildState, HeadSnapshotBuildRequest, build_head_snapshots, persist_ingest_outputs
 from .orchestrator_ingest import ingest_closed
 from .orchestrator_ops import (
-    build_incremental_bootstrap_state,
     collect_rebuild_event_buckets,
     run_tick_steps,
     run_ticks,
@@ -20,7 +19,7 @@ from .ingest_window import FactorIngestWindowPlanner
 from .manifest import build_default_factor_manifest
 from .processor_anchor import AnchorProcessor
 from .registry import FactorRegistry
-from .rebuild_loader import FactorBootstrapState, FactorRebuildStateLoader, RebuildEventBuckets
+from .rebuild_loader import FactorRebuildStateLoader, RebuildEventBuckets
 from .tick_executor import (
     FactorTickExecutionResult,
     FactorTickExecutor,
@@ -194,28 +193,6 @@ class FactorOrchestrator:
             head_snapshots=head_snapshots,
             auto_rebuild=bool(auto_rebuild),
             fingerprint=str(fingerprint),
-        )
-
-    def _build_incremental_bootstrap_state(
-        self,
-        *,
-        series_id: str,
-        head_time: int,
-        lookback_candles: int,
-        tf_s: int,
-        state_rebuild_event_limit: int,
-        candles: list[Any],
-        time_to_idx: dict[int, int],
-    ) -> FactorBootstrapState:
-        return build_incremental_bootstrap_state(
-            loader=self._rebuild_loader(),
-            series_id=series_id,
-            head_time=head_time,
-            lookback_candles=lookback_candles,
-            tf_s=tf_s,
-            state_rebuild_event_limit=state_rebuild_event_limit,
-            candles=candles,
-            time_to_idx=time_to_idx,
         )
 
     def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> FactorIngestResult:

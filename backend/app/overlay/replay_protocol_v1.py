@@ -5,9 +5,17 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..core.schemas import OverlayInstructionPatchItemV1
+from ..replay.protocol_shared_v1 import (
+    ReplayBuildResponseBaseV1,
+    ReplayKlineBarBaseV1,
+    ReplayPackageMetadataBaseV1,
+    ReplayStatusResponseBaseV1,
+    ReplayWindowBoundsV1,
+    ReplayWindowRangeV1,
+)
 
 
-class OverlayReplayKlineBarV1(BaseModel):
+class OverlayReplayKlineBarV1(ReplayKlineBarBaseV1):
     """
     Replay K-line bar used by the frontend chart.
 
@@ -15,14 +23,6 @@ class OverlayReplayKlineBarV1(BaseModel):
     - Use `time` (not candle_time) to match lightweight-charts conventions.
     - `time` is unix seconds (candle open time), always aligned to closed candles.
     """
-
-    time: int = Field(..., ge=0, description="Unix seconds (candle open time)")
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
-
 
 class OverlayReplayCheckpointV1(BaseModel):
     at_idx: int = Field(..., ge=0)
@@ -43,40 +43,17 @@ class OverlayReplayWindowMetaV1(BaseModel):
     end_time: int = Field(..., ge=0)
 
 
-class OverlayReplayDeltaMetaV1(BaseModel):
+class OverlayReplayDeltaMetaV1(ReplayWindowRangeV1):
     schema_version: int = 1
-    series_id: str
-    to_candle_time: int = Field(..., ge=0)
-    from_candle_time: int = Field(..., ge=0)
-    total_candles: int = Field(..., ge=0)
-    window_size: int = Field(..., ge=1)
-    snapshot_interval: int = Field(..., ge=1)
     windows: list[OverlayReplayWindowMetaV1] = Field(default_factory=list)
     overlay_store_last_version_id: int = Field(0, ge=0)
 
 
-class OverlayReplayPackageMetadataV1(BaseModel):
-    schema_version: int = 1
-    series_id: str
-    timeframe_s: int = Field(..., ge=1)
-
-    # Replay range (<= 2000 for MVP).
-    total_candles: int = Field(..., ge=0)
-    from_candle_time: int = Field(..., ge=0)
-    to_candle_time: int = Field(..., ge=0)
-
-    # Windowing & snapshots.
-    window_size: int = Field(..., ge=1)
-    snapshot_interval: int = Field(..., ge=1)
-    preload_offset: int = Field(0, ge=0)
-
-    # Documentation string for idx->time mapping (for cross-language consumers).
-    idx_to_time: str = "windows[*].kline[idx].time"
+class OverlayReplayPackageMetadataV1(ReplayPackageMetadataBaseV1):
+    pass
 
 
-class OverlayReplayWindowV1(BaseModel):
-    window_index: int = Field(..., ge=0)
-    start_idx: int = Field(..., ge=0)
+class OverlayReplayWindowV1(ReplayWindowBoundsV1):
     end_idx: int = Field(..., ge=0, description="Exclusive end index")
 
     # K-line slice for this window (used by the frontend as the "source of truth" bars).
@@ -115,17 +92,11 @@ class ReplayOverlayPackageBuildRequestV1(BaseModel):
     snapshot_interval: int | None = Field(default=None, ge=1, le=200)
 
 
-class ReplayOverlayPackageBuildResponseV1(BaseModel):
-    status: str = Field(..., description="building | done")
-    job_id: str
-    cache_key: str
+class ReplayOverlayPackageBuildResponseV1(ReplayBuildResponseBaseV1):
+    pass
 
 
-class ReplayOverlayPackageStatusResponseV1(BaseModel):
-    status: str = Field(..., description="building | done | error")
-    job_id: str
-    cache_key: str
-    error: str | None = None
+class ReplayOverlayPackageStatusResponseV1(ReplayStatusResponseBaseV1):
     delta_meta: OverlayReplayDeltaMetaV1 | None = None
     # Included only when include_delta_package=1 (first load optimization).
     kline: list[OverlayReplayKlineBarV1] | None = None

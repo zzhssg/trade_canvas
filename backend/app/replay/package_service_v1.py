@@ -9,6 +9,7 @@ from ..build.package_service_helpers import (
     WindowParamBounds,
     build_status_payload,
     error_status_payload,
+    hash_short,
     normalize_job_identity,
     normalize_window_params,
 )
@@ -75,6 +76,7 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
             "snapshot_interval": int(cfg.snapshot_interval),
             "preload_offset": 0,
         }
+        self._window_param_bounds = WindowParamBounds(window_candles_max=5000)
         self._reader = ReplayPackageReaderV1(candle_store=self._candle_store, root_dir=_replay_pkg_root())
         self._coverage_coordinator = ReplayCoverageCoordinator(
             candle_store=self._candle_store,
@@ -115,23 +117,7 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
             "factor_store_last_event_id": int(self._factor_store.last_event_id(series_id)),
             "overlay_store_last_version_id": int(self._overlay_store.last_version_id(series_id)),
         }
-        h = stable_json_dumps(payload)
-        return _hash_short(h)
-
-    def _normalize_window_params(
-        self,
-        *,
-        window_candles: int | None,
-        window_size: int | None,
-        snapshot_interval: int | None,
-    ) -> tuple[int, int, int]:
-        return normalize_window_params(
-            defaults=self._defaults,
-            window_candles=window_candles,
-            window_size=window_size,
-            snapshot_interval=snapshot_interval,
-            bounds=WindowParamBounds(window_candles_max=5000),
-        )
+        return hash_short(stable_json_dumps(payload))
 
     def _preflight_build(
         self,
@@ -177,10 +163,12 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
         snapshot_interval: int | None = None,
     ) -> tuple[str, str, str]:
         to_candle_time = self._reader.resolve_to_time(series_id, to_time)
-        wc, ws, si = self._normalize_window_params(
+        wc, ws, si = normalize_window_params(
+            defaults=self._defaults,
             window_candles=window_candles,
             window_size=window_size,
             snapshot_interval=snapshot_interval,
+            bounds=self._window_param_bounds,
         )
         self._preflight_build(
             series_id=series_id,
@@ -245,7 +233,7 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
             out: dict[str, Any] = build_status_payload(status="done", job_id=normalized_job_id, cache_key=cache_key)
             out["metadata"] = done_meta.model_dump(mode="json") if done_meta else None
             if include_preload and done_meta is not None:
-                preload = self._read_preload_window(cache_key, done_meta)
+                preload = self._reader.read_preload_window(cache_key, done_meta)
                 out["preload_window"] = preload.model_dump(mode="json") if preload else None
             if include_history:
                 out["history_events"] = [e.model_dump(mode="json") for e in self._reader.read_history_events(cache_key)]
@@ -285,12 +273,3 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
 
     def coverage_status(self, *, job_id: str) -> dict[str, Any]:
         return self._coverage_coordinator.coverage_status(job_id=job_id)
-
-    def _read_preload_window(self, cache_key: str, meta: ReplayPackageMetadataV1) -> ReplayWindowV1 | None:
-        return self._reader.read_preload_window(cache_key, meta)
-
-
-def _hash_short(payload: str) -> str:
-    import hashlib
-
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]

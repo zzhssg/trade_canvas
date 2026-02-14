@@ -19,6 +19,14 @@ class LedgerRefreshOutcomePort(Protocol):
     def overlay_head_time(self) -> int | None: ...
 
 
+class LedgerHeadSnapshotPort(Protocol):
+    @property
+    def factor_head_time(self) -> int | None: ...
+
+    @property
+    def overlay_head_time(self) -> int | None: ...
+
+
 class LedgerSyncBasePort(Protocol):
     def resolve_aligned_point(
         self,
@@ -42,6 +50,8 @@ class LedgerSyncBasePort(Protocol):
 
 
 class LedgerSyncPreparePort(LedgerSyncBasePort, Protocol):
+    def head_snapshot(self, *, series_id: str) -> LedgerHeadSnapshotPort: ...
+
     def refresh_if_needed(self, *, series_id: str, up_to_time: int) -> LedgerRefreshOutcomePort: ...
 
 

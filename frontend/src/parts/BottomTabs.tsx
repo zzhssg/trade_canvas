@@ -1,7 +1,12 @@
+import { Suspense, lazy } from "react";
+
 import { useUiStore } from "../state/uiStore";
-import { BacktestPanel } from "./BacktestPanel";
 
 const TABS = ["Ledger", "Signals", "Logs", "Orders", "Backtest"] as const;
+const BacktestPanel = lazy(async () => {
+  const module = await import("./BacktestPanel");
+  return { default: module.BacktestPanel };
+});
 
 export function BottomTabs() {
   const { bottomCollapsed, toggleBottomCollapsed, activeBottomTab, setActiveBottomTab } = useUiStore();
@@ -39,7 +44,9 @@ export function BottomTabs() {
       {bottomCollapsed ? null : (
         <div className="p-3">
           {activeBottomTab === "Backtest" ? (
-            <BacktestPanel />
+            <Suspense fallback={<div className="text-xs text-white/60">Loading backtest panel...</div>}>
+              <BacktestPanel />
+            </Suspense>
           ) : (
             <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white/80 shadow-[0_0_0_1px_rgba(255,255,255,0.03)_inset]">
               {activeBottomTab} (MVP placeholder)

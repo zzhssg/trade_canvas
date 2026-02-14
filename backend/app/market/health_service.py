@@ -4,14 +4,11 @@ import math
 import time
 from dataclasses import dataclass
 from typing import Literal
-from typing import TYPE_CHECKING, Protocol
 
-from .backfill_tracker import BackfillProgressSnapshot
+from .backfill_tracker import BackfillProgressSnapshot, MarketBackfillProgressTracker
+from ..market_data import MarketDataOrchestrator
 from ..core.series_id import parse_series_id
 from ..core.timeframe import expected_latest_closed_time, timeframe_to_seconds
-
-if TYPE_CHECKING:
-    from ..market_data import FreshnessSnapshot
 
 KlineHealthStatus = Literal["green", "yellow", "red", "gray"]
 
@@ -45,14 +42,6 @@ class MarketHealthSnapshot:
     status: KlineHealthStatus
     status_reason: str
     backfill: BackfillHealthView
-
-
-class _MarketDataLike(Protocol):
-    def freshness(self, *, series_id: str, now_time: int | None = None) -> FreshnessSnapshot: ...
-
-
-class _BackfillProgressLike(Protocol):
-    def snapshot(self, *, series_id: str) -> BackfillProgressSnapshot: ...
 
 
 def _missing_to_target(*, head_time: int | None, target_time: int, timeframe_seconds: int) -> tuple[int | None, int | None]:
@@ -97,8 +86,8 @@ def _build_backfill_view(*, now_time: int, backfill: BackfillProgressSnapshot, r
 
 def build_market_health_snapshot(
     *,
-    market_data: _MarketDataLike,
-    backfill_progress: _BackfillProgressLike,
+    market_data: MarketDataOrchestrator,
+    backfill_progress: MarketBackfillProgressTracker,
     series_id: str,
     now_time: int | None = None,
     backfill_recent_seconds: int = 120,

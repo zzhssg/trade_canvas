@@ -23,14 +23,10 @@ export function useChartSeriesSyncEffects(args: UseChartSeriesSyncEffectsArgs) {
     const series = args.seriesRef.current;
     if (!series) return;
     syncCandlesToSeries({
+      ...args,
       candles: args.candles,
       series,
-      chart: args.chartRef.current,
-      appliedRef: args.appliedRef,
-      lineSeriesByKeyRef: args.lineSeriesByKeyRef,
-      entryEnabledRef: args.entryEnabledRef,
-      entryMarkersRef: args.entryMarkersRef,
-      syncMarkers: args.syncMarkers
+      chart: args.chartRef.current
     });
   }, [args.candles, args.chartEpoch]);
 
@@ -43,30 +39,8 @@ export function useChartSeriesSyncEffects(args: UseChartSeriesSyncEffectsArgs) {
     const candleSeries = args.seriesRef.current;
     if (!chart || !candleSeries) return;
     syncOverlayLayers({
-      chart,
-      visibleFeatures: args.visibleFeatures,
-      effectiveVisible: args.effectiveVisible,
-      candlesRef: args.candlesRef,
-      lineSeriesByKeyRef: args.lineSeriesByKeyRef,
-      entryEnabledRef: args.entryEnabledRef,
-      entryMarkersRef: args.entryMarkersRef,
-      rebuildPivotMarkersFromOverlay: args.rebuildPivotMarkersFromOverlay,
-      rebuildAnchorSwitchMarkersFromOverlay: args.rebuildAnchorSwitchMarkersFromOverlay,
-      rebuildOverlayPolylinesFromOverlay: args.rebuildOverlayPolylinesFromOverlay,
-      penSeriesRef: args.penSeriesRef,
-      penSegmentSeriesByKeyRef: args.penSegmentSeriesByKeyRef,
-      penSegmentsRef: args.penSegmentsRef,
-      penPointsRef: args.penPointsRef,
-      anchorPenSeriesRef: args.anchorPenSeriesRef,
-      anchorPenPointsRef: args.anchorPenPointsRef,
-      anchorPenIsDashedRef: args.anchorPenIsDashedRef,
-      replayPenPreviewSeriesByFeatureRef: args.replayPenPreviewSeriesByFeatureRef,
-      replayPenPreviewPointsRef: args.replayPenPreviewPointsRef,
-      enablePenSegmentColor: args.enablePenSegmentColor,
-      enableAnchorTopLayer: args.enableAnchorTopLayer,
-      replayEnabled: args.replayEnabled,
-      setPenPointCount: args.setPenPointCount,
-      syncMarkers: args.syncMarkers
+      ...args,
+      chart
     });
   }, [
     args.anchorHighlightEpoch,

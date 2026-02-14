@@ -6,6 +6,14 @@ from pydantic import BaseModel, Field
 
 from ..overlay.replay_protocol_v1 import OverlayReplayCheckpointV1, OverlayReplayDiffV1
 from ..core.schemas import OverlayInstructionPatchItemV1
+from .protocol_shared_v1 import (
+    ReplayBuildResponseBaseV1,
+    ReplayJobStatusBaseV1,
+    ReplayKlineBarBaseV1,
+    ReplayPackageMetadataBaseV1,
+    ReplayStatusResponseBaseV1,
+    ReplayWindowBoundsV1,
+)
 
 
 class ReplayCoverageV1(BaseModel):
@@ -15,17 +23,8 @@ class ReplayCoverageV1(BaseModel):
     to_time: int | None = Field(default=None, ge=0)
 
 
-class ReplayPackageMetadataV1(BaseModel):
-    schema_version: int = 1
-    series_id: str
-    timeframe_s: int = Field(..., ge=1)
-    total_candles: int = Field(..., ge=0)
-    from_candle_time: int = Field(..., ge=0)
-    to_candle_time: int = Field(..., ge=0)
-    window_size: int = Field(..., ge=1)
-    snapshot_interval: int = Field(..., ge=1)
-    preload_offset: int = Field(0, ge=0)
-    idx_to_time: str = "windows[*].kline[idx].time"
+class ReplayPackageMetadataV1(ReplayPackageMetadataBaseV1):
+    pass
 
 class ReplayEnsureCoverageRequestV1(BaseModel):
     series_id: str = Field(..., min_length=1)
@@ -33,10 +32,8 @@ class ReplayEnsureCoverageRequestV1(BaseModel):
     to_time: int | None = Field(default=None, ge=0)
 
 
-class ReplayEnsureCoverageResponseV1(BaseModel):
-    status: str = Field(..., description="building | done | error")
-    job_id: str
-    error: str | None = None
+class ReplayEnsureCoverageResponseV1(ReplayJobStatusBaseV1):
+    pass
 
 
 class ReplayCoverageStatusResponseV1(BaseModel):
@@ -56,25 +53,15 @@ class ReplayBuildRequestV1(BaseModel):
     snapshot_interval: int | None = Field(default=None, ge=1, le=200)
 
 
-class ReplayBuildResponseV1(BaseModel):
-    status: str = Field(..., description="building | done")
-    job_id: str
-    cache_key: str
+class ReplayBuildResponseV1(ReplayBuildResponseBaseV1):
+    pass
 
 
-class ReplayKlineBarV1(BaseModel):
-    time: int = Field(..., ge=0, description="Unix seconds (candle open time)")
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
+class ReplayKlineBarV1(ReplayKlineBarBaseV1):
+    pass
 
 
-class ReplayWindowV1(BaseModel):
-    window_index: int = Field(..., ge=0)
-    start_idx: int = Field(..., ge=0)
-    end_idx: int = Field(..., ge=0)
+class ReplayWindowV1(ReplayWindowBoundsV1):
     kline: list[ReplayKlineBarV1] = Field(default_factory=list)
     draw_catalog_base: list[OverlayInstructionPatchItemV1] = Field(default_factory=list)
     draw_catalog_patch: list[OverlayInstructionPatchItemV1] = Field(default_factory=list)
@@ -111,11 +98,7 @@ class ReplayWindowResponseV1(BaseModel):
     history_deltas: list[ReplayHistoryDeltaV1] = Field(default_factory=list)
 
 
-class ReplayStatusResponseV1(BaseModel):
-    status: str = Field(..., description="building | done | error")
-    job_id: str
-    cache_key: str
-    error: str | None = None
+class ReplayStatusResponseV1(ReplayStatusResponseBaseV1):
     metadata: ReplayPackageMetadataV1 | None = None
     preload_window: ReplayWindowV1 | None = None
     history_events: list[ReplayHistoryEventV1] | None = None

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from pathlib import Path
@@ -12,6 +11,7 @@ from ..build.package_service_helpers import (
     WindowParamBounds,
     build_status_payload,
     error_status_payload,
+    hash_short,
     normalize_job_identity,
     normalize_window_params,
 )
@@ -20,11 +20,7 @@ from ..storage.candle_store import CandleStore
 from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from .package_builder_v1 import OverlayReplayBuildParamsV1, build_overlay_replay_package_v1, stable_json_dumps
 from .package_reader_v1 import OverlayPackageReaderV1
-from .replay_protocol_v1 import (
-    OverlayReplayDeltaMetaV1,
-    OverlayReplayDeltaPackageV1,
-    OverlayReplayWindowV1,
-)
+from .replay_protocol_v1 import OverlayReplayWindowV1
 from .store import OverlayStore
 
 
@@ -61,6 +57,7 @@ class OverlayReplayPackageServiceV1(PackageBuildServiceBase):
             "snapshot_interval": int(snapshot_interval),
             "preload_offset": 0,
         }
+        self._window_param_bounds = WindowParamBounds(window_candles_max=2000)
         self._reader = OverlayPackageReaderV1(
             candle_store=self._candle_store,
             overlay_store=self._overlay_store,
@@ -69,12 +66,6 @@ class OverlayReplayPackageServiceV1(PackageBuildServiceBase):
 
     def enabled(self) -> bool:
         return bool(self._replay_package_enabled)
-
-    def _resolve_to_time(self, series_id: str, to_time: int | None) -> int:
-        return self._reader.resolve_to_time(series_id, to_time)
-
-    def _preflight_fail_safe(self, series_id: str, *, to_time: int) -> None:
-        self._reader.ensure_overlay_aligned(series_id, to_time=to_time)
 
     def _compute_cache_key(self, series_id: str, *, to_time: int, window_candles: int, window_size: int, snapshot_interval: int) -> str:
         overlay_last_version_id = int(self._overlay_store.last_version_id(series_id))
@@ -88,45 +79,7 @@ class OverlayReplayPackageServiceV1(PackageBuildServiceBase):
             "preload_offset": 0,
             "overlay_store_last_version_id": int(overlay_last_version_id),
         }
-        h = hashlib.sha256(stable_json_dumps(payload).encode("utf-8")).hexdigest()
-        # Keep it short but collision-resistant enough for local artifacts.
-        return h[:24]
-
-    def _cache_dir(self, cache_key: str) -> Path:
-        return self._reader.cache_dir(cache_key)
-
-    def _manifest_path(self, cache_key: str) -> Path:
-        return self._reader.manifest_path(cache_key)
-
-    def _meta_path(self, cache_key: str) -> Path:
-        return self._reader.meta_path(cache_key)
-
-    def _pkg_path(self, cache_key: str) -> Path:
-        return self._reader.package_path(cache_key)
-
-    def cache_exists(self, cache_key: str) -> bool:
-        return self._reader.cache_exists(cache_key)
-
-    def read_meta(self, cache_key: str) -> OverlayReplayDeltaMetaV1:
-        return self._reader.read_meta(cache_key)
-
-    def read_full_package(self, cache_key: str) -> OverlayReplayDeltaPackageV1:
-        return self._reader.read_full_package(cache_key)
-
-    def _normalize_window_params(
-        self,
-        *,
-        window_candles: int | None,
-        window_size: int | None,
-        snapshot_interval: int | None,
-    ) -> tuple[int, int, int]:
-        return normalize_window_params(
-            defaults=self._defaults,
-            window_candles=window_candles,
-            window_size=window_size,
-            snapshot_interval=snapshot_interval,
-            bounds=WindowParamBounds(window_candles_max=2000),
-        )
+        return hash_short(stable_json_dumps(payload))
 
     def build(
         self,
@@ -143,22 +96,24 @@ class OverlayReplayPackageServiceV1(PackageBuildServiceBase):
           - building
           - done
         """
-        to_candle_time = self._resolve_to_time(series_id, to_time)
-        self._preflight_fail_safe(series_id, to_time=to_candle_time)
+        to_candle_time = self._reader.resolve_to_time(series_id, to_time)
+        self._reader.ensure_overlay_aligned(series_id, to_time=to_candle_time)
 
-        wc, ws, si = self._normalize_window_params(
+        wc, ws, si = normalize_window_params(
+            defaults=self._defaults,
             window_candles=window_candles,
             window_size=window_size,
             snapshot_interval=snapshot_interval,
+            bounds=self._window_param_bounds,
         )
 
         cache_key = self._compute_cache_key(series_id, to_time=to_candle_time, window_candles=wc, window_size=ws, snapshot_interval=si)
-        reservation = self._reserve_build_job(cache_key=cache_key, cache_exists=self.cache_exists)
+        reservation = self._reserve_build_job(cache_key=cache_key, cache_exists=self._reader.cache_exists)
         if not reservation.created:
             return (reservation.status, reservation.job_id, reservation.cache_key)
 
         def _build_package() -> None:
-            pkg_root = self._cache_dir(cache_key)
+            pkg_root = self._reader.cache_dir(cache_key)
             pkg_root.mkdir(parents=True, exist_ok=True)
 
             tf_s = timeframe_to_seconds(series_id_timeframe(series_id))
@@ -176,7 +131,10 @@ class OverlayReplayPackageServiceV1(PackageBuildServiceBase):
                 "builder_version": 1,
                 "created_at_ms": int(time.time() * 1000),
             }
-            self._manifest_path(cache_key).write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            self._reader.manifest_path(cache_key).write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
 
             pkg = build_overlay_replay_package_v1(
                 candle_store=self._candle_store,
@@ -190,11 +148,11 @@ class OverlayReplayPackageServiceV1(PackageBuildServiceBase):
                     preload_offset=0,
                 ),
             )
-            self._meta_path(cache_key).write_text(
+            self._reader.meta_path(cache_key).write_text(
                 json.dumps(pkg.delta_meta.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
-            self._pkg_path(cache_key).write_text(
+            self._reader.package_path(cache_key).write_text(
                 json.dumps(pkg.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
@@ -210,16 +168,16 @@ class OverlayReplayPackageServiceV1(PackageBuildServiceBase):
         normalized_job_id, cache_key = normalize_job_identity(job_id)
         status, tracked_job = self._resolve_build_status(
             job_id=normalized_job_id,
-            cache_exists=self.cache_exists,
+            cache_exists=self._reader.cache_exists,
         )
         if status == "build_required":
             raise ServiceError(status_code=404, detail="not_found", code="overlay_replay.status.not_found")
         if status == "done":
-            done_meta: OverlayReplayDeltaMetaV1 | None = self.read_meta(cache_key) if self.cache_exists(cache_key) else None
+            done_meta = self._reader.read_meta(cache_key) if self._reader.cache_exists(cache_key) else None
             out: dict[str, Any] = build_status_payload(status="done", job_id=normalized_job_id, cache_key=cache_key)
             out["delta_meta"] = done_meta.model_dump(mode="json") if done_meta else None
-            if include_delta_package and self.cache_exists(cache_key):
-                pkg = self.read_full_package(cache_key)
+            if include_delta_package and self._reader.cache_exists(cache_key):
+                pkg = self._reader.read_full_package(cache_key)
                 out["kline"] = [b.model_dump(mode="json") for w in pkg.windows for b in (w.kline or [])]
                 out["preload_window"] = pkg.windows[0].model_dump(mode="json") if pkg.windows else None
             return out

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 
 from ..market.ccxt_client import _make_exchange_client, ccxt_symbol_for_series
@@ -8,6 +9,8 @@ from ..core.schemas import CandleClosed
 from ..core.series_id import parse_series_id
 from ..storage.candle_store import CandleStore
 from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
+
+logger = logging.getLogger(__name__)
 
 
 def backfill_from_ccxt_range(
@@ -130,8 +133,16 @@ def backfill_market_gap_best_effort(
             limit=int(freqtrade_limit),
             market_history_source=str(market_history_source),
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "market_gap_backfill_freqtrade_failed series_id=%s start=%s end=%s limit=%s source=%s error=%s",
+            str(series_id),
+            int(start),
+            int(end),
+            int(freqtrade_limit),
+            str(market_history_source),
+            str(exc),
+        )
 
     if bool(enable_ccxt_backfill):
         try:
@@ -142,8 +153,15 @@ def backfill_market_gap_best_effort(
                 end_time=int(end),
                 ccxt_timeout_ms=int(ccxt_timeout_ms),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "market_gap_backfill_ccxt_failed series_id=%s start=%s end=%s timeout_ms=%s error=%s",
+                str(series_id),
+                int(start),
+                int(end),
+                int(ccxt_timeout_ms),
+                str(exc),
+            )
 
     after = store.count_closed_between_times(series_id, start_time=start, end_time=end)
     return max(0, int(after) - int(before))

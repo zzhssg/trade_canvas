@@ -43,7 +43,7 @@ export type StartChartLiveSessionArgs = {
   enablePenSegmentColor: boolean;
   openMarketWs: OpenMarketWs;
   chartRef: MutableRefObject<IChartApi | null>;
-  candleSeriesRef: MutableRefObject<ISeriesApi<"Candlestick"> | null>;
+  seriesRef: MutableRefObject<ISeriesApi<"Candlestick"> | null>;
   candlesRef: MutableRefObject<Candle[]>;
   setCandles: Dispatch<SetStateAction<Candle[]>>;
   setLiveLoadState: (status: LiveLoadStatus, message?: string) => void;

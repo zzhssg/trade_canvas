@@ -29,7 +29,7 @@ function resetLiveSessionRuntime(args: StartChartLiveSessionArgs) {
   const chart = args.chartRef.current;
   args.setCandles([]);
   args.candlesRef.current = [];
-  args.candleSeriesRef.current?.setData([]);
+  args.seriesRef.current?.setData([]);
   args.setLiveLoadState("loading", "正在加载K线...");
   args.lastWsCandleTimeRef.current = null;
   args.setLastWsCandleTime(null);
@@ -290,7 +290,7 @@ export function startChartLiveSession(args: StartChartLiveSessionArgs): { stop: 
       args.factorPullInFlightRef.current = false;
       ws?.close();
       args.setCandles([]);
-      args.candleSeriesRef.current?.setData([]);
+      args.seriesRef.current?.setData([]);
       args.setLiveLoadState("idle");
     }
   };
