@@ -6,26 +6,127 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
-class Settings:
+class PostgresSettings:
+    dsn: str
+    schema: str
+    connect_timeout_s: float
+    pool_min_size: int
+    pool_max_size: int
+
+
+@dataclass(frozen=True)
+class StorageSettings:
     db_path: Path
-    postgres_dsn: str
-    postgres_schema: str
-    postgres_connect_timeout_s: float
-    postgres_pool_min_size: int
-    postgres_pool_max_size: int
     redis_url: str
+    postgres: PostgresSettings
+
+
+@dataclass(frozen=True)
+class FreqtradeSettings:
+    root: Path
+    userdir: Path | None
+    config_path: Path | None
+    datadir: Path | None
+    bin: str
+    strategy_path: Path | None
+
+
+@dataclass(frozen=True)
+class MarketSettings:
     whitelist_path: Path
-    freqtrade_root: Path
-    freqtrade_userdir: Path | None
-    freqtrade_config_path: Path | None
-    freqtrade_datadir: Path | None
-    freqtrade_bin: str
-    freqtrade_strategy_path: Path | None
+    ws_catchup_limit: int
+    gap_backfill_read_limit: int
+    fresh_window_candles: int
+    stale_window_candles: int
+
+
+@dataclass(frozen=True)
+class HttpSettings:
     cors_origins: list[str]
-    market_ws_catchup_limit: int
-    market_gap_backfill_read_limit: int
-    market_fresh_window_candles: int
-    market_stale_window_candles: int
+
+
+@dataclass(frozen=True)
+class Settings:
+    storage: StorageSettings
+    freqtrade: FreqtradeSettings
+    market: MarketSettings
+    http: HttpSettings
+
+    @property
+    def db_path(self) -> Path:
+        return self.storage.db_path
+
+    @property
+    def postgres_dsn(self) -> str:
+        return self.storage.postgres.dsn
+
+    @property
+    def postgres_schema(self) -> str:
+        return self.storage.postgres.schema
+
+    @property
+    def postgres_connect_timeout_s(self) -> float:
+        return self.storage.postgres.connect_timeout_s
+
+    @property
+    def postgres_pool_min_size(self) -> int:
+        return self.storage.postgres.pool_min_size
+
+    @property
+    def postgres_pool_max_size(self) -> int:
+        return self.storage.postgres.pool_max_size
+
+    @property
+    def redis_url(self) -> str:
+        return self.storage.redis_url
+
+    @property
+    def whitelist_path(self) -> Path:
+        return self.market.whitelist_path
+
+    @property
+    def freqtrade_root(self) -> Path:
+        return self.freqtrade.root
+
+    @property
+    def freqtrade_userdir(self) -> Path | None:
+        return self.freqtrade.userdir
+
+    @property
+    def freqtrade_config_path(self) -> Path | None:
+        return self.freqtrade.config_path
+
+    @property
+    def freqtrade_datadir(self) -> Path | None:
+        return self.freqtrade.datadir
+
+    @property
+    def freqtrade_bin(self) -> str:
+        return self.freqtrade.bin
+
+    @property
+    def freqtrade_strategy_path(self) -> Path | None:
+        return self.freqtrade.strategy_path
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return list(self.http.cors_origins)
+
+    @property
+    def market_ws_catchup_limit(self) -> int:
+        return self.market.ws_catchup_limit
+
+    @property
+    def market_gap_backfill_read_limit(self) -> int:
+        return self.market.gap_backfill_read_limit
+
+    @property
+    def market_fresh_window_candles(self) -> int:
+        return self.market.fresh_window_candles
+
+    @property
+    def market_stale_window_candles(self) -> int:
+        return self.market.stale_window_candles
 
 
 def load_settings() -> Settings:
@@ -47,16 +148,11 @@ def load_settings() -> Settings:
         except ValueError:
             return max(float(minimum), float(default))
 
-    # Defaults: prefer sibling ../trade_system when present (dev convenience),
-    # otherwise fall back to in-repo user_data_test.
     sibling_trade_system = (root_dir / ".." / "trade_system").resolve()
     default_freqtrade_root = root_dir
     default_userdir: Path | None = root_dir / "user_data_test"
     default_config: Path | None = None
 
-    # If trade_system is available, prefer its project-root layout:
-    # - cwd/root is ../trade_system
-    # - userdir is implicit (default "user_data" inside cwd)
     if sibling_trade_system.exists() and (sibling_trade_system / "user_data").exists():
         default_freqtrade_root = sibling_trade_system
         default_userdir = None
@@ -88,13 +184,10 @@ def load_settings() -> Settings:
     if freqtrade_datadir is not None and not freqtrade_datadir.is_absolute():
         freqtrade_datadir = (freqtrade_root / freqtrade_datadir).resolve()
 
-    # Prefer project venv freqtrade when present to avoid PATH collisions.
     venv_freqtrade = root_dir / ".env" / "bin" / "freqtrade"
     default_freqtrade_bin = str(venv_freqtrade) if venv_freqtrade.exists() else "freqtrade"
     freqtrade_bin = os.environ.get("TRADE_CANVAS_FREQTRADE_BIN", default_freqtrade_bin)
 
-    # Optional: allow strategies to live in a project-local directory (not necessarily inside userdir).
-    # This is passed to freqtrade as `--strategy-path`.
     strategy_path_raw = os.environ.get("TRADE_CANVAS_FREQTRADE_STRATEGY_PATH", "").strip()
     if not strategy_path_raw:
         strategy_path_raw = str(root_dir / "Strategy")
@@ -104,7 +197,6 @@ def load_settings() -> Settings:
     if strategy_path.exists():
         freqtrade_strategy_path: Path | None = strategy_path
     else:
-        # Do not fail boot when the directory doesn't exist; just skip passing it.
         freqtrade_strategy_path = None
 
     cors_origins_raw = os.environ.get(
@@ -147,23 +239,31 @@ def load_settings() -> Settings:
     )
 
     return Settings(
-        db_path=db_path,
-        postgres_dsn=postgres_dsn,
-        postgres_schema=postgres_schema,
-        postgres_connect_timeout_s=float(postgres_connect_timeout_s),
-        postgres_pool_min_size=int(postgres_pool_min_size),
-        postgres_pool_max_size=int(postgres_pool_max_size),
-        redis_url=redis_url,
-        whitelist_path=whitelist_path,
-        freqtrade_root=freqtrade_root,
-        freqtrade_userdir=freqtrade_userdir,
-        freqtrade_config_path=freqtrade_config_path,
-        freqtrade_datadir=freqtrade_datadir,
-        freqtrade_bin=freqtrade_bin,
-        freqtrade_strategy_path=freqtrade_strategy_path,
-        cors_origins=cors_origins,
-        market_ws_catchup_limit=market_ws_catchup_limit,
-        market_gap_backfill_read_limit=market_gap_backfill_read_limit,
-        market_fresh_window_candles=market_fresh_window_candles,
-        market_stale_window_candles=market_stale_window_candles,
+        storage=StorageSettings(
+            db_path=db_path,
+            redis_url=redis_url,
+            postgres=PostgresSettings(
+                dsn=postgres_dsn,
+                schema=postgres_schema,
+                connect_timeout_s=float(postgres_connect_timeout_s),
+                pool_min_size=int(postgres_pool_min_size),
+                pool_max_size=int(postgres_pool_max_size),
+            ),
+        ),
+        freqtrade=FreqtradeSettings(
+            root=freqtrade_root,
+            userdir=freqtrade_userdir,
+            config_path=freqtrade_config_path,
+            datadir=freqtrade_datadir,
+            bin=freqtrade_bin,
+            strategy_path=freqtrade_strategy_path,
+        ),
+        market=MarketSettings(
+            whitelist_path=whitelist_path,
+            ws_catchup_limit=market_ws_catchup_limit,
+            gap_backfill_read_limit=market_gap_backfill_read_limit,
+            fresh_window_candles=market_fresh_window_candles,
+            stale_window_candles=market_stale_window_candles,
+        ),
+        http=HttpSettings(cors_origins=cors_origins),
     )

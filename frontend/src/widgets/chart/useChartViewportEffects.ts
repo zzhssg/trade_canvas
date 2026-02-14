@@ -103,7 +103,6 @@ export function useReplayViewportEffects(args: UseReplayViewportEffectsArgs) {
       updateReplayMask();
     };
 
-    update();
     const handler = () => update();
     timeScale.subscribeVisibleLogicalRangeChange(handler);
     return () => timeScale.unsubscribeVisibleLogicalRangeChange(handler);

@@ -1,36 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
-from ..factor.read_freshness import read_factor_slices_with_freshness
+from ..core.ports import AlignedStorePort, HeadStorePort
+from ..factor.read_freshness import FactorSlicesServicePort, read_factor_slices_with_freshness
 from ..core.schemas import GetFactorSlicesResponseV1
-
-
-class _AlignedStoreLike(Protocol):
-    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
-
-
-class _FactorStoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-
-class _FactorSlicesServiceLike(Protocol):
-    def get_slices_aligned(
-        self,
-        *,
-        series_id: str,
-        aligned_time: int | None,
-        at_time: int,
-        window_candles: int,
-    ) -> GetFactorSlicesResponseV1: ...
 
 
 @dataclass(frozen=True)
 class FactorReadService:
-    store: _AlignedStoreLike
-    factor_store: _FactorStoreLike
-    factor_slices_service: _FactorSlicesServiceLike
+    store: AlignedStorePort
+    factor_store: HeadStorePort
+    factor_slices_service: FactorSlicesServicePort
     strict_mode: bool = True
 
     def resolve_aligned_time(

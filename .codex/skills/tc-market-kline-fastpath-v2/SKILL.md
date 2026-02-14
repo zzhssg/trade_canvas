@@ -16,7 +16,7 @@ metadata:
   - `WS /ws/market`（subscribe + `candle_closed` 推送）
   - ingest（ccxt 轮询 / Binance kline WS）
   - 历史 bootstrap（freqtrade datadir → SQLite）
-- 相关实现常见落点：`backend/app/ingest_ccxt.py`、`backend/app/ingest_supervisor.py`、`backend/app/store.py`
+- 相关实现常见落点：`backend/app/market/ccxt_client.py`、`backend/app/market/history_bootstrapper.py`、`backend/app/ingest/supervisor.py`、`backend/app/storage/candle_store.py`
 
 ## 关键不变量（硬约束）
 
@@ -54,7 +54,8 @@ metadata:
 ```bash
 python3 -m pytest backend/tests/test_market_candles.py -q
 python3 -m pytest backend/tests/test_market_ws.py -q
-python3 -m pytest backend/tests/test_ingest_ccxt_loop_mapping.py -q
+python3 -m pytest backend/tests/test_ingest_ccxt_symbol.py -q
+python3 -m pytest backend/tests/test_ingest_ccxt_timeout_option.py -q
 python3 -m pytest backend/tests/test_history_bootstrapper.py -q
 python3 -m pytest backend/tests/test_e2e_user_story_market_sync.py -q
 ```

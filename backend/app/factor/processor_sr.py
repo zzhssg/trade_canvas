@@ -147,7 +147,7 @@ class SrProcessor:
             (
                 int(item.get("pivot_time") or 0),
                 str(item.get("direction") or ""),
-                int(item.get("pivot_idx")) if item.get("pivot_idx") is not None else -1,
+                self._pivot_idx(item) if self._pivot_idx(item) is not None else -1,
             )
             for item in major_pivots
         }
@@ -184,17 +184,28 @@ class SrProcessor:
             direction = str(item.get("direction") or "")
             if pivot_time <= 0 or direction not in {"support", "resistance"}:
                 continue
+            pivot_idx = self._pivot_idx(item)
             out.append(
                 {
                     "pivot_time": int(pivot_time),
                     "pivot_price": float(item.get("pivot_price") or 0.0),
                     "direction": direction,
                     "visible_time": int(visible_time),
-                    "pivot_idx": int(item.get("pivot_idx")) if item.get("pivot_idx") is not None else None,
+                    "pivot_idx": pivot_idx,
                 }
             )
         out.sort(key=lambda row: (int(row.get("visible_time") or 0), int(row.get("pivot_time") or 0)))
         return out
+
+    @staticmethod
+    def _pivot_idx(item: dict[str, Any]) -> int | None:
+        raw = item.get("pivot_idx")
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
 
     def _normalize_snapshot_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         return {

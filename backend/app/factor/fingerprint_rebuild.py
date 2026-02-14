@@ -1,23 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
+from ..core.ports import DebugHubPort
 from .store import FactorStore
 from ..storage.candle_store import CandleStore
 
-
-class _DebugHubLike(Protocol):
-    def emit(
-        self,
-        *,
-        pipe: str,
-        event: str,
-        level: str = "info",
-        message: str,
-        series_id: str | None = None,
-        data: dict | None = None,
-    ) -> None: ...
+_DebugHubLike = DebugHubPort
 
 
 @dataclass(frozen=True)

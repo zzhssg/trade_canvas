@@ -2,7 +2,7 @@
 title: Draw Delta Contract v1（统一绘图增量）
 status: done
 created: 2026-02-02
-updated: 2026-02-11
+updated: 2026-02-14
 ---
 
 # Draw Delta Contract v1（统一绘图增量）
@@ -99,10 +99,10 @@ type DrawDeltaV1 = {
 
 ## 4. 与实现对齐（2026-02-11）
 
-- 路由：`backend/app/draw_routes.py`
+- 路由：`backend/app/routes/draw.py`
 - 读服务：`backend/app/read_models/draw_read_service.py`
-- 版本存储：`backend/app/overlay_store.py`
-- 完整性检查：`backend/app/overlay_integrity_plugins.py`
+- 版本存储：`backend/app/overlay/store.py`
+- 完整性检查：`backend/app/overlay/integrity_plugins.py`
 
 关键实现语义：
 - `cursor_version_id=0` 首帧会触发完整性校验；

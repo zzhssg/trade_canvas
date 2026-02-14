@@ -74,6 +74,15 @@ class WsSubscribeCommand:
     supports_batch: bool
 
 
+@dataclass(frozen=True)
+class WsHandleSubscribeRequest:
+    series_id: str
+    since: int | None
+    supports_batch: bool
+    ondemand_enabled: bool
+    catchup_limit: int = 5000
+
+
 class CandleReadService(Protocol):
     def read_tail(self, *, series_id: str, limit: int) -> list[CandleClosed]: ...
 

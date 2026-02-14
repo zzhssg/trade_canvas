@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import re
 import time
 from contextlib import AbstractContextManager
-from pathlib import Path
 from typing import Any, Iterator
 
 from ..factor.store import (
@@ -12,8 +10,8 @@ from ..factor.store import (
     FactorEventWrite,
     FactorHeadSnapshotRow,
     FactorSeriesFingerprintRow,
-    FactorStore,
 )
+from .contracts import DbConnection
 from .postgres_factor_events import (
     get_events_between_times,
     get_events_between_times_paged,
@@ -21,22 +19,11 @@ from .postgres_factor_events import (
     json_load,
     row_get,
 )
+from .postgres_common import normalize_identifier, query_series_head_time, upsert_series_head_time
 from .postgres_pool import PostgresPool
 
 
-_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def _normalize_identifier(value: str, *, key: str) -> str:
-    candidate = str(value or "").strip()
-    if not candidate:
-        raise ValueError(f"postgres_{key}_required")
-    if _IDENTIFIER.fullmatch(candidate) is None:
-        raise ValueError(f"postgres_{key}_invalid:{candidate}")
-    return candidate
-
-
-class PostgresFactorRepository(FactorStore):
+class PostgresFactorRepository:
     _pool: PostgresPool
     _schema: str
     _series_state_table: str
@@ -45,43 +32,34 @@ class PostgresFactorRepository(FactorStore):
     _series_fingerprint_table: str
 
     def __init__(self, *, pool: PostgresPool, schema: str) -> None:
-        super().__init__(db_path=Path("backend/data/postgres_factor_store_unused.db"))
         object.__setattr__(self, "_pool", pool)
-        schema_name = _normalize_identifier(schema, key="schema")
+        schema_name = normalize_identifier(schema, key="schema")
         object.__setattr__(self, "_schema", schema_name)
         object.__setattr__(self, "_series_state_table", f"{schema_name}.factor_series_state")
         object.__setattr__(self, "_events_table", f"{schema_name}.factor_events")
         object.__setattr__(self, "_head_snapshots_table", f"{schema_name}.factor_head_snapshots")
         object.__setattr__(self, "_series_fingerprint_table", f"{schema_name}.factor_series_fingerprint")
 
-    def connect(self) -> AbstractContextManager[Any]:  # type: ignore[override]
+    def connect(self) -> AbstractContextManager[DbConnection]:
         return self._pool.connect()
 
-    def upsert_head_time_in_conn(self, conn: Any, *, series_id: str, head_time: int) -> None:  # type: ignore[override]
-        now_ms = int(time.time() * 1000)
-        conn.execute(
-            f"""
-            INSERT INTO {self._series_state_table}(series_id, head_time, updated_at_ms)
-            VALUES (%s, %s, %s)
-            ON CONFLICT(series_id) DO UPDATE SET
-              head_time=GREATEST({self._series_state_table}.head_time, EXCLUDED.head_time),
-              updated_at_ms=EXCLUDED.updated_at_ms
-            """,
-            (str(series_id), int(head_time), now_ms),
+    def upsert_head_time_in_conn(self, conn: DbConnection, *, series_id: str, head_time: int) -> None:
+        upsert_series_head_time(
+            conn,
+            series_state_table=self._series_state_table,
+            series_id=series_id,
+            head_time=head_time,
         )
 
-    def head_time(self, series_id: str) -> int | None:  # type: ignore[override]
+    def head_time(self, series_id: str) -> int | None:
         with self.connect() as conn:
-            row = conn.execute(
-                f"SELECT head_time FROM {self._series_state_table} WHERE series_id = %s",
-                (str(series_id),),
-            ).fetchone()
-        if row is None:
-            return None
-        value = row_get(row, index=0, key="head_time")
-        return None if value is None else int(value)
+            return query_series_head_time(
+                conn,
+                series_state_table=self._series_state_table,
+                series_id=series_id,
+            )
 
-    def get_series_fingerprint(self, series_id: str) -> FactorSeriesFingerprintRow | None:  # type: ignore[override]
+    def get_series_fingerprint(self, series_id: str) -> FactorSeriesFingerprintRow | None:
         with self.connect() as conn:
             row = conn.execute(
                 f"""
@@ -99,7 +77,7 @@ class PostgresFactorRepository(FactorStore):
             updated_at_ms=int(row_get(row, index=2, key="updated_at_ms")),
         )
 
-    def upsert_series_fingerprint_in_conn(self, conn: Any, *, series_id: str, fingerprint: str) -> None:  # type: ignore[override]
+    def upsert_series_fingerprint_in_conn(self, conn: DbConnection, *, series_id: str, fingerprint: str) -> None:
         now_ms = int(time.time() * 1000)
         conn.execute(
             f"""
@@ -112,13 +90,13 @@ class PostgresFactorRepository(FactorStore):
             (str(series_id), str(fingerprint), now_ms),
         )
 
-    def clear_series_in_conn(self, conn: Any, *, series_id: str) -> None:  # type: ignore[override]
+    def clear_series_in_conn(self, conn: DbConnection, *, series_id: str) -> None:
         sid = str(series_id)
         conn.execute(f"DELETE FROM {self._events_table} WHERE series_id = %s", (sid,))
         conn.execute(f"DELETE FROM {self._head_snapshots_table} WHERE series_id = %s", (sid,))
         conn.execute(f"DELETE FROM {self._series_state_table} WHERE series_id = %s", (sid,))
 
-    def last_event_id(self, series_id: str) -> int:  # type: ignore[override]
+    def last_event_id(self, series_id: str) -> int:
         with self.connect() as conn:
             row = conn.execute(
                 f"SELECT MAX(id) AS v FROM {self._events_table} WHERE series_id = %s",
@@ -129,7 +107,7 @@ class PostgresFactorRepository(FactorStore):
         value = row_get(row, index=0, key="v")
         return 0 if value is None else int(value)
 
-    def insert_events_in_conn(self, conn: Any, *, events: list[FactorEventWrite]) -> None:  # type: ignore[override]
+    def insert_events_in_conn(self, conn: DbConnection, *, events: list[FactorEventWrite]) -> None:
         if not events:
             return
         now_ms = int(time.time() * 1000)
@@ -155,13 +133,13 @@ class PostgresFactorRepository(FactorStore):
 
     def insert_head_snapshot_in_conn(
         self,
-        conn: Any,
+        conn: DbConnection,
         *,
         series_id: str,
         factor_name: str,
         candle_time: int,
         head: dict[str, Any],
-    ) -> int | None:  # type: ignore[override]
+    ) -> int | None:
         if head is None:
             return None
         row = conn.execute(
@@ -207,7 +185,7 @@ class PostgresFactorRepository(FactorStore):
         series_id: str,
         factor_name: str,
         candle_time: int,
-    ) -> FactorHeadSnapshotRow | None:  # type: ignore[override]
+    ) -> FactorHeadSnapshotRow | None:
         with self.connect() as conn:
             row = conn.execute(
                 f"""
@@ -238,7 +216,7 @@ class PostgresFactorRepository(FactorStore):
         start_candle_time: int,
         end_candle_time: int,
         limit: int = 20000,
-    ) -> list[FactorEventRow]:  # type: ignore[override]
+    ) -> list[FactorEventRow]:
         return get_events_between_times(
             connect=self.connect,
             events_table=self._events_table,
@@ -257,7 +235,7 @@ class PostgresFactorRepository(FactorStore):
         start_candle_time: int,
         end_candle_time: int,
         page_size: int = 20000,
-    ) -> list[FactorEventRow]:  # type: ignore[override]
+    ) -> list[FactorEventRow]:
         return get_events_between_times_paged(
             connect=self.connect,
             events_table=self._events_table,
@@ -276,7 +254,7 @@ class PostgresFactorRepository(FactorStore):
         start_candle_time: int,
         end_candle_time: int,
         page_size: int = 20000,
-    ) -> Iterator[FactorEventRow]:  # type: ignore[override]
+    ) -> Iterator[FactorEventRow]:
         yield from iter_events_between_times_paged(
             connect=self.connect,
             events_table=self._events_table,

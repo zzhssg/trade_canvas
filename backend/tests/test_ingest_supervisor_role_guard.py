@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.app.ingest.config import IngestRoleConfig, IngestRuntimeConfig
+from backend.app.ingest.config import IngestRoleConfig, IngestRuntimeConfig, IngestSupervisorInitConfig
 from backend.app.ingest.supervisor import IngestSupervisor, _Job
 from backend.app.storage.candle_store import CandleStore
 from backend.app.ws.hub import CandleHub
@@ -46,13 +46,15 @@ class IngestSupervisorRoleGuardTests(unittest.TestCase):
         sup = IngestSupervisor(
             store=store,
             hub=hub,
-            whitelist_series_ids=(self.series_id,),
-            whitelist_ingest_enabled=True,
-            config=IngestRuntimeConfig(
-                role=IngestRoleConfig(
-                    guard_enabled=True,
-                    ingest_role="read",
-                )
+            options=IngestSupervisorInitConfig(
+                whitelist_series_ids=(self.series_id,),
+                whitelist_ingest_enabled=True,
+                runtime=IngestRuntimeConfig(
+                    role=IngestRoleConfig(
+                        guard_enabled=True,
+                        ingest_role="read",
+                    )
+                ),
             ),
         )
 
@@ -82,12 +84,14 @@ class IngestSupervisorRoleGuardTests(unittest.TestCase):
         sup = IngestSupervisor(
             store=store,
             hub=hub,
-            whitelist_series_ids=(),
-            config=IngestRuntimeConfig(
-                role=IngestRoleConfig(
-                    guard_enabled=True,
-                    ingest_role="ingest",
-                )
+            options=IngestSupervisorInitConfig(
+                whitelist_series_ids=(),
+                runtime=IngestRuntimeConfig(
+                    role=IngestRoleConfig(
+                        guard_enabled=True,
+                        ingest_role="ingest",
+                    )
+                ),
             ),
         )
 
@@ -109,12 +113,14 @@ class IngestSupervisorRoleGuardTests(unittest.TestCase):
         sup = IngestSupervisor(
             store=store,
             hub=hub,
-            whitelist_series_ids=(),
-            config=IngestRuntimeConfig(
-                role=IngestRoleConfig(
-                    guard_enabled=False,
-                    ingest_role="read",
-                )
+            options=IngestSupervisorInitConfig(
+                whitelist_series_ids=(),
+                runtime=IngestRuntimeConfig(
+                    role=IngestRoleConfig(
+                        guard_enabled=False,
+                        ingest_role="read",
+                    )
+                ),
             ),
         )
 

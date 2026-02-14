@@ -11,6 +11,7 @@ from ..ingest.config import (
     IngestGuardrailConfig,
     IngestRoleConfig,
     IngestRuntimeConfig,
+    IngestSupervisorInitConfig,
     IngestWsConfig,
 )
 from ..ingest.supervisor import IngestSupervisor
@@ -31,6 +32,7 @@ from .runtime import MarketIngestContext, MarketReadContext
 from ..market_data import (
     DefaultMarketDataOrchestrator,
     HubWsDeliveryService,
+    StoreBackfillOptions,
     StoreBackfillService,
     StoreCandleReadService,
     StoreFreshnessService,
@@ -77,11 +79,13 @@ def build_read_context(request: ReadContextBuildRequest) -> ReadBuildResult:
             limit=limit,
             market_history_source=str(request.runtime_flags.market_history_source),
         ),
-        progress_tracker=backfill_progress,
-        enable_ccxt_backfill=bool(request.runtime_flags.enable_ccxt_backfill),
-        enable_ccxt_backfill_on_read=bool(request.runtime_flags.enable_ccxt_backfill_on_read),
-        enable_strict_closed_only=bool(request.runtime_flags.enable_strict_closed_only),
-        ccxt_timeout_ms=int(request.runtime_flags.ccxt_timeout_ms),
+        options=StoreBackfillOptions(
+            progress_tracker=backfill_progress,
+            enable_ccxt_backfill=bool(request.runtime_flags.enable_ccxt_backfill),
+            enable_ccxt_backfill_on_read=bool(request.runtime_flags.enable_ccxt_backfill_on_read),
+            enable_strict_closed_only=bool(request.runtime_flags.enable_strict_closed_only),
+            ccxt_timeout_ms=int(request.runtime_flags.ccxt_timeout_ms),
+        ),
     )
     request.hub.set_gap_backfill_handler(
         build_gap_backfill_handler(
@@ -178,11 +182,13 @@ def build_ingest_context(request: IngestContextBuildRequest) -> MarketIngestCont
     supervisor = IngestSupervisor(
         store=request.store,
         hub=request.hub,
-        whitelist_series_ids=request.whitelist_series_ids,
-        ondemand_idle_ttl_s=int(request.runtime_flags.ondemand_idle_ttl_s),
-        whitelist_ingest_enabled=bool(request.whitelist_ingest_on),
-        ingest_pipeline=pipeline,
-        config=ingest_config,
+        options=IngestSupervisorInitConfig(
+            whitelist_series_ids=request.whitelist_series_ids,
+            ondemand_idle_ttl_s=int(request.runtime_flags.ondemand_idle_ttl_s),
+            whitelist_ingest_enabled=bool(request.whitelist_ingest_on),
+            ingest_pipeline=pipeline,
+            runtime=ingest_config,
+        ),
     )
     ingest_service = MarketIngestService(
         hub=request.hub,

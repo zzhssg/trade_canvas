@@ -1,45 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
-from ..ledger.alignment import LedgerAlignedPoint, LedgerHeadTimes
 from ..core.schemas import ReplayPrepareRequestV1, ReplayPrepareResponseV1
 from ..core.ports import DebugHubPort
-
-
-class _LedgerRefreshOutcomeLike(Protocol):
-    @property
-    def refreshed(self) -> bool: ...
-
-
-class _LedgerSyncLike(Protocol):
-    def resolve_aligned_point(
-        self,
-        *,
-        series_id: str,
-        to_time: int | None,
-        no_data_code: str,
-        no_data_detail: str = "no_data",
-    ) -> LedgerAlignedPoint: ...
-
-    def refresh_if_needed(self, *, series_id: str, up_to_time: int) -> _LedgerRefreshOutcomeLike: ...
-
-    def require_heads_ready(
-        self,
-        *,
-        series_id: str,
-        aligned_time: int,
-        factor_out_of_sync_code: str,
-        overlay_out_of_sync_code: str,
-        factor_out_of_sync_detail: str = "ledger_out_of_sync:factor",
-        overlay_out_of_sync_detail: str = "ledger_out_of_sync:overlay",
-    ) -> LedgerHeadTimes: ...
+from ..ledger.ports import LedgerSyncPreparePort
 
 
 @dataclass(frozen=True)
 class ReplayPrepareService:
-    ledger_sync_service: _LedgerSyncLike
+    ledger_sync_service: LedgerSyncPreparePort
     debug_hub: DebugHubPort
     debug_api_enabled: bool = False
 

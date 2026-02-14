@@ -10,9 +10,11 @@ from backend.app.market_data import (
     BackfillGapRequest,
     CatchupReadRequest,
     DefaultMarketDataOrchestrator,
+    StoreBackfillOptions,
     StoreBackfillService,
     StoreCandleReadService,
     StoreFreshnessService,
+    WsHandleSubscribeRequest,
     WsMessageParser,
     WsSubscriptionCoordinator,
     WsSubscribeRequest,
@@ -267,7 +269,7 @@ def test_store_backfill_service_falls_back_to_ccxt_for_missing_window(monkeypatc
         svc = StoreBackfillService(
             store=store,
             tail_backfill_fn=fake_tail_backfill,
-            enable_ccxt_backfill=True,
+            options=StoreBackfillOptions(enable_ccxt_backfill=True),
         )
         covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=3600)
         assert covered == 2
@@ -315,8 +317,10 @@ def test_store_backfill_service_to_time_none_uses_now_window_for_stale_series(mo
         svc = StoreBackfillService(
             store=store,
             tail_backfill_fn=fake_tail_backfill,
-            enable_ccxt_backfill=True,
-            enable_ccxt_backfill_on_read=True,
+            options=StoreBackfillOptions(
+                enable_ccxt_backfill=True,
+                enable_ccxt_backfill_on_read=True,
+            ),
         )
         covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=None)
         assert covered == 2
@@ -358,7 +362,7 @@ def test_store_backfill_service_to_time_none_skips_ccxt_by_default(monkeypatch) 
         svc = StoreBackfillService(
             store=store,
             tail_backfill_fn=fake_tail_backfill,
-            enable_ccxt_backfill=True,
+            options=StoreBackfillOptions(enable_ccxt_backfill=True),
         )
         covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=None)
         assert covered == 1
@@ -406,9 +410,11 @@ def test_store_backfill_service_to_time_none_strict_closed_only_caps_at_previous
         svc = StoreBackfillService(
             store=store,
             tail_backfill_fn=fake_tail_backfill,
-            enable_ccxt_backfill=True,
-            enable_ccxt_backfill_on_read=True,
-            enable_strict_closed_only=True,
+            options=StoreBackfillOptions(
+                enable_ccxt_backfill=True,
+                enable_ccxt_backfill_on_read=True,
+                enable_strict_closed_only=True,
+            ),
         )
         covered = svc.ensure_tail_coverage(series_id=series_id, target_candles=2, to_time=None)
         assert covered == 2
@@ -657,10 +663,12 @@ def test_ws_subscription_coordinator_handles_capacity_and_calls_hub() -> None:
     err_flow, payloads = asyncio.run(
         svc.handle_subscribe(
             ws=ws,
-            series_id="binance:futures:BTC/USDT:1m",
-            since=100,
-            supports_batch=False,
-            ondemand_enabled=False,
+            request=WsHandleSubscribeRequest(
+                series_id="binance:futures:BTC/USDT:1m",
+                since=100,
+                supports_batch=False,
+                ondemand_enabled=False,
+            ),
             market_data=cast(Any, _MarketData()),
             derived_initial_backfill=_noop_backfill,
         )

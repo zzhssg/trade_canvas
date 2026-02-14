@@ -1,25 +1,13 @@
 from __future__ import annotations
 
-import re
 from typing import Sequence
 
 from .postgres_pool import PostgresPool
-
-
-_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def _normalize_identifier(value: str, *, key: str) -> str:
-    candidate = str(value or "").strip()
-    if not candidate:
-        raise ValueError(f"postgres_{key}_required")
-    if _IDENTIFIER.fullmatch(candidate) is None:
-        raise ValueError(f"postgres_{key}_invalid:{candidate}")
-    return candidate
+from .postgres_common import normalize_identifier
 
 
 def build_postgres_bootstrap_sql(*, schema: str, enable_timescale: bool) -> tuple[str, ...]:
-    schema_name = _normalize_identifier(schema, key="schema")
+    schema_name = normalize_identifier(schema, key="schema")
     candles_table = f"{schema_name}.candles"
     factor_series_state_table = f"{schema_name}.factor_series_state"
     factor_events_table = f"{schema_name}.factor_events"

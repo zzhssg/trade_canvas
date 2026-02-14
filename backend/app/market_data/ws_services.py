@@ -13,7 +13,7 @@ from ..ws.protocol import (
     WS_ERR_CAPACITY,
     WS_ERR_MSG_ONDEMAND_CAPACITY,
 )
-from .contracts import MarketDataOrchestrator, WsSubscribeRequest
+from .contracts import MarketDataOrchestrator, WsHandleSubscribeRequest, WsSubscribeRequest
 from .ws_message_parser import WsMessageParser, build_ws_error_payload
 
 logger = logging.getLogger(__name__)
@@ -143,21 +143,22 @@ class WsSubscriptionCoordinator:
         self,
         *,
         ws: WebSocket,
-        series_id: str,
-        since: int | None,
-        supports_batch: bool,
-        ondemand_enabled: bool,
+        request: WsHandleSubscribeRequest,
         market_data: MarketDataOrchestrator,
         derived_initial_backfill: Callable[..., Awaitable[None]],
-        catchup_limit: int = 5000,
     ) -> tuple[dict | None, list[dict]]:
+        series_id = str(request.series_id)
+        since = request.since
+        supports_batch = bool(request.supports_batch)
+        ondemand_enabled = bool(request.ondemand_enabled)
+        catchup_limit = int(request.catchup_limit)
         started_at = time.perf_counter()
         await derived_initial_backfill(series_id=series_id)
         err_payload = await self.subscribe(
             ws=ws,
             series_id=series_id,
             since=since,
-            supports_batch=bool(supports_batch),
+            supports_batch=supports_batch,
             ondemand_enabled=ondemand_enabled,
         )
         if err_payload is not None:
@@ -175,7 +176,7 @@ class WsSubscriptionCoordinator:
             WsSubscribeRequest(
                 series_id=series_id,
                 since=since,
-                supports_batch=bool(supports_batch),
+                supports_batch=supports_batch,
                 limit=int(catchup_limit),
                 get_last_sent=lambda: self._hub.get_last_sent(ws, series_id=series_id),
             )

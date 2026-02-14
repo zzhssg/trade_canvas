@@ -2,7 +2,7 @@
 title: 市场 K 线同步（当前实现）
 status: done
 created: 2026-02-02
-updated: 2026-02-11
+updated: 2026-02-14
 ---
 
 # 市场 K 线同步（当前实现）
@@ -40,12 +40,12 @@ updated: 2026-02-11
 
 ### 2.1 市场运行时装配
 
-- `backend/app/market_runtime_builder.py`
-- `backend/app/market_runtime.py`
+- `backend/app/market/runtime_builder.py`
+- `backend/app/market/runtime.py`
 
 职责：
 - 组装 reader/backfill/ws/coordinator/supervisor。
-- 绑定 `FeatureFlags + RuntimeFlags`。
+- 绑定 `RuntimeFlags`（功能开关与运行参数统一收口）。
 - 输出 `MarketRuntime` 给 HTTP/WS 路由复用。
 
 ### 2.2 市场数据子模块
@@ -59,8 +59,8 @@ updated: 2026-02-11
 
 ### 2.3 路由层
 
-- HTTP：`backend/app/market_http_routes.py`、`backend/app/market_meta_routes.py`
-- WS：`backend/app/market_ws_routes.py`
+- HTTP：`backend/app/market/http_routes.py`、`backend/app/market/meta_routes.py`
+- WS：`backend/app/market/ws_routes.py`
 
 职责：
 - 做协议输入输出与参数校验。
@@ -133,14 +133,14 @@ sequenceDiagram
 
 ### 5.1 白名单模式
 
-开关：`FeatureFlags.enable_whitelist_ingest`
+开关：`RuntimeFlags.enable_whitelist_ingest`
 
 - 启动时常驻 ingest 白名单序列。
 - 无需前端订阅即可持续推进。
 
 ### 5.2 按需模式
 
-开关：`FeatureFlags.enable_ondemand_ingest`
+开关：`RuntimeFlags.enable_ondemand_ingest`
 
 - 首个订阅触发启动任务。
 - refcount 归零后按 `ondemand_idle_ttl_s` 回收。
@@ -174,17 +174,20 @@ sequenceDiagram
 
 ## 7. 配置真源（当前口径）
 
-### 7.1 FeatureFlags（`flags.py`）
+### 7.1 Env 解析工具（`backend/app/core/flags.py`）
 
-- `enable_debug_api`
-- `enable_whitelist_ingest`
-- `enable_ondemand_ingest`
-- `enable_market_auto_tail_backfill`
-- `market_auto_tail_backfill_max_candles`
-- `ondemand_idle_ttl_s`
+- `env_bool` / `env_int` / `resolve_env_float` / `resolve_env_str`
+- 仅负责解析环境变量，不承载业务语义
 
-### 7.2 RuntimeFlags（`runtime_flags.py`）
+### 7.2 RuntimeFlags（`backend/app/runtime/flags.py`）
 
+- 常用开关：
+  - `enable_debug_api`
+  - `enable_whitelist_ingest`
+  - `enable_ondemand_ingest`
+  - `enable_market_auto_tail_backfill`
+  - `market_auto_tail_backfill_max_candles`
+  - `ondemand_idle_ttl_s`
 - 回补与历史源：
   - `enable_market_gap_backfill`
   - `market_gap_backfill_freqtrade_limit`
@@ -218,17 +221,17 @@ sequenceDiagram
 
 ### 8.2 排障入口
 
-1. `backend/app/market_ws_routes.py`
+1. `backend/app/market/ws_routes.py`
 2. `backend/app/market_data/ws_services.py`
-3. `backend/app/ingest_supervisor.py`
-4. `backend/app/ingest_binance_ws.py`
+3. `backend/app/ingest/supervisor.py`
+4. `backend/app/ingest/binance_ws.py`
 5. `backend/app/pipelines/ingest_pipeline.py`
-6. `backend/app/runtime_flags.py`
+6. `backend/app/runtime/flags.py`
 
 ---
 
 ## 9. 已废弃认知
 
-- 不再使用 `market_flags.py` 作为配置入口。
+- 不再使用 `market_flags.py` 或独立 `FeatureFlags` 模块作为配置入口。
 - 不再在 `main.py` 内联市场业务逻辑。
 - 不再维护“阶段迁移日志式”文档作为实现真源。

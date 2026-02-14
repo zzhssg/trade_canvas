@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from backend.app.ingest.config import IngestSupervisorInitConfig
 from backend.app.ingest.supervisor import IngestSupervisor, _Job
 from backend.app.storage.candle_store import CandleStore
 from backend.app.ws.hub import CandleHub
@@ -27,8 +28,10 @@ class IngestSupervisorWhitelistFallbackTests(unittest.TestCase):
         return IngestSupervisor(
             store=store,
             hub=hub,
-            whitelist_series_ids=(self.series_id,),
-            whitelist_ingest_enabled=whitelist_ingest_enabled,
+            options=IngestSupervisorInitConfig(
+                whitelist_series_ids=(self.series_id,),
+                whitelist_ingest_enabled=whitelist_ingest_enabled,
+            ),
         )
 
     @staticmethod

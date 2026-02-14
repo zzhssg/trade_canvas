@@ -21,14 +21,10 @@ export function computeFibLevelPrices(params: {
   const priceB = Number(params.priceB);
   if (!Number.isFinite(priceA) || !Number.isFinite(priceB)) return [];
 
-  const top = Math.max(priceA, priceB);
-  const bottom = Math.min(priceA, priceB);
-  const span = top - bottom;
-
   const levels = normalizeFibLevels(params.levels);
   return levels.map((ratio) => ({
     ratio,
-    price: top - span * ratio
+    price: priceB + (priceA - priceB) * ratio
   }));
 }
 
@@ -41,4 +37,3 @@ export function pairFibLevels<T extends { ratio: number }>(levels: T[]): Array<{
   }
   return out;
 }
-

@@ -10,18 +10,33 @@
 
 这些 skills 随仓库一起走（对其它机器最可复现）：
 
-- `验收`：一句话验收 worktree（纯 git review + merge main + 删除 worktree；不依赖 dev panel）
+- `验收`：一句话收尾当前 worktree（review + merge main + 删除 worktree）；全生命周期管理请用 `tc-worktree-lifecycle`
 - `tc-acceptance-e2e`：最终验收（宣称 done/已上线 前必须跑通 `scripts/e2e_acceptance.sh` 并交付证据）
 - `tc-agent-browser`：浏览器自动化（`agent-browser`；用于截图/流程复现/证据）
 - `tc-debug`：调试流程（可复现→定位→根因→最小修复→回归保护；优先“定义错误不存在”）
-- `tc-e2e-gate`：E2E 用户故事门禁（规划阶段必须给完整 E2E 用户故事；开发结束必须验证通过并给证据；强制 Post-Dev Review 与“交付三问”；API 变更必须同步维护 `docs/core/api/v1/` 并通过 `doc_audit`）
+- `tc-e2e-gate`：开发过程 E2E 用户故事门禁（plan→开发→验证链路）；最终上线证据请配合 `tc-acceptance-e2e`
 - `tc-fupan`：复盘（每次必输出 3 个主题；必要时同步 `docs/core/`）
 - `tc-knowledge-storytelling`：知识写作（用白话叙事拆解硬核系统知识，保留逻辑链与术语锚点）
+- `tc-learning-loop`：交付后学习闭环（提炼原子经验卡 + 置信度，稳定后升级为 skill）
 - `tc-market-kline-fastpath-v2`：市场 K 线 Fastpath v2（保持 HTTP/WS 契约稳定，可回滚可验收）
 - `tc-planning`：任务拆解与计划（每步可验收/可回滚；强制 A/B 方案取舍、新增文件理由卡、复杂度预算卡；大改动落盘 `docs/plan/`）
-- `tc-skill-authoring`：本项目 skill 编写指南（新增/修改 skills，并与文档索引联动）
-- `tc-verify`：统一质量门禁（禁兼容层/禁遗留双轨/禁临时债，交付前强制跑 `bash scripts/quality_gate.sh`）
-- `tc-worktree-lifecycle`：Worktree 生命周期管理（创建→开发→验收→删除门禁，配合 `/dev` 与 `.worktree-meta/`）
+- `tc-context-compact`：上下文治理（战略 compact、切会话前快照、恢复契约）
+- `tc-subagent-orchestration`：子 session 编排（fan-out 执行、回调日志、统一汇总报告）
+- `tc-skill-authoring`：本项目 skill 编写指南（新增/修改 skills，并与文档索引、`doc-status` 约定联动）
+- `tc-verify`：统一质量门禁（禁兼容层/禁遗留双轨/禁临时债）；`Doc Impact/交付三问` 以 `AGENTS.md` DoD 为真源
+- `tc-worktree-lifecycle`：Worktree 生命周期管理（创建→开发→验收→删除）；分支命名统一 `codex/<topic>`
+
+### 1.1 冲突裁决顺序（推荐）
+
+当一次任务同时命中多个 skills，默认按下列顺序串联：
+
+`tc-planning` → `tc-e2e-gate` → `tc-verify` → `tc-acceptance-e2e` → `验收`
+
+边界提示：
+- `tc-e2e-gate` 负责开发过程门禁；
+- `tc-acceptance-e2e` 负责最终交付证据；
+- `验收` 负责 worktree 收尾（其底层脚本可由 `tc-worktree-lifecycle` 调用）。
+- 需要并行拆分子任务时，可在 `tc-planning` 后插入 `tc-subagent-orchestration`。
 
 ### 2) 全局 skills（真源：`$CODEX_HOME/skills/`，可能因机器而异）
 
@@ -45,12 +60,6 @@
 - `brainstorming`（来源：`obra/superpowers`）
   - 用途：产品方向、需求澄清、方案取舍阶段的结构化发散与收敛。
   - 触发建议：仅用于规划/创意探索；不替代本仓“三阶段工作流”和门禁要求。
-
-### 3) 文档中提到但当前未落盘（planned / 待补）
-
-以下条目若在协作中需要用到，建议尽快补齐到 `.codex/skills/` 或从全局 skills 引入：
-
-- `tc-docs`
 
 ## 真源位置
 

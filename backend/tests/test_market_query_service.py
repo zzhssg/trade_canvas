@@ -148,6 +148,35 @@ class MarketQueryServiceTests(unittest.TestCase):
         self.assertEqual(events, ["read.http.market_candles"])
         self.assertNotIn("read.http.market_candles_ledger_warmup", events)
 
+    def test_ensure_tail_coverage_is_debounced_per_series(self) -> None:
+        market_data = _MarketDataStub(candles=[], head_time=None)
+        backfill = _BackfillStub()
+        flags = _RuntimeFlagsStub(
+            enable_market_auto_tail_backfill=True,
+            market_auto_tail_backfill_max_candles=None,
+            enable_debug_api=False,
+        )
+        debug_hub = _DebugHubStub()
+        service = MarketQueryService(
+            market_data=market_data,
+            backfill=backfill,
+            runtime_flags=flags,
+            debug_hub=debug_hub,
+            backfill_cooldown_seconds=60.0,
+        )
+
+        service.ensure_tail_coverage(series_id="binance:futures:BTC/USDT:1m", limit=2000)
+        service.ensure_tail_coverage(series_id="binance:futures:BTC/USDT:1m", limit=2000)
+        service.ensure_tail_coverage(series_id="binance:futures:ETH/USDT:1m", limit=2000)
+
+        self.assertEqual(
+            backfill.calls,
+            [
+                ("binance:futures:BTC/USDT:1m", 2000, None),
+                ("binance:futures:ETH/USDT:1m", 2000, None),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

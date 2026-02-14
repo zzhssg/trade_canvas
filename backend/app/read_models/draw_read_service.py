@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
-from ..overlay.store import OverlayInstructionVersionRow
-from ..core.schemas import DrawCursorV1, DrawDeltaV1, GetFactorSlicesResponseV1
+from ..core.ports import AlignedStorePort, DebugHubPort
+from ..core.schemas import DrawCursorV1, DrawDeltaV1
 from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
+from .ports import FactorReadServicePort, OverlayOrchestratorReadPort, OverlayStoreReadPort
 from .draw_delta_steps import (
     DrawDeltaDebugEmitRequest,
     assert_overlay_head_covers,
@@ -18,69 +18,15 @@ from .draw_delta_steps import (
 )
 
 
-class _StoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
-
-
-class _OverlayStoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-    def get_latest_defs_up_to_time(self, *, series_id: str, up_to_time: int) -> list[OverlayInstructionVersionRow]: ...
-
-    def get_patch_after_version(
-        self,
-        *,
-        series_id: str,
-        after_version_id: int,
-        up_to_time: int,
-        limit: int = 50000,
-    ) -> list[OverlayInstructionVersionRow]: ...
-
-    def last_version_id(self, series_id: str) -> int: ...
-
-
-class _OverlayOrchestratorLike(Protocol):
-    def reset_series(self, *, series_id: str) -> None: ...
-
-    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None: ...
-
-
-class _FactorReadServiceLike(Protocol):
-    @property
-    def strict_mode(self) -> bool: ...
-
-    def read_slices(
-        self,
-        *,
-        series_id: str,
-        at_time: int,
-        window_candles: int,
-        aligned_time: int | None = None,
-        ensure_fresh: bool = True,
-    ) -> GetFactorSlicesResponseV1: ...
-
-
-class _DebugHubLike(Protocol):
-    def emit(
-        self,
-        *,
-        pipe: str,
-        event: str,
-        level: str = "info",
-        message: str,
-        series_id: str | None = None,
-        data: dict | None = None,
-    ) -> None: ...
+_DebugHubLike = DebugHubPort
 
 
 @dataclass(frozen=True)
 class DrawReadService:
-    store: _StoreLike
-    overlay_store: _OverlayStoreLike
-    overlay_orchestrator: _OverlayOrchestratorLike
-    factor_read_service: _FactorReadServiceLike
+    store: AlignedStorePort
+    overlay_store: OverlayStoreReadPort
+    overlay_orchestrator: OverlayOrchestratorReadPort
+    factor_read_service: FactorReadServicePort
     debug_hub: _DebugHubLike
     debug_api_enabled: bool = False
 

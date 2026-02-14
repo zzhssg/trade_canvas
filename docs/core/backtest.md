@@ -2,7 +2,7 @@
 title: Backtest 架构与契约
 status: done
 created: 2026-02-02
-updated: 2026-02-11
+updated: 2026-02-14
 ---
 
 # Backtest 架构与契约
@@ -13,17 +13,17 @@ updated: 2026-02-11
 
 ## 1. 当前后端分层
 
-- 路由：`backend/app/backtest_routes.py`
+- 路由：`backend/app/backtest/routes.py`
   - 暴露 HTTP API，不承载业务细节。
-- 服务：`backend/app/backtest_service.py`
+- 服务：`backend/app/backtest/service.py`
   - 负责参数校验、数据可用性检查、freqtrade 调用编排。
 - 运行时执行：
-  - `backend/app/backtest_runtime.py`
-  - `backend/app/freqtrade_runner.py`
-  - `backend/app/freqtrade_config.py`
-  - `backend/app/freqtrade_data.py`
+  - `backend/app/backtest/runtime.py`
+  - `backend/app/freqtrade/runner.py`
+  - `backend/app/freqtrade/config.py`
+  - `backend/app/freqtrade/data.py`
 
-DI 装配入口：`backend/app/container.py`。
+DI 装配入口：`backend/app/bootstrap/container.py`。
 
 ---
 
@@ -77,7 +77,7 @@ DI 装配入口：`backend/app/container.py`。
 
 ## 3. 配置与开关
 
-### 3.1 Settings（`config.py`）
+### 3.1 Settings（`backend/app/core/config.py`）
 
 - `TRADE_CANVAS_FREQTRADE_ROOT`
 - `TRADE_CANVAS_FREQTRADE_CONFIG`
@@ -85,7 +85,7 @@ DI 装配入口：`backend/app/container.py`。
 - `TRADE_CANVAS_FREQTRADE_BIN`
 - `TRADE_CANVAS_FREQTRADE_STRATEGY_PATH`
 
-### 3.2 RuntimeFlags（`runtime_flags.py`）
+### 3.2 RuntimeFlags（`backend/app/runtime/flags.py`）
 
 - `TRADE_CANVAS_BACKTEST_REQUIRE_TRADES`
 - `TRADE_CANVAS_FREQTRADE_MOCK`
@@ -107,7 +107,7 @@ DI 装配入口：`backend/app/container.py`。
 
 ## 5. 与因子主链路的关系
 
-- `freqtrade_adapter_v1.py` 负责将因子 ledger 映射到 `tc_*` 信号列。
+- `backend/app/freqtrade/adapter_v1.py` 负责将因子 ledger 映射到 `tc_*` 信号列。
 - backtest API 本身不直接实现因子逻辑，只消费 adapter 输出。
 - factor 配置变更应通过 runtime flags/契约同步，避免回测口径漂移。
 

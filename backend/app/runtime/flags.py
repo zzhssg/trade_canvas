@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 
 from ..market.derived_timeframes import DEFAULT_DERIVED_TIMEFRAMES, normalize_derived_timeframes
 from ..core.flags import env_bool, env_int, resolve_env_float, resolve_env_str
+from .flags_models import (
+    RuntimeApiFlags,
+    RuntimeDerivedFlags,
+    RuntimeExecutionFlags,
+    RuntimeFactorFlags,
+    RuntimeFlags,
+    RuntimeIngestFlags,
+    RuntimeMarketFlags,
+    RuntimeOverlayFlags,
+    RuntimeReplayFlags,
+    RuntimeScaleoutFlags,
+)
 
 
 def _env_csv(name: str, *, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -21,65 +32,6 @@ def _normalize_ingest_role(raw: str) -> str:
     return "hybrid"
 
 
-@dataclass(frozen=True)
-class RuntimeFlags:
-    enable_debug_api: bool
-    enable_dev_api: bool
-    enable_runtime_metrics: bool
-    enable_capacity_metrics: bool
-    enable_read_ledger_warmup: bool
-    enable_pg_store: bool
-    enable_pg_only: bool
-    enable_ws_pubsub: bool
-    enable_ingest_role_guard: bool
-    ingest_role: str
-    enable_factor_ingest: bool
-    enable_factor_fingerprint_rebuild: bool
-    factor_pivot_window_major: int
-    factor_pivot_window_minor: int
-    factor_lookback_candles: int
-    factor_state_rebuild_event_limit: int
-    factor_rebuild_keep_candles: int
-    factor_logic_version_override: str
-    enable_overlay_ingest: bool
-    overlay_window_candles: int
-    enable_ingest_compensate_overlay_error: bool
-    enable_ingest_compensate_new_candles: bool
-    enable_market_auto_tail_backfill: bool
-    enable_strict_closed_only: bool
-    market_auto_tail_backfill_max_candles: int | None
-    enable_market_backfill_progress_persistence: bool
-    enable_market_gap_backfill: bool
-    market_gap_backfill_freqtrade_limit: int
-    enable_startup_kline_sync: bool
-    startup_kline_sync_target_candles: int
-    ccxt_timeout_ms: int
-    blocking_workers: int
-    enable_ccxt_backfill: bool
-    enable_ccxt_backfill_on_read: bool
-    ondemand_max_jobs: int
-    enable_kline_health_v2: bool
-    enable_read_repair_api: bool
-    kline_health_backfill_recent_seconds: int
-    backtest_require_trades: bool
-    freqtrade_mock_enabled: bool
-    enable_replay_v1: bool
-    enable_replay_ensure_coverage: bool
-    enable_replay_package: bool
-    market_history_source: str
-    enable_derived_timeframes: bool
-    derived_base_timeframe: str
-    derived_timeframes: tuple[str, ...]
-    derived_backfill_base_candles: int
-    binance_ws_batch_max: int
-    binance_ws_flush_s: float
-    market_forming_min_interval_ms: int
-    enable_ingest_loop_guardrail: bool
-    enable_whitelist_ingest: bool
-    enable_ondemand_ingest: bool
-    ondemand_idle_ttl_s: int
-
-
 def load_runtime_flags() -> RuntimeFlags:
     enable_market_auto_tail_backfill = env_bool("TRADE_CANVAS_ENABLE_MARKET_AUTO_TAIL_BACKFILL")
     max_candles_raw = (os.environ.get("TRADE_CANVAS_MARKET_AUTO_TAIL_BACKFILL_MAX_CANDLES") or "").strip()
@@ -91,7 +43,8 @@ def load_runtime_flags() -> RuntimeFlags:
                 max_candles = parsed
         except ValueError:
             max_candles = None
-    return RuntimeFlags(
+
+    api = RuntimeApiFlags(
         enable_debug_api=env_bool("TRADE_CANVAS_ENABLE_DEBUG_API"),
         enable_dev_api=env_bool("TRADE_CANVAS_ENABLE_DEV_API", default=False),
         enable_runtime_metrics=env_bool("TRADE_CANVAS_ENABLE_RUNTIME_METRICS", default=False),
@@ -100,47 +53,89 @@ def load_runtime_flags() -> RuntimeFlags:
             "TRADE_CANVAS_ENABLE_READ_LEDGER_WARMUP",
             default=enable_market_auto_tail_backfill,
         ),
+        enable_kline_health_v2=env_bool("TRADE_CANVAS_ENABLE_KLINE_HEALTH_V2"),
+        enable_read_repair_api=env_bool("TRADE_CANVAS_ENABLE_READ_REPAIR_API"),
+        kline_health_backfill_recent_seconds=env_int(
+            "TRADE_CANVAS_KLINE_HEALTH_BACKFILL_RECENT_SECONDS",
+            default=120,
+            minimum=5,
+        ),
+    )
+
+    scaleout = RuntimeScaleoutFlags(
         enable_pg_store=env_bool("TRADE_CANVAS_ENABLE_PG_STORE", default=False),
         enable_pg_only=env_bool("TRADE_CANVAS_ENABLE_PG_ONLY", default=False),
         enable_ws_pubsub=env_bool("TRADE_CANVAS_ENABLE_WS_PUBSUB", default=False),
-        enable_ingest_role_guard=env_bool("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", default=False),
-        ingest_role=_normalize_ingest_role(resolve_env_str("TRADE_CANVAS_INGEST_ROLE", fallback="hybrid")),
+    )
+
+    factor = RuntimeFactorFlags(
         enable_factor_ingest=env_bool("TRADE_CANVAS_ENABLE_FACTOR_INGEST", default=True),
         enable_factor_fingerprint_rebuild=env_bool("TRADE_CANVAS_ENABLE_FACTOR_FINGERPRINT_REBUILD", default=True),
-        factor_pivot_window_major=env_int(
+        pivot_window_major=env_int(
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             default=50,
             minimum=1,
         ),
-        factor_pivot_window_minor=env_int(
+        pivot_window_minor=env_int(
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             default=5,
             minimum=1,
         ),
-        factor_lookback_candles=env_int(
+        lookback_candles=env_int(
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
             default=20000,
             minimum=100,
         ),
-        factor_state_rebuild_event_limit=env_int(
+        state_rebuild_event_limit=env_int(
             "TRADE_CANVAS_FACTOR_STATE_REBUILD_EVENT_LIMIT",
             default=50000,
             minimum=1000,
         ),
-        factor_rebuild_keep_candles=env_int(
+        rebuild_keep_candles=env_int(
             "TRADE_CANVAS_FACTOR_REBUILD_KEEP_CANDLES",
             default=2000,
             minimum=100,
         ),
-        factor_logic_version_override=resolve_env_str("TRADE_CANVAS_FACTOR_LOGIC_VERSION"),
+        logic_version_override=resolve_env_str("TRADE_CANVAS_FACTOR_LOGIC_VERSION"),
+    )
+
+    overlay = RuntimeOverlayFlags(
         enable_overlay_ingest=env_bool("TRADE_CANVAS_ENABLE_OVERLAY_INGEST", default=True),
-        overlay_window_candles=env_int(
+        window_candles=env_int(
             "TRADE_CANVAS_OVERLAY_WINDOW_CANDLES",
             default=2000,
             minimum=100,
         ),
+    )
+
+    ingest = RuntimeIngestFlags(
+        enable_ingest_role_guard=env_bool("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", default=False),
+        ingest_role=_normalize_ingest_role(resolve_env_str("TRADE_CANVAS_INGEST_ROLE", fallback="hybrid")),
         enable_ingest_compensate_overlay_error=env_bool("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_OVERLAY_ERROR"),
         enable_ingest_compensate_new_candles=env_bool("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES"),
+        enable_ingest_loop_guardrail=env_bool("TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL", default=False),
+        enable_whitelist_ingest=env_bool("TRADE_CANVAS_ENABLE_WHITELIST_INGEST"),
+        enable_ondemand_ingest=env_bool("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST"),
+        ondemand_idle_ttl_s=env_int("TRADE_CANVAS_ONDEMAND_IDLE_TTL_S", default=60, minimum=1),
+        ondemand_max_jobs=env_int("TRADE_CANVAS_ONDEMAND_MAX_JOBS", default=0, minimum=0),
+        binance_ws_batch_max=env_int(
+            "TRADE_CANVAS_BINANCE_WS_BATCH_MAX",
+            default=200,
+            minimum=1,
+        ),
+        binance_ws_flush_s=resolve_env_float(
+            "TRADE_CANVAS_BINANCE_WS_FLUSH_S",
+            fallback=0.5,
+            minimum=0.05,
+        ),
+        market_forming_min_interval_ms=env_int(
+            "TRADE_CANVAS_MARKET_FORMING_MIN_INTERVAL_MS",
+            default=250,
+            minimum=0,
+        ),
+    )
+
+    market = RuntimeMarketFlags(
         enable_market_auto_tail_backfill=enable_market_auto_tail_backfill,
         enable_strict_closed_only=env_bool("TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY", default=False),
         market_auto_tail_backfill_max_candles=max_candles,
@@ -165,30 +160,15 @@ def load_runtime_flags() -> RuntimeFlags:
             default=10_000,
             minimum=1000,
         ),
-        blocking_workers=env_int(
-            "TRADE_CANVAS_BLOCKING_WORKERS",
-            default=8,
-            minimum=1,
-        ),
         enable_ccxt_backfill=env_bool("TRADE_CANVAS_ENABLE_CCXT_BACKFILL"),
         enable_ccxt_backfill_on_read=env_bool(
             "TRADE_CANVAS_ENABLE_CCXT_BACKFILL_ON_READ",
             default=enable_market_auto_tail_backfill,
         ),
-        ondemand_max_jobs=env_int("TRADE_CANVAS_ONDEMAND_MAX_JOBS", default=0, minimum=0),
-        enable_kline_health_v2=env_bool("TRADE_CANVAS_ENABLE_KLINE_HEALTH_V2"),
-        enable_read_repair_api=env_bool("TRADE_CANVAS_ENABLE_READ_REPAIR_API"),
-        kline_health_backfill_recent_seconds=env_int(
-            "TRADE_CANVAS_KLINE_HEALTH_BACKFILL_RECENT_SECONDS",
-            default=120,
-            minimum=5,
-        ),
-        backtest_require_trades=env_bool("TRADE_CANVAS_BACKTEST_REQUIRE_TRADES"),
-        freqtrade_mock_enabled=env_bool("TRADE_CANVAS_FREQTRADE_MOCK"),
-        enable_replay_v1=env_bool("TRADE_CANVAS_ENABLE_REPLAY_V1"),
-        enable_replay_ensure_coverage=env_bool("TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE"),
-        enable_replay_package=env_bool("TRADE_CANVAS_ENABLE_REPLAY_PACKAGE"),
         market_history_source=resolve_env_str("TRADE_CANVAS_MARKET_HISTORY_SOURCE", fallback="").lower(),
+    )
+
+    derived = RuntimeDerivedFlags(
         enable_derived_timeframes=env_bool("TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES"),
         derived_base_timeframe=resolve_env_str("TRADE_CANVAS_DERIVED_BASE_TIMEFRAME", fallback="1m") or "1m",
         derived_timeframes=_env_csv(
@@ -200,23 +180,47 @@ def load_runtime_flags() -> RuntimeFlags:
             default=2000,
             minimum=100,
         ),
-        binance_ws_batch_max=env_int(
-            "TRADE_CANVAS_BINANCE_WS_BATCH_MAX",
-            default=200,
+    )
+
+    replay = RuntimeReplayFlags(
+        enable_replay_v1=env_bool("TRADE_CANVAS_ENABLE_REPLAY_V1"),
+        enable_replay_ensure_coverage=env_bool("TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE"),
+        enable_replay_package=env_bool("TRADE_CANVAS_ENABLE_REPLAY_PACKAGE"),
+    )
+
+    execution = RuntimeExecutionFlags(
+        blocking_workers=env_int(
+            "TRADE_CANVAS_BLOCKING_WORKERS",
+            default=8,
             minimum=1,
         ),
-        binance_ws_flush_s=resolve_env_float(
-            "TRADE_CANVAS_BINANCE_WS_FLUSH_S",
-            fallback=0.5,
-            minimum=0.05,
-        ),
-        market_forming_min_interval_ms=env_int(
-            "TRADE_CANVAS_MARKET_FORMING_MIN_INTERVAL_MS",
-            default=250,
-            minimum=0,
-        ),
-        enable_ingest_loop_guardrail=env_bool("TRADE_CANVAS_ENABLE_INGEST_LOOP_GUARDRAIL", default=False),
-        enable_whitelist_ingest=env_bool("TRADE_CANVAS_ENABLE_WHITELIST_INGEST"),
-        enable_ondemand_ingest=env_bool("TRADE_CANVAS_ENABLE_ONDEMAND_INGEST"),
-        ondemand_idle_ttl_s=env_int("TRADE_CANVAS_ONDEMAND_IDLE_TTL_S", default=60, minimum=1),
+        backtest_require_trades=env_bool("TRADE_CANVAS_BACKTEST_REQUIRE_TRADES"),
+        freqtrade_mock_enabled=env_bool("TRADE_CANVAS_FREQTRADE_MOCK"),
     )
+
+    return RuntimeFlags(
+        api=api,
+        scaleout=scaleout,
+        factor=factor,
+        overlay=overlay,
+        ingest=ingest,
+        market=market,
+        derived=derived,
+        replay=replay,
+        execution=execution,
+    )
+
+
+__all__ = [
+    "RuntimeApiFlags",
+    "RuntimeDerivedFlags",
+    "RuntimeExecutionFlags",
+    "RuntimeFactorFlags",
+    "RuntimeFlags",
+    "RuntimeIngestFlags",
+    "RuntimeMarketFlags",
+    "RuntimeOverlayFlags",
+    "RuntimeReplayFlags",
+    "RuntimeScaleoutFlags",
+    "load_runtime_flags",
+]

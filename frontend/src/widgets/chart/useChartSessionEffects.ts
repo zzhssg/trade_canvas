@@ -1,7 +1,6 @@
-import type { IChartApi, ISeriesApi, SeriesMarker, Time } from "lightweight-charts";
+import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import { useEffect, type MutableRefObject } from "react";
-import type { PenLinePoint, PenSegment } from "./penAnchorRuntime";
-import { syncCandlesToSeries, syncOverlayLayers } from "./seriesSyncRuntime";
+import { syncCandlesToSeries, syncOverlayLayers, type SyncCandlesToSeriesArgs, type SyncOverlayLayersArgs } from "./seriesSyncRuntime";
 import type { Candle } from "./types";
 export {
   useChartLiveSessionEffect,
@@ -9,37 +8,12 @@ export {
   useReplayPackageResetEffect
 } from "./chartReplaySessionEffects";
 
-type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
-
-type UseChartSeriesSyncEffectsArgs = {
+type UseChartSeriesSyncEffectsArgs = Omit<SyncCandlesToSeriesArgs, "candles" | "series" | "chart"> &
+  Omit<SyncOverlayLayersArgs, "chart"> & {
   candles: Candle[];
   chartEpoch: number;
   chartRef: MutableRefObject<IChartApi | null>;
   seriesRef: MutableRefObject<ISeriesApi<"Candlestick"> | null>;
-  candlesRef: MutableRefObject<Candle[]>;
-  appliedRef: MutableRefObject<{ len: number; lastTime: number | null }>;
-  lineSeriesByKeyRef: MutableRefObject<Map<string, ISeriesApi<"Line">>>;
-  entryEnabledRef: MutableRefObject<boolean>;
-  entryMarkersRef: MutableRefObject<Array<SeriesMarker<Time>>>;
-  syncMarkers: () => void;
-  visibleFeatures: Record<string, boolean | undefined>;
-  effectiveVisible: (key: string) => boolean;
-  rebuildPivotMarkersFromOverlay: () => void;
-  rebuildAnchorSwitchMarkersFromOverlay: () => void;
-  rebuildOverlayPolylinesFromOverlay: () => void;
-  penSeriesRef: MutableRefObject<ISeriesApi<"Line"> | null>;
-  penSegmentSeriesByKeyRef: MutableRefObject<Map<string, ISeriesApi<"Line">>>;
-  penSegmentsRef: MutableRefObject<PenSegment[]>;
-  penPointsRef: MutableRefObject<PenLinePoint[]>;
-  anchorPenSeriesRef: MutableRefObject<ISeriesApi<"Line"> | null>;
-  anchorPenPointsRef: MutableRefObject<PenLinePoint[] | null>;
-  anchorPenIsDashedRef: MutableRefObject<boolean>;
-  replayPenPreviewSeriesByFeatureRef: MutableRefObject<Record<ReplayPenPreviewFeature, ISeriesApi<"Line"> | null>>;
-  replayPenPreviewPointsRef: MutableRefObject<Record<ReplayPenPreviewFeature, PenLinePoint[]>>;
-  enablePenSegmentColor: boolean;
-  enableAnchorTopLayer: boolean;
-  replayEnabled: boolean;
-  setPenPointCount: (value: number) => void;
   anchorHighlightEpoch: number;
   seriesId: string;
 };

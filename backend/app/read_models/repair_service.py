@@ -1,49 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
-from ..ledger.alignment import LedgerAlignedPoint, LedgerHeadTimes
-from ..core.schemas import RepairOverlayRequestV1, RepairOverlayResponseV1
 from ..core.ports import DebugHubPort
+from ..core.schemas import RepairOverlayRequestV1, RepairOverlayResponseV1
 from ..core.service_errors import ServiceError
-
-
-class _OverlayOrchestratorLike(Protocol):
-    def reset_series(self, *, series_id: str) -> None: ...
-
-    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None: ...
-
-
-class _LedgerSyncLike(Protocol):
-    def resolve_aligned_point(
-        self,
-        *,
-        series_id: str,
-        to_time: int | None,
-        no_data_code: str,
-        no_data_detail: str = "no_data",
-    ) -> LedgerAlignedPoint: ...
-
-    def refresh(self, *, series_id: str, up_to_time: int): ...
-
-    def require_heads_ready(
-        self,
-        *,
-        series_id: str,
-        aligned_time: int,
-        factor_out_of_sync_code: str,
-        overlay_out_of_sync_code: str,
-        factor_out_of_sync_detail: str = "ledger_out_of_sync:factor",
-        overlay_out_of_sync_detail: str = "ledger_out_of_sync:overlay",
-    ) -> LedgerHeadTimes: ...
+from ..ledger.ports import LedgerSyncRepairPort
+from .ports import OverlayOrchestratorReadPort
 
 
 @dataclass(frozen=True)
 class ReadRepairService:
-    overlay_orchestrator: _OverlayOrchestratorLike
+    overlay_orchestrator: OverlayOrchestratorReadPort
     debug_hub: DebugHubPort
-    ledger_sync_service: _LedgerSyncLike
+    ledger_sync_service: LedgerSyncRepairPort
     debug_api_enabled: bool = False
 
     def _emit_debug(

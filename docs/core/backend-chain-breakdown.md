@@ -2,7 +2,7 @@
 title: 后端链路拆解（启动 / 写入 / 读取 / 回放）
 status: done
 created: 2026-02-11
-updated: 2026-02-11
+updated: 2026-02-14
 ---
 
 # 后端链路拆解（启动 / 写入 / 读取 / 回放）
@@ -16,8 +16,8 @@ updated: 2026-02-11
 ### 1.1 入口顺序
 
 1. `backend/app/main.py:create_app()`
-2. `backend/app/container.py:build_app_container()`
-3. `backend/app/market_runtime_builder.py:build_market_runtime()`
+2. `backend/app/bootstrap/container.py:build_app_container()`
+3. `backend/app/market/runtime_builder.py:build_market_runtime()`
 
 关键装配产物：
 - `AppContainer`：全局依赖聚合（store/orchestrator/service/runtime）。
@@ -38,11 +38,11 @@ updated: 2026-02-11
 
 ## 2. 配置真源链路
 
-### 2.1 两层配置模型
+### 2.1 配置模型
 
-- `FeatureFlags`（`backend/app/flags.py`）
-  - 偏“功能开关与治理阈值”（如 whitelist、ondemand）。
-- `RuntimeFlags`（`backend/app/runtime_flags.py`）
+- `backend/app/core/flags.py`
+  - 提供 env 解析工具（`env_bool/env_int/...`），避免业务代码手写环境变量解析。
+- `RuntimeFlags`（`backend/app/runtime/flags.py`）
   - 偏“运行时参数与高风险开关”（factor/replay/derived/ws 批次等）。
   - `TRADE_CANVAS_ENABLE_DEV_API`（默认 `0`）控制 `/api/dev/**` 入口可见性（默认关闭）。
   - `TRADE_CANVAS_ENABLE_RUNTIME_METRICS`（默认 `0`）控制运行时指标采集与 `/api/market/debug/metrics` 调试接口。
@@ -53,7 +53,7 @@ updated: 2026-02-11
 
 - 启动时集中读取 env。
 - 服务层尽量不再直接读 env。
-- 路由层通过 `dependencies.py` 从容器拿依赖，不散落访问 `app.state`。
+- 路由层通过 `backend/app/deps/` 从容器拿依赖，不散落访问 `app.state`。
 
 ---
 
@@ -87,7 +87,7 @@ sequenceDiagram
 - 先 candles，后 factor，再 overlay。
 - sidecar 失败必须带 step 语义（`IngestPipelineError`）。
 - forming 不进入该链路。
-- overlay ingest 内部读写职责拆分：窗口读取/归桶在 `overlay_ingest_reader.py`，落库去重在 `overlay_ingest_writer.py`。
+- overlay ingest 内部读写职责拆分：窗口读取/归桶在 `backend/app/overlay/ingest_reader.py`，落库去重在 `backend/app/overlay/ingest_writer.py`。
 - overlay orchestrator 允许注入 reader/writer 实现，编排层测试无需依赖真实存储。
 
 ---
@@ -97,7 +97,7 @@ sequenceDiagram
 ### 4.1 WS 消息处理
 
 - 入口：`/ws/market`
-- 处理：`market_ws_routes.handle_market_ws`
+- 处理：`backend/app/market/ws_routes.py:handle_market_ws`
 - 消息解析：`WsMessageParser`
 - 订阅协同：`WsSubscriptionCoordinator`
 - 运行时指标（需 `TRADE_CANVAS_ENABLE_RUNTIME_METRICS=1`）：
@@ -115,7 +115,7 @@ sequenceDiagram
 
 ### 4.3 Binance ingest loop
 
-- `ingest_binance_ws.run_binance_ws_ingest_loop`
+- `backend/app/ingest/binance_ws.py:run_binance_ws_ingest_loop`
 - 行为：
   - 读取上游 kline
   - forming 节流广播（仅展示）
@@ -128,7 +128,7 @@ sequenceDiagram
 
 发布语义：
 - `IngestPipeline.publish_ws` 固定走 unified 策略（`publish(best_effort=True)`）。
-- WS 入口（`ingest_binance_ws.py`）不再手工拼装 `hub.publish_*`，发布职责统一收口到 pipeline。
+- WS 入口（`backend/app/ingest/binance_ws.py`）不再手工拼装 `hub.publish_*`，发布职责统一收口到 pipeline。
 
 ---
 
@@ -182,16 +182,16 @@ sequenceDiagram
 
 ### 6.3 overlay package
 
-- 路由：`backend/app/overlay_package_routes.py`
+- 路由：`backend/app/overlay/package_routes.py`
 - 服务：`OverlayReplayPackageServiceV1`
 
 ---
 
 ## 7. backtest 与 freqtrade 适配
 
-- 路由：`backend/app/backtest_routes.py`
-- 服务：`backend/app/backtest_service.py`
-- 适配：`backend/app/freqtrade_adapter_v1.py`
+- 路由：`backend/app/backtest/routes.py`
+- 服务：`backend/app/backtest/service.py`
+- 适配：`backend/app/freqtrade/adapter_v1.py`
 
 链路职责：
 - 策略列表、pair/timeframe 可用性检查。
@@ -202,16 +202,16 @@ sequenceDiagram
 
 ## 8. 快速定位顺序（排障）
 
-1. 找入口 route（`*_routes.py`）
+1. 找入口 route（`routes.py` / `*_routes.py`）
 2. 看 service（业务编排）
 3. 看 orchestrator/pipeline（主链路）
 4. 看 store（状态落盘）
 5. 看 flags（配置是否偏差）
 
 市场 meta 路由拆分后的定位入口：
-- 健康：`backend/app/market_health_routes.py`
-- 调试：`backend/app/market_debug_routes.py`
-- 榜单/SSE：`backend/app/market_top_markets_routes.py`
+- 健康：`backend/app/market/health_routes.py`
+- 调试：`backend/app/market/debug_routes.py`
+- 榜单/SSE：`backend/app/market/top_markets_routes.py`
 
 ---
 

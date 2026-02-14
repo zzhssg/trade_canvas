@@ -64,6 +64,7 @@ export type StartChartLiveSessionArgs = {
   penSegmentsRef: MutableRefObject<PenSegment[]>;
   anchorPenPointsRef: MutableRefObject<PenLinePoint[] | null>;
   factorPullPendingTimeRef: MutableRefObject<number | null>;
+  factorPullInFlightRef: MutableRefObject<boolean>;
   lastFactorAtTimeRef: MutableRefObject<number | null>;
   worldFrameHealthyRef: MutableRefObject<boolean>;
   replayAllCandlesRef: MutableRefObject<Array<Candle | null>>;

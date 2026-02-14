@@ -2,7 +2,7 @@
 title: API v1（endpoint 清单 + 示例）
 status: done
 created: 2026-02-03
-updated: 2026-02-11
+updated: 2026-02-14
 ---
 
 # API v1（endpoint 清单 + 示例）
@@ -11,8 +11,8 @@ updated: 2026-02-11
 - 研发前“先看存量 API”入口
 - 研发后“文档是否完整”门禁的一部分（见 `docs/scripts/api_docs_audit.sh`）
 
-当前口径说明（2026-02-11）：
-- 端点覆盖以运行时代码为准（`backend/app/*_routes.py`）。
+当前口径说明（2026-02-14）：
+- 端点覆盖以运行时代码为准（`backend/app/**/routes.py`、`backend/app/routes/*.py`、`backend/app/market/*_routes.py`）。
 - 路由层统一走容器依赖注入，不再以 `app.state` 作为业务依赖入口。
 - 市场写链路统一由 `IngestPipeline` 执行（store -> factor -> overlay）。
 

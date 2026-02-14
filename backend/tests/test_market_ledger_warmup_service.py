@@ -129,6 +129,36 @@ class MarketLedgerWarmupServiceTests(unittest.TestCase):
         self.assertEqual(debug_hub.events[0].get("level"), "warn")
         self.assertIn("refresh_failed", (debug_hub.events[0].get("data") or {}).get("error", ""))
 
+    def test_warmup_is_debounced_for_same_series_and_target(self) -> None:
+        ledger_sync = _LedgerSyncStub()
+        service = MarketLedgerWarmupService(
+            runtime_flags=_RuntimeFlagsStub(enable_read_ledger_warmup=True, enable_debug_api=False),
+            debug_hub=_DebugHubStub(),
+            ledger_sync_service=ledger_sync,
+            warmup_cooldown_seconds=60.0,
+        )
+
+        service.ensure_ledgers_warm(
+            series_id="binance:spot:ETH/USDT:1d",
+            store_head_time=160,
+        )
+        service.ensure_ledgers_warm(
+            series_id="binance:spot:ETH/USDT:1d",
+            store_head_time=160,
+        )
+        service.ensure_ledgers_warm(
+            series_id="binance:spot:ETH/USDT:1d",
+            store_head_time=220,
+        )
+
+        self.assertEqual(
+            ledger_sync.calls,
+            [
+                ("binance:spot:ETH/USDT:1d", 160),
+                ("binance:spot:ETH/USDT:1d", 220),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

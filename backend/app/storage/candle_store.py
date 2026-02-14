@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .local_store_runtime import LocalConnectionBase, MemoryCursor
+from .local_store_runtime import LocalConnectionBase, MemoryCursor, get_or_create_store_state
 from ..core.schemas import CandleClosed
 
 
@@ -18,18 +18,13 @@ _STORE_STATES: dict[str, _CandleStoreState] = {}
 _STORE_STATES_LOCK = threading.Lock()
 
 
-def _store_key(db_path: Path) -> str:
-    return str(Path(db_path))
-
-
 def _get_store_state(db_path: Path) -> _CandleStoreState:
-    key = _store_key(db_path)
-    with _STORE_STATES_LOCK:
-        state = _STORE_STATES.get(key)
-        if state is None:
-            state = _CandleStoreState()
-            _STORE_STATES[key] = state
-        return state
+    return get_or_create_store_state(
+        store_states=_STORE_STATES,
+        lock=_STORE_STATES_LOCK,
+        db_path=db_path,
+        factory=_CandleStoreState,
+    )
 
 
 class _CandleStoreConnection(LocalConnectionBase):

@@ -35,7 +35,9 @@ class AnchorSlicePlugin:
 
         history_anchors, history_switches = build_anchor_history_from_switches(anchor_switches)
         pen_slice = ctx.snapshots.get("pen")
-        pen_head_candidate = (pen_slice.head or {}).get("candidate") if pen_slice is not None else None
+        pen_head = (pen_slice.head or {}) if pen_slice is not None else {}
+        pen_head_extending = pen_head.get("extending") if isinstance(pen_head, dict) else None
+        pen_head_candidate = pen_head.get("candidate") if isinstance(pen_head, dict) else None
 
         anchor_head_row = ctx.head_rows.get("anchor")
         if anchor_head_row is not None:
@@ -57,7 +59,12 @@ class AnchorSlicePlugin:
                 }
 
         candidate_ref, candidate_strength = candidate_anchor_from_pen_head(pen_head_candidate)
-        current_strength = anchor_ref_strength(ref=current_anchor_ref, pen_confirmed=pen_confirmed)
+        current_strength = anchor_ref_strength(
+            ref=current_anchor_ref,
+            pen_confirmed=pen_confirmed,
+            pen_head_extending=pen_head_extending,
+            pen_head_candidate=pen_head_candidate,
+        )
 
         if candidate_ref is not None:
             current_start = int(current_anchor_ref.get("start_time") or 0) if isinstance(current_anchor_ref, dict) else 0

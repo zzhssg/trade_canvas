@@ -49,6 +49,13 @@ type ReplayRenderSyncArgs = {
   setPenPointCount: (value: number) => void;
 };
 
+export type ReplayOverlayRuntimeArgs = ReplayRenderSyncArgs & {
+  overlayCatalogRef: MutableRefObject<Map<string, OverlayInstructionPatchItemV1>>;
+  overlayActiveIdsRef: MutableRefObject<Set<string>>;
+  recomputeActiveIdsFromCatalog: (params: { cutoffTime: number; toTime: number }) => string[];
+  setReplayDrawInstructions: (items: OverlayInstructionPatchItemV1[]) => void;
+};
+
 function syncReplayDrawState(args: ReplayRenderSyncArgs) {
   args.rebuildPivotMarkersFromOverlay();
   args.rebuildAnchorSwitchMarkersFromOverlay();
@@ -65,28 +72,12 @@ function syncReplayDrawState(args: ReplayRenderSyncArgs) {
   args.syncMarkers();
 }
 
-export function applyReplayOverlayAtTimeRuntime(args: {
+export function applyReplayOverlayAtTimeRuntime(args: ReplayOverlayRuntimeArgs & {
   toTime: number;
   timeframeSeconds: number | null;
   windowCandles: number;
   replayPatchRef: MutableRefObject<OverlayInstructionPatchItemV1[]>;
   replayPatchAppliedIdxRef: MutableRefObject<number>;
-  overlayCatalogRef: MutableRefObject<Map<string, OverlayInstructionPatchItemV1>>;
-  overlayActiveIdsRef: MutableRefObject<Set<string>>;
-  recomputeActiveIdsFromCatalog: (params: { cutoffTime: number; toTime: number }) => string[];
-  setReplayDrawInstructions: (items: OverlayInstructionPatchItemV1[]) => void;
-  rebuildPivotMarkersFromOverlay: () => void;
-  rebuildAnchorSwitchMarkersFromOverlay: () => void;
-  rebuildPenPointsFromOverlay: () => void;
-  rebuildOverlayPolylinesFromOverlay: () => void;
-  syncMarkers: () => void;
-  effectiveVisible: (key: string) => boolean;
-  penSeriesRef: MutableRefObject<ISeriesApi<"Line"> | null>;
-  penPointsRef: MutableRefObject<PenLinePoint[]>;
-  penSegmentsRef: MutableRefObject<PenSegment[]>;
-  enablePenSegmentColor: boolean;
-  replayEnabled: boolean;
-  setPenPointCount: (value: number) => void;
 }) {
   const patch = args.replayPatchRef.current;
   if (patch.length === 0) return;
@@ -119,7 +110,7 @@ export function applyReplayOverlayAtTimeRuntime(args: {
   syncReplayDrawState(args);
 }
 
-export function applyReplayPackageWindowRuntime(args: {
+export function applyReplayPackageWindowRuntime(args: ReplayOverlayRuntimeArgs & {
   bundle: {
     window: ReplayWindowV1;
     headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>>;
@@ -127,21 +118,6 @@ export function applyReplayPackageWindowRuntime(args: {
   };
   targetIdx: number;
   replayWindowIndexRef: MutableRefObject<number | null>;
-  overlayCatalogRef: MutableRefObject<Map<string, OverlayInstructionPatchItemV1>>;
-  overlayActiveIdsRef: MutableRefObject<Set<string>>;
-  setReplayDrawInstructions: (items: OverlayInstructionPatchItemV1[]) => void;
-  rebuildPivotMarkersFromOverlay: () => void;
-  rebuildAnchorSwitchMarkersFromOverlay: () => void;
-  rebuildPenPointsFromOverlay: () => void;
-  rebuildOverlayPolylinesFromOverlay: () => void;
-  syncMarkers: () => void;
-  effectiveVisible: (key: string) => boolean;
-  penSeriesRef: MutableRefObject<ISeriesApi<"Line"> | null>;
-  penPointsRef: MutableRefObject<PenLinePoint[]>;
-  penSegmentsRef: MutableRefObject<PenSegment[]>;
-  enablePenSegmentColor: boolean;
-  replayEnabled: boolean;
-  setPenPointCount: (value: number) => void;
 }): string[] {
   const window = args.bundle.window;
   if (args.replayWindowIndexRef.current !== window.window_index) {

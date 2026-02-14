@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..pipelines import IngestPipeline
+    from .settings import WhitelistIngestSettings
 
 
 @dataclass(frozen=True)
@@ -44,3 +49,13 @@ class IngestRuntimeConfig:
     role: IngestRoleConfig = field(default_factory=IngestRoleConfig)
     ondemand_max_jobs: int = 0
     market_history_source: str = ""
+
+
+@dataclass(frozen=True)
+class IngestSupervisorInitConfig:
+    whitelist_series_ids: tuple[str, ...]
+    ingest_settings: WhitelistIngestSettings | None = None
+    ondemand_idle_ttl_s: int = 60
+    whitelist_ingest_enabled: bool = False
+    ingest_pipeline: IngestPipeline | None = None
+    runtime: IngestRuntimeConfig = field(default_factory=IngestRuntimeConfig)

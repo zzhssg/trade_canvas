@@ -9,7 +9,7 @@ import type { FibInst, PositionInst } from "./draw_tools/types";
 import type { DrawMeasureState } from "./draw_tools/useDrawToolState";
 import type { LiveLoadStatus } from "./liveSessionRuntimeTypes";
 
-type ChartViewOverlayLayerProps = {
+export type ChartViewOverlayLayerProps = {
   replayEnabled: boolean;
   replayMaskX: number | null;
   enableDrawTools: boolean;

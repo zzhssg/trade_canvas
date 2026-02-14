@@ -4,7 +4,7 @@ from typing import Awaitable, Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from ..market_data import MarketDataOrchestrator, WsMessageParser, WsSubscriptionCoordinator
+from ..market_data import MarketDataOrchestrator, WsHandleSubscribeRequest, WsMessageParser, WsSubscriptionCoordinator
 from ..ws.protocol import WS_MSG_SUBSCRIBE, WS_MSG_UNSUBSCRIBE
 
 
@@ -38,13 +38,15 @@ async def handle_market_ws(
 
                 err_payload, payloads = await ws_subscriptions.handle_subscribe(
                     ws=ws,
-                    series_id=subscribe_cmd.series_id,
-                    since=subscribe_cmd.since,
-                    supports_batch=subscribe_cmd.supports_batch,
-                    ondemand_enabled=ondemand_enabled,
+                    request=WsHandleSubscribeRequest(
+                        series_id=subscribe_cmd.series_id,
+                        since=subscribe_cmd.since,
+                        supports_batch=subscribe_cmd.supports_batch,
+                        ondemand_enabled=ondemand_enabled,
+                        catchup_limit=int(catchup_limit),
+                    ),
                     market_data=market_data,
                     derived_initial_backfill=derived_initial_backfill,
-                    catchup_limit=int(catchup_limit),
                 )
                 if err_payload is not None:
                     await ws.send_json(err_payload)

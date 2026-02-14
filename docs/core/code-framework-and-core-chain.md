@@ -2,7 +2,7 @@
 title: 代码框架与核心链路（快速入门）
 status: done
 created: 2026-02-11
-updated: 2026-02-11
+updated: 2026-02-14
 ---
 
 # 代码框架与核心链路（快速入门）
@@ -23,8 +23,8 @@ updated: 2026-02-11
 ## 2. 先看哪几个文件
 
 1. 装配入口：`backend/app/main.py`
-2. 容器依赖：`backend/app/container.py`
-3. 市场运行时：`backend/app/market_runtime_builder.py`
+2. 容器依赖：`backend/app/bootstrap/container.py`
+3. 市场运行时：`backend/app/market/runtime_builder.py`
 4. 写链路核心：`backend/app/pipelines/ingest_pipeline.py`
 5. 世界态读链路：`backend/app/read_models/world_read_service.py`
 
@@ -32,11 +32,11 @@ updated: 2026-02-11
 
 ## 3. 模块职责（一句话版）
 
-- `market_http_routes.py` / `market_ws_routes.py`：协议入口（参数与错误语义）。
-- `market_ingest_service.py`：市场写请求编排。
-- `ingest_supervisor.py`：实时任务生命周期（whitelist/ondemand）。
-- `factor_orchestrator.py`：因子增量推进。
-- `overlay_orchestrator.py`：绘图增量推进。
+- `backend/app/market/http_routes.py` / `backend/app/market/ws_routes.py`：协议入口（参数与错误语义）。
+- `backend/app/market/ingest_service.py`：市场写请求编排。
+- `backend/app/ingest/supervisor.py`：实时任务生命周期（whitelist/ondemand）。
+- `backend/app/factor/orchestrator.py`：因子增量推进。
+- `backend/app/overlay/orchestrator.py`：绘图增量推进。
 - `read_models/*`：factor/draw/world 的统一读取与对齐门禁。
 
 ---

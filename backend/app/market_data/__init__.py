@@ -9,6 +9,7 @@ from .contracts import (
     FreshnessSnapshot,
     FreshnessState,
     MarketDataOrchestrator,
+    WsHandleSubscribeRequest,
     WsSubscribeRequest,
     WsSubscribeResult,
     WsSubscribeCommand,
@@ -20,7 +21,7 @@ from .orchestrator import (
     HubWsDeliveryService,
     build_gap_backfill_handler,
 )
-from .read_services import StoreBackfillService, StoreCandleReadService, StoreFreshnessService
+from .read_services import StoreBackfillOptions, StoreBackfillService, StoreCandleReadService, StoreFreshnessService
 from .ws_services import WsMessageParser, WsSubscriptionCoordinator, build_ws_error_payload
 from ..ws.protocol import (
     WS_ERR_BAD_REQUEST,
@@ -53,6 +54,7 @@ __all__ = [
     "FreshnessSnapshot",
     "FreshnessState",
     "MarketDataOrchestrator",
+    "WsHandleSubscribeRequest",
     "WsSubscribeRequest",
     "WsSubscribeResult",
     "WsSubscribeCommand",
@@ -61,6 +63,7 @@ __all__ = [
     "DefaultMarketDataOrchestrator",
     "HubWsDeliveryService",
     "build_ws_error_payload",
+    "StoreBackfillOptions",
     "StoreBackfillService",
     "StoreCandleReadService",
     "StoreFreshnessService",

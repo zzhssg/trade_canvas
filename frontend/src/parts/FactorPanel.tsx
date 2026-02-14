@@ -2,10 +2,18 @@ import { useEffect, useRef, useState } from "react";
 
 import { type FactorSpec, useFactorCatalog } from "../services/factorCatalog";
 import { useFactorStore } from "../state/factorStore";
+import { useReplayStore } from "../state/replayStore";
+import { useUiStore } from "../state/uiStore";
+import { FactorDrawHealthLamp } from "./FactorDrawHealthLamp";
+
+const ENABLE_FACTOR_DRAW_HEALTH_LAMP = String(import.meta.env.VITE_ENABLE_FACTOR_DRAW_HEALTH_LAMP ?? "1") === "1";
 
 export function FactorPanel() {
   const { visibleFeatures, toggleFeatureVisibility, applyFeatureDefaults, setFeatureVisibility } = useFactorStore();
+  const { exchange, market, symbol, timeframe } = useUiStore();
+  const replayMode = useReplayStore((s) => s.mode);
   const factors = useFactorCatalog();
+  const seriesId = `${exchange}:${market}:${symbol}:${timeframe}`;
 
   useEffect(() => {
     applyFeatureDefaults(factors);
@@ -15,7 +23,7 @@ export function FactorPanel() {
     <div className="relative z-20 rounded-xl border border-white/10 bg-white/5 px-3 py-2 shadow-[0_0_0_1px_rgba(255,255,255,0.03)_inset] backdrop-blur">
       <div className="flex items-center justify-between gap-3">
         <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Factors</div>
-        <div className="text-[11px] text-white/40">feature → sub_feature (visibility)</div>
+        {ENABLE_FACTOR_DRAW_HEALTH_LAMP && replayMode === "live" ? <FactorDrawHealthLamp seriesId={seriesId} /> : null}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">

@@ -2,7 +2,7 @@
 title: Factor 模块化架构
 status: done
 created: 2026-02-02
-updated: 2026-02-13
+updated: 2026-02-14
 ---
 
 # Factor 模块化架构
@@ -72,8 +72,8 @@ updated: 2026-02-13
 
 ## 2. 运行时配置口径
 
-- 配置真源：`backend/app/runtime_flags.py`
-- 注入点：`backend/app/container.py`
+- 配置真源：`backend/app/runtime/flags.py`
+- 注入点：`backend/app/bootstrap/container.py`
 
 当前 factor 关键参数：
 - `enable_factor_ingest`
@@ -140,12 +140,12 @@ flowchart LR
 推荐脚手架（避免手工复制漏改）：
 
 ```bash
-python3 scripts/new_factor_scaffold.py --factor trend_break --depends-on pivot,pen
+python3 scripts/new_factor_scaffold.py --factor <factor_name> --depends-on <dep1,dep2>
 ```
 
 该命令会生成：
-- `backend/app/factor/processor_trend_break.py`
-- `backend/app/factor/bundles/trend_break.py`
+- `backend/app/factor/processor_<factor_name>.py`
+- `backend/app/factor/bundles/<factor_name>.py`
 
 按需改：
 - `backend/app/overlay/renderer_plugins.py`（facade 入口；具体实现见 `renderer_marker.py` / `renderer_pen.py` / `renderer_structure.py`）

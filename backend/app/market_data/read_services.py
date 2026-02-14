@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Callable
 
 from ..market.history_bootstrapper import backfill_tail_from_freqtrade
@@ -49,6 +50,15 @@ class StoreCandleReadService(CandleReadService):
         )
 
 
+@dataclass(frozen=True)
+class StoreBackfillOptions:
+    progress_tracker: MarketBackfillProgressTracker | None = None
+    enable_ccxt_backfill: bool = False
+    enable_ccxt_backfill_on_read: bool = False
+    enable_strict_closed_only: bool = False
+    ccxt_timeout_ms: int = 10_000
+
+
 class StoreBackfillService(BackfillService):
     def __init__(
         self,
@@ -56,20 +66,17 @@ class StoreBackfillService(BackfillService):
         store: CandleStore,
         gap_backfill_fn: Callable[..., int] = backfill_market_gap_best_effort,
         tail_backfill_fn: Callable[..., int] = backfill_tail_from_freqtrade,
-        progress_tracker: MarketBackfillProgressTracker | None = None,
-        enable_ccxt_backfill: bool = False,
-        enable_ccxt_backfill_on_read: bool = False,
-        enable_strict_closed_only: bool = False,
-        ccxt_timeout_ms: int = 10_000,
+        options: StoreBackfillOptions | None = None,
     ) -> None:
+        opts = options or StoreBackfillOptions()
         self._store = store
         self._gap_backfill_fn = gap_backfill_fn
         self._tail_backfill_fn = tail_backfill_fn
-        self._progress_tracker = progress_tracker
-        self._enable_ccxt_backfill = bool(enable_ccxt_backfill)
-        self._enable_ccxt_backfill_on_read = bool(enable_ccxt_backfill_on_read)
-        self._enable_strict_closed_only = bool(enable_strict_closed_only)
-        self._ccxt_timeout_ms = max(1000, int(ccxt_timeout_ms))
+        self._progress_tracker = opts.progress_tracker
+        self._enable_ccxt_backfill = bool(opts.enable_ccxt_backfill)
+        self._enable_ccxt_backfill_on_read = bool(opts.enable_ccxt_backfill_on_read)
+        self._enable_strict_closed_only = bool(opts.enable_strict_closed_only)
+        self._ccxt_timeout_ms = max(1000, int(opts.ccxt_timeout_ms))
 
     def _best_effort_backfill_from_base_1m(
         self,

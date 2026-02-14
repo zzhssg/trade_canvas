@@ -66,6 +66,17 @@ export function AppShell() {
   );
 }
 
+export function StandalonePageShell() {
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden bg-transparent">
+      <TopBar />
+      <div className="tc-scrollbar-none min-h-0 flex-1 overflow-y-auto">
+        <Outlet />
+      </div>
+    </div>
+  );
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }

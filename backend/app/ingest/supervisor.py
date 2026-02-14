@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from .config import IngestRuntimeConfig
+from .config import IngestSupervisorInitConfig
 from .guardrail_registry import IngestGuardrailRegistry
 from .job_runner import IngestJobRunner, IngestJobRunnerConfig, IngestLoopFn
 from .loop_guardrail import IngestLoopGuardrail, IngestLoopGuardrailConfig
@@ -22,7 +22,6 @@ from .supervisor_support import (
 )
 from .binance_ws import run_binance_ws_ingest_loop
 from .settings import WhitelistIngestSettings
-from ..pipelines import IngestPipeline
 from ..storage.candle_store import CandleStore
 from ..ws.hub import CandleHub
 
@@ -33,23 +32,18 @@ class IngestSupervisor:
         *,
         store: CandleStore,
         hub: CandleHub,
-        whitelist_series_ids: tuple[str, ...],
-        ingest_settings: WhitelistIngestSettings | None = None,
-        ondemand_idle_ttl_s: int = 60,
-        whitelist_ingest_enabled: bool = False,
-        ingest_pipeline: IngestPipeline | None = None,
-        config: IngestRuntimeConfig | None = None,
+        options: IngestSupervisorInitConfig,
     ) -> None:
-        cfg = config or IngestRuntimeConfig()
-        self._whitelist = set(whitelist_series_ids)
-        self._whitelist_ingest_enabled = bool(whitelist_ingest_enabled)
+        cfg = options.runtime
+        self._whitelist = set(options.whitelist_series_ids)
+        self._whitelist_ingest_enabled = bool(options.whitelist_ingest_enabled)
         self._ingest_role_guard_enabled = bool(cfg.role.guard_enabled)
         self._ingest_role = normalize_ingest_role(cfg.role.ingest_role)
         self._ingest_jobs_enabled = (not self._ingest_role_guard_enabled) or self._ingest_role in {"hybrid", "ingest"}
-        self._settings = ingest_settings or WhitelistIngestSettings()
-        self._idle_ttl_s = ondemand_idle_ttl_s
+        self._settings = options.ingest_settings or WhitelistIngestSettings()
+        self._idle_ttl_s = options.ondemand_idle_ttl_s
         self._ondemand_max_jobs = max(0, int(cfg.ondemand_max_jobs))
-        self._ingest_pipeline = ingest_pipeline
+        self._ingest_pipeline = options.ingest_pipeline
         self._market_history_source = str(cfg.market_history_source or "").strip().lower()
         self._derived_enabled = bool(cfg.derived.enabled)
         self._derived_base_timeframe = str(cfg.derived.base_timeframe).strip() or "1m"

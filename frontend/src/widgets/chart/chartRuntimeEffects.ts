@@ -20,19 +20,18 @@ import type {
   ReplayPackageMetadataV1,
   WorldStateV1
 } from "./types";
-import type { LiveLoadStatus, OpenMarketWs } from "./liveSessionRuntimeTypes";
-type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
+import type { ReplayPenPreviewFeature, StartChartLiveSessionArgs } from "./liveSessionRuntimeTypes";
+
 type ReplayOverlayBundle = {
   window: ReplayWindowBundle["window"];
   headByTime: ReplayWindowBundle["headByTime"];
   historyDeltaByIdx: ReplayWindowBundle["historyDeltaByIdx"];
 };
+type UseChartRuntimeEffectsBaseArgs = Omit<StartChartLiveSessionArgs, "candleSeriesRef"> & {
+  seriesRef: MutableRefObject<ISeriesApi<"Candlestick"> | null>;
+};
 
-export type UseChartRuntimeEffectsArgs = {
-  seriesId: string;
-  timeframe: string;
-  replayEnabled: boolean;
-  replayPreparedAlignedTime: number | null;
+export type UseChartRuntimeEffectsArgs = UseChartRuntimeEffectsBaseArgs & {
   replayPrepareStatus: string;
   replayPackageEnabled: boolean;
   replayPackageStatus: string;
@@ -47,64 +46,18 @@ export type UseChartRuntimeEffectsArgs = {
   visibleFeatures: Record<string, boolean | undefined>;
   chartEpoch: number;
   anchorHighlightEpoch: number;
-  enablePenSegmentColor: boolean;
   enableAnchorTopLayer: boolean;
-  enableWorldFrame: boolean;
-  windowCandles: number;
-  chartRef: MutableRefObject<IChartApi | null>;
-  seriesRef: MutableRefObject<ISeriesApi<"Candlestick"> | null>;
-  candlesRef: MutableRefObject<Candle[]>;
-  appliedRef: MutableRefObject<{ len: number; lastTime: number | null }>;
   lineSeriesByKeyRef: MutableRefObject<Map<string, ISeriesApi<"Line">>>;
   entryEnabledRef: MutableRefObject<boolean>;
   entryMarkersRef: MutableRefObject<Array<SeriesMarker<Time>>>;
-  pivotMarkersRef: MutableRefObject<Array<SeriesMarker<Time>>>;
-  anchorSwitchMarkersRef: MutableRefObject<Array<SeriesMarker<Time>>>;
-  overlayCatalogRef: MutableRefObject<Map<string, OverlayInstructionPatchItemV1>>;
-  overlayActiveIdsRef: MutableRefObject<Set<string>>;
-  overlayCursorVersionRef: MutableRefObject<number>;
-  overlayPullInFlightRef: MutableRefObject<boolean>;
-  overlayPolylineSeriesByIdRef: MutableRefObject<Map<string, ISeriesApi<"Line">>>;
-  replayPenPreviewSeriesByFeatureRef: MutableRefObject<Record<ReplayPenPreviewFeature, ISeriesApi<"Line"> | null>>;
-  replayPenPreviewPointsRef: MutableRefObject<Record<ReplayPenPreviewFeature, PenLinePoint[]>>;
-  followPendingTimeRef: MutableRefObject<number | null>;
-  followTimerIdRef: MutableRefObject<number | null>;
-  penSegmentsRef: MutableRefObject<PenSegment[]>;
-  penPointsRef: MutableRefObject<PenLinePoint[]>;
-  penSeriesRef: MutableRefObject<ISeriesApi<"Line"> | null>;
   penSegmentSeriesByKeyRef: MutableRefObject<Map<string, ISeriesApi<"Line">>>;
   anchorPenSeriesRef: MutableRefObject<ISeriesApi<"Line"> | null>;
-  anchorPenPointsRef: MutableRefObject<PenLinePoint[] | null>;
   anchorPenIsDashedRef: MutableRefObject<boolean>;
-  factorPullPendingTimeRef: MutableRefObject<number | null>;
-  lastFactorAtTimeRef: MutableRefObject<number | null>;
-  worldFrameHealthyRef: MutableRefObject<boolean>;
-  replayAllCandlesRef: MutableRefObject<Array<Candle | null>>;
   replayWindowIndexRef: MutableRefObject<number | null>;
-  replayPatchRef: MutableRefObject<OverlayInstructionPatchItemV1[]>;
-  replayPatchAppliedIdxRef: MutableRefObject<number>;
-  replayFrameLatestTimeRef: MutableRefObject<number | null>;
-  lastWsCandleTimeRef: MutableRefObject<number | null>;
-  syncMarkers: () => void;
-  effectiveVisible: (key: string) => boolean;
-  openMarketWs: OpenMarketWs;
-  fetchOverlayLikeDelta: (params: { seriesId: string; cursorVersionId: number; windowCandles: number }) => Promise<OverlayLikeDeltaV1>;
-  rebuildPivotMarkersFromOverlay: () => void;
-  rebuildAnchorSwitchMarkersFromOverlay: () => void;
-  rebuildPenPointsFromOverlay: () => void;
-  rebuildOverlayPolylinesFromOverlay: () => void;
-  fetchAndApplyAnchorHighlightAtTime: (time: number) => Promise<void>;
-  applyOverlayDelta: (delta: OverlayLikeDeltaV1) => void;
-  applyWorldFrame: (frame: WorldStateV1) => void;
-  applyPenAndAnchorFromFactorSlices: (slices: GetFactorSlicesResponseV1) => void;
   applyReplayOverlayAtTime: (toTime: number) => void;
   applyReplayPackageWindow: (bundle: ReplayOverlayBundle, targetIdx: number) => string[];
   requestReplayFrameAtTime: (atTime: number) => Promise<void>;
   toReplayCandle: (bar: ReplayKlineBarV1) => Candle;
-  setCandles: Dispatch<SetStateAction<Candle[]>>;
-  setReplayTotal: (value: number) => void;
-  setReplayPlaying: (value: boolean) => void;
-  setReplayIndex: (value: number) => void;
   setReplayFocusTime: (value: number | null) => void;
   setReplayFrame: (frame: WorldStateV1 | null) => void;
   setReplaySlices: (slices: GetFactorSlicesResponseV1 | null) => void;
@@ -112,16 +65,6 @@ export type UseChartRuntimeEffectsArgs = {
   setReplayDrawInstructions: (items: OverlayInstructionPatchItemV1[]) => void;
   setReplayFrameLoading: (value: boolean) => void;
   setReplayFrameError: (value: string | null) => void;
-  setLastWsCandleTime: (value: number | null) => void;
-  setLiveLoadState: (status: LiveLoadStatus, message?: string) => void;
-  setError: (value: string | null) => void;
-  setZhongshuCount: (value: number) => void;
-  setAnchorCount: (value: number) => void;
-  setPivotCount: (value: number) => void;
-  setAnchorSwitchCount: (value: number) => void;
-  setPenPointCount: (value: number) => void;
-  setAnchorHighlightEpoch: Dispatch<SetStateAction<number>>;
-  showToast: (message: string) => void;
 };
 
 export function useChartRuntimeEffects(args: UseChartRuntimeEffectsArgs) {
@@ -191,6 +134,7 @@ export function useChartRuntimeEffects(args: UseChartRuntimeEffectsArgs) {
     penSegmentsRef: args.penSegmentsRef,
     anchorPenPointsRef: args.anchorPenPointsRef,
     factorPullPendingTimeRef: args.factorPullPendingTimeRef,
+    factorPullInFlightRef: args.factorPullInFlightRef,
     lastFactorAtTimeRef: args.lastFactorAtTimeRef,
     worldFrameHealthyRef: args.worldFrameHealthyRef,
     replayAllCandlesRef: args.replayAllCandlesRef,

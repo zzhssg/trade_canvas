@@ -34,90 +34,57 @@ export function ChartView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { ref: resizeRef, width, height } = useResizeObserver<HTMLDivElement>();
   const wheelGuardRef = useRef<HTMLDivElement | null>(null);
-
-  const {
-    candles,
-    setCandles,
-    barSpacing,
-    setBarSpacing,
-    lastWsCandleTime,
-    setLastWsCandleTime,
-    error,
-    setError,
-    liveLoadStatus,
-    liveLoadMessage,
-    updateLiveLoadState,
-    toastMessage,
-    showToast,
-    replayMaskX,
-    setReplayMaskX
-  } = useChartViewState(LIVE_LOAD_STATUS_LABELS);
+  const chartState = useChartViewState(LIVE_LOAD_STATUS_LABELS);
   const lastWsCandleTimeRef = useRef<number | null>(null);
-  const { exchange, market, symbol, timeframe, activeChartTool, setActiveChartTool } = useUiStore();
-  const {
-    replayMode,
-    replayPlaying,
-    replaySpeedMs,
-    replayIndex,
-    replayTotal,
-    replayFocusTime,
-    replayPrepareStatus,
-    replayPreparedAlignedTime,
-    setReplayPlaying,
-    setReplayIndex,
-    setReplayTotal,
-    setReplayFocusTime,
-    setReplayFrame,
-    setReplayFrameLoading,
-    setReplayFrameError,
-    setReplayPrepareStatus,
-    setReplayPrepareError,
-    setReplayPreparedAlignedTime,
-    setReplaySlices,
-    setReplayCandle,
-    setReplayDrawInstructions,
-    resetReplayData
-  } = useReplayBindings();
+  const exchange = useUiStore((state) => state.exchange);
+  const market = useUiStore((state) => state.market);
+  const symbol = useUiStore((state) => state.symbol);
+  const timeframe = useUiStore((state) => state.timeframe);
+  const activeChartTool = useUiStore((state) => state.activeChartTool);
+  const setActiveChartTool = useUiStore((state) => state.setActiveChartTool);
+  const replay = useReplayBindings();
   const seriesId = useMemo(() => `${exchange}:${market}:${symbol}:${timeframe}`, [exchange, market, symbol, timeframe]);
-
-  const { visibleFeatures } = useFactorStore();
+  const visibleFeatures = useFactorStore((state) => state.visibleFeatures);
   const factorCatalog = useFactorCatalog();
   const visibleFeaturesRef = useRef(visibleFeatures);
   const parentBySubKey = useMemo(() => getFactorParentsBySubKey(factorCatalog), [factorCatalog]);
-  const replayEnabled = ENABLE_REPLAY_V1 && replayMode === "replay";
+  const replayEnabled = ENABLE_REPLAY_V1 && replay.replayMode === "replay";
   const runtimeRefs = useChartRuntimeRefs(ENABLE_WORLD_FRAME);
   const { candlesRef, candleTimesSecRef, appliedRef } = runtimeRefs;
 
+  useEffect(() => {
+    runtimeRefs.activeSeriesIdRef.current = seriesId;
+  }, [seriesId]);
   const replayPackage = useReplayPackage({
     seriesId,
-    enabled: replayEnabled && replayPrepareStatus === "ready",
+    enabled: replayEnabled && replay.replayPrepareStatus === "ready",
     windowCandles: REPLAY_WINDOW_CANDLES,
     windowSize: REPLAY_WINDOW_SIZE,
     snapshotInterval: REPLAY_SNAPSHOT_INTERVAL
   });
-  const replayPackageEnabled = replayEnabled && replayPrepareStatus === "ready" && replayPackage.enabled;
+  const replayPackageEnabled = replayEnabled && replay.replayPrepareStatus === "ready" && replayPackage.enabled;
   const replayPackageStatus = replayPackage.status;
   const replayPackageMeta = replayPackage.metadata;
   const replayPackageHistory = replayPackage.historyEvents;
   const replayPackageWindows = replayPackage.windows;
   const replayEnsureWindowRange = replayPackage.ensureWindowRange;
+
   const { setReplayIndexAndFocus } = useReplayController({
     seriesId,
     replayEnabled,
-    replayPlaying,
-    replaySpeedMs,
-    replayIndex,
-    replayTotal,
+    replayPlaying: replay.replayPlaying,
+    replaySpeedMs: replay.replaySpeedMs,
+    replayIndex: replay.replayIndex,
+    replayTotal: replay.replayTotal,
     windowCandles: INITIAL_TAIL_LIMIT,
-    resetReplayData,
-    setReplayPlaying,
-    setReplayIndex,
-    setReplayPrepareStatus,
-    setReplayPrepareError,
-    setReplayPreparedAlignedTime
+    resetReplayData: replay.resetReplayData,
+    setReplayPlaying: replay.setReplayPlaying,
+    setReplayIndex: replay.setReplayIndex,
+    setReplayPrepareStatus: replay.setReplayPrepareStatus,
+    setReplayPrepareError: replay.setReplayPrepareError,
+    setReplayPreparedAlignedTime: replay.setReplayPreparedAlignedTime
   });
   const { openMarketWs } = useWsSync({ seriesId });
-
   const { chartRef, candleSeriesRef: seriesRef, markersApiRef, chartEpoch } = useLightweightChart({
     containerRef,
     width,
@@ -126,35 +93,10 @@ export function ChartView() {
       applyChartLifecycleCreated({ chart, candleSeries, candlesRef, appliedRef });
     },
     onCleanup: () => {
-      applyChartLifecycleCleanup({
-        chartRef,
-        lineSeriesByKeyRef: runtimeRefs.lineSeriesByKeyRef,
-        entryMarkersRef: runtimeRefs.entryMarkersRef,
-        pivotMarkersRef: runtimeRefs.pivotMarkersRef,
-        overlayCatalogRef: runtimeRefs.overlayCatalogRef,
-        overlayActiveIdsRef: runtimeRefs.overlayActiveIdsRef,
-        overlayCursorVersionRef: runtimeRefs.overlayCursorVersionRef,
-        penPointsRef: runtimeRefs.penPointsRef,
-        penSeriesRef: runtimeRefs.penSeriesRef,
-        anchorPenPointsRef: runtimeRefs.anchorPenPointsRef,
-        anchorPenIsDashedRef: runtimeRefs.anchorPenIsDashedRef,
-        anchorPenSeriesRef: runtimeRefs.anchorPenSeriesRef,
-        replayPenPreviewSeriesByFeatureRef: runtimeRefs.replayPenPreviewSeriesByFeatureRef,
-        replayPenPreviewPointsRef: runtimeRefs.replayPenPreviewPointsRef,
-        penSegmentSeriesByKeyRef: runtimeRefs.penSegmentSeriesByKeyRef,
-        penSegmentsRef: runtimeRefs.penSegmentsRef,
-        overlayPullInFlightRef: runtimeRefs.overlayPullInFlightRef,
-        factorPullInFlightRef: runtimeRefs.factorPullInFlightRef,
-        factorPullPendingTimeRef: runtimeRefs.factorPullPendingTimeRef,
-        lastFactorAtTimeRef: runtimeRefs.lastFactorAtTimeRef,
-        entryEnabledRef: runtimeRefs.entryEnabledRef,
-        appliedRef,
-        anchorTopLayerPathsRef: runtimeRefs.anchorTopLayerPathsRef
-      });
+      applyChartLifecycleCleanup({ chartRef, appliedRef, runtimeRefs });
       cleanupCanvases();
     }
   });
-
   const {
     positionTools,
     fibTools,
@@ -172,7 +114,7 @@ export function ChartView() {
     activeChartTool,
     setActiveChartTool,
     seriesId,
-    candles,
+    candles: chartState.candles,
     candlesRef,
     candleTimesSecRef,
     chartEpoch,
@@ -182,18 +124,15 @@ export function ChartView() {
     replayEnabled,
     setReplayIndexAndFocus
   });
-
   useChartWheelZoomGuard({
     wheelGuardRef,
     chartRef,
     chartEpoch,
-    setBarSpacing
+    setBarSpacing: chartState.setBarSpacing
   });
-
   useEffect(() => {
     visibleFeaturesRef.current = visibleFeatures;
   }, [visibleFeatures]);
-
   const effectiveVisible = useCallback(
     (key: string): boolean => {
       const features = visibleFeaturesRef.current;
@@ -206,7 +145,13 @@ export function ChartView() {
     },
     [parentBySubKey]
   );
-
+  const bindContainerRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      containerRef.current = el;
+      resizeRef(el);
+    },
+    [resizeRef]
+  );
   const { cleanupCanvases } = useOverlayCanvas({
     chartRef,
     seriesRef,
@@ -222,20 +167,19 @@ export function ChartView() {
     anchorHighlightEpoch: runtimeRefs.anchorHighlightEpoch,
     enableAnchorTopLayer: ENABLE_ANCHOR_TOP_LAYER,
   });
-
   useReplayViewportEffects({
     replayEnabled,
-    replayFocusTime,
+    replayFocusTime: replay.replayFocusTime,
     width,
     height,
     chartEpoch,
     chartRef,
     containerRef,
-    setReplayMaskX,
-    setBarSpacing
+    setReplayMaskX: chartState.setReplayMaskX,
+    setBarSpacing: chartState.setBarSpacing
   });
-
   const runtimeCallbacks = useChartRuntimeCallbacks({
+    ...runtimeRefs,
     seriesId,
     timeframe,
     replayEnabled,
@@ -246,64 +190,30 @@ export function ChartView() {
     chartRef,
     markersApiRef,
     candlesRef,
-    overlayActiveIdsRef: runtimeRefs.overlayActiveIdsRef,
-    overlayCatalogRef: runtimeRefs.overlayCatalogRef,
-    overlayCursorVersionRef: runtimeRefs.overlayCursorVersionRef,
-    overlayPolylineSeriesByIdRef: runtimeRefs.overlayPolylineSeriesByIdRef,
-    anchorTopLayerPathsRef: runtimeRefs.anchorTopLayerPathsRef,
-    pivotMarkersRef: runtimeRefs.pivotMarkersRef,
-    anchorSwitchMarkersRef: runtimeRefs.anchorSwitchMarkersRef,
-    entryMarkersRef: runtimeRefs.entryMarkersRef,
-    setPivotCount: runtimeRefs.setPivotCount,
-    setAnchorSwitchCount: runtimeRefs.setAnchorSwitchCount,
-    setAnchorTopLayerPathCount: runtimeRefs.setAnchorTopLayerPathCount,
-    setZhongshuCount: runtimeRefs.setZhongshuCount,
-    setAnchorCount: runtimeRefs.setAnchorCount,
-    setOverlayPaintEpoch: runtimeRefs.setOverlayPaintEpoch,
-    penSeriesRef: runtimeRefs.penSeriesRef,
-    penPointsRef: runtimeRefs.penPointsRef,
-    penSegmentsRef: runtimeRefs.penSegmentsRef,
-    penSegmentSeriesByKeyRef: runtimeRefs.penSegmentSeriesByKeyRef,
-    anchorPenPointsRef: runtimeRefs.anchorPenPointsRef,
-    anchorPenIsDashedRef: runtimeRefs.anchorPenIsDashedRef,
-    replayPenPreviewPointsRef: runtimeRefs.replayPenPreviewPointsRef,
-    replayPenPreviewSeriesByFeatureRef: runtimeRefs.replayPenPreviewSeriesByFeatureRef,
-    factorPullPendingTimeRef: runtimeRefs.factorPullPendingTimeRef,
-    factorPullInFlightRef: runtimeRefs.factorPullInFlightRef,
-    lastFactorAtTimeRef: runtimeRefs.lastFactorAtTimeRef,
-    replayPatchRef: runtimeRefs.replayPatchRef,
-    replayPatchAppliedIdxRef: runtimeRefs.replayPatchAppliedIdxRef,
-    replayWindowIndexRef: runtimeRefs.replayWindowIndexRef,
-    replayFrameLatestTimeRef: runtimeRefs.replayFrameLatestTimeRef,
-    replayFramePendingTimeRef: runtimeRefs.replayFramePendingTimeRef,
-    replayFramePullInFlightRef: runtimeRefs.replayFramePullInFlightRef,
     effectiveVisible,
-    setPenPointCount: runtimeRefs.setPenPointCount,
-    setAnchorHighlightEpoch: runtimeRefs.setAnchorHighlightEpoch,
-    setReplaySlices,
-    setReplayDrawInstructions,
-    setReplayFrameLoading,
-    setReplayFrameError,
-    setReplayFrame,
-    setReplayCandle
+    setReplaySlices: replay.setReplaySlices,
+    setReplayDrawInstructions: replay.setReplayDrawInstructions,
+    setReplayFrameLoading: replay.setReplayFrameLoading,
+    setReplayFrameError: replay.setReplayFrameError,
+    setReplayFrame: replay.setReplayFrame,
+    setReplayCandle: replay.setReplayCandle
   });
-
   useChartRuntimeEffects({
     seriesId,
     timeframe,
     replayEnabled,
-    replayPreparedAlignedTime,
-    replayPrepareStatus,
+    replayPreparedAlignedTime: replay.replayPreparedAlignedTime,
+    replayPrepareStatus: replay.replayPrepareStatus,
     replayPackageEnabled,
     replayPackageStatus,
     replayPackageMeta,
     replayPackageHistory,
     replayPackageWindows,
     replayEnsureWindowRange,
-    replayIndex,
-    replayTotal,
-    replayFocusTime,
-    candles,
+    replayIndex: replay.replayIndex,
+    replayTotal: replay.replayTotal,
+    replayFocusTime: replay.replayFocusTime,
+    candles: chartState.candles,
     visibleFeatures,
     chartEpoch,
     enablePenSegmentColor: ENABLE_PEN_SEGMENT_COLOR,
@@ -316,54 +226,60 @@ export function ChartView() {
     effectiveVisible,
     openMarketWs,
     toReplayCandle,
-    setCandles,
-    setReplayTotal,
-    setReplayPlaying,
-    setReplayIndex,
-    setReplayFocusTime,
-    setReplayFrame,
-    setReplaySlices,
-    setReplayCandle,
-    setReplayDrawInstructions,
-    setReplayFrameLoading,
-    setReplayFrameError,
-    setLastWsCandleTime,
-    setLiveLoadState: updateLiveLoadState,
-    setError,
-    showToast,
+    setCandles: chartState.setCandles,
+    setReplayTotal: replay.setReplayTotal,
+    setReplayPlaying: replay.setReplayPlaying,
+    setReplayIndex: replay.setReplayIndex,
+    setReplayFocusTime: replay.setReplayFocusTime,
+    setReplayFrame: replay.setReplayFrame,
+    setReplaySlices: replay.setReplaySlices,
+    setReplayCandle: replay.setReplayCandle,
+    setReplayDrawInstructions: replay.setReplayDrawInstructions,
+    setReplayFrameLoading: replay.setReplayFrameLoading,
+    setReplayFrameError: replay.setReplayFrameError,
+    setLastWsCandleTime: chartState.setLastWsCandleTime,
+    setLiveLoadState: chartState.updateLiveLoadState,
+    setError: chartState.setError,
+    showToast: chartState.showToast,
     ...runtimeRefs,
     ...runtimeCallbacks
   });
-
-  const lastCandle = candles.length > 0 ? candles[candles.length - 1]! : null;
+  const lastCandle = chartState.candles.length > 0 ? chartState.candles[chartState.candles.length - 1]! : null;
+  const anchorHighlightPoints = runtimeRefs.anchorPenPointsRef.current;
+  const anchorHighlightPointCount = anchorHighlightPoints?.length ?? 0;
+  const anchorHighlightStartTime =
+    anchorHighlightPointCount > 0 ? Number(anchorHighlightPoints?.[0]?.time ?? 0) : null;
+  const anchorHighlightEndTime =
+    anchorHighlightPointCount > 0 ? Number(anchorHighlightPoints?.[anchorHighlightPointCount - 1]?.time ?? 0) : null;
 
   return (
     <ChartViewShell
       wheelGuardRef={wheelGuardRef}
-      bindContainerRef={(el) => {
-        containerRef.current = el;
-        resizeRef(el);
-      }}
+      bindContainerRef={bindContainerRef}
       seriesId={seriesId}
-      candlesLength={candles.length}
+      candlesLength={chartState.candles.length}
       lastCandle={lastCandle}
-      lastWsCandleTime={lastWsCandleTime}
+      lastWsCandleTime={chartState.lastWsCandleTime}
       chartEpoch={chartEpoch}
-      barSpacing={barSpacing}
+      barSpacing={chartState.barSpacing}
       pivotCount={runtimeRefs.pivotCount}
       penPointCount={runtimeRefs.penPointCount}
       zhongshuCount={runtimeRefs.zhongshuCount}
       anchorCount={runtimeRefs.anchorCount}
       anchorSwitchCount={runtimeRefs.anchorSwitchCount}
+      anchorHighlightPointCount={anchorHighlightPointCount}
+      anchorHighlightStartTime={anchorHighlightStartTime}
+      anchorHighlightEndTime={anchorHighlightEndTime}
+      anchorHighlightDashed={runtimeRefs.anchorPenIsDashedRef.current}
       enableAnchorTopLayer={ENABLE_ANCHOR_TOP_LAYER}
       anchorTopLayerPathCount={runtimeRefs.anchorTopLayerPathCount}
       replayEnabled={replayEnabled}
-      replayIndex={replayIndex}
-      replayTotal={replayTotal}
-      replayFocusTime={replayFocusTime}
-      replayPlaying={replayPlaying}
-      error={error}
-      replayMaskX={replayMaskX}
+      replayIndex={replay.replayIndex}
+      replayTotal={replay.replayTotal}
+      replayFocusTime={replay.replayFocusTime}
+      replayPlaying={replay.replayPlaying}
+      error={chartState.error}
+      replayMaskX={chartState.replayMaskX}
       enableDrawTools={ENABLE_DRAW_TOOLS}
       activeChartTool={activeChartTool}
       containerRef={containerRef}
@@ -383,9 +299,9 @@ export function ChartView() {
       onInteractionLockChange={(locked) => {
         interactionLockRef.current.dragging = locked;
       }}
-      liveLoadStatus={liveLoadStatus}
-      liveLoadMessage={liveLoadMessage}
-      toastMessage={toastMessage}
+      liveLoadStatus={chartState.liveLoadStatus}
+      liveLoadMessage={chartState.liveLoadMessage}
+      toastMessage={chartState.toastMessage}
     />
   );
 }

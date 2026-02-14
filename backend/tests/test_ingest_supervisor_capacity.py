@@ -11,6 +11,7 @@ from backend.app.ingest.config import (
     IngestDerivedConfig,
     IngestGuardrailConfig,
     IngestRuntimeConfig,
+    IngestSupervisorInitConfig,
 )
 from backend.app.ingest.supervisor import IngestSupervisor, _Job
 from backend.app.storage.candle_store import CandleStore
@@ -28,7 +29,14 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
     def test_capacity_denies_when_full_and_no_idle(self) -> None:
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
-        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), config=IngestRuntimeConfig(ondemand_max_jobs=1))
+        sup = IngestSupervisor(
+            store=store,
+            hub=hub,
+            options=IngestSupervisorInitConfig(
+                whitelist_series_ids=(),
+                runtime=IngestRuntimeConfig(ondemand_max_jobs=1),
+            ),
+        )
 
         def _fake_start_job(self, series_id: str, *, refcount: int) -> _Job:  # noqa: ANN001
             stop = asyncio.Event()
@@ -60,7 +68,14 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
     def test_capacity_evicts_idle_job(self) -> None:
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
-        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), config=IngestRuntimeConfig(ondemand_max_jobs=1))
+        sup = IngestSupervisor(
+            store=store,
+            hub=hub,
+            options=IngestSupervisorInitConfig(
+                whitelist_series_ids=(),
+                runtime=IngestRuntimeConfig(ondemand_max_jobs=1),
+            ),
+        )
 
         def _fake_start_job(self, series_id: str, *, refcount: int) -> _Job:  # noqa: ANN001
             stop = asyncio.Event()
@@ -99,12 +114,14 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
         sup = IngestSupervisor(
             store=store,
             hub=hub,
-            whitelist_series_ids=(),
-            config=IngestRuntimeConfig(
-                derived=IngestDerivedConfig(
-                    enabled=True,
-                    base_timeframe="1m",
-                    timeframes=("5m",),
+            options=IngestSupervisorInitConfig(
+                whitelist_series_ids=(),
+                runtime=IngestRuntimeConfig(
+                    derived=IngestDerivedConfig(
+                        enabled=True,
+                        base_timeframe="1m",
+                        timeframes=("5m",),
+                    ),
                 ),
             ),
         )
@@ -141,7 +158,11 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
     def test_subscribe_restarts_dead_job(self) -> None:
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
-        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=())
+        sup = IngestSupervisor(
+            store=store,
+            hub=hub,
+            options=IngestSupervisorInitConfig(whitelist_series_ids=()),
+        )
         series_id = "binance:spot:BTC/USDT:1m"
         starts: list[str] = []
 
@@ -190,7 +211,14 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
     def test_reaper_restarts_dead_active_ondemand_job(self) -> None:
         store = CandleStore(db_path=self.db_path)
         hub = CandleHub()
-        sup = IngestSupervisor(store=store, hub=hub, whitelist_series_ids=(), ondemand_idle_ttl_s=1)
+        sup = IngestSupervisor(
+            store=store,
+            hub=hub,
+            options=IngestSupervisorInitConfig(
+                whitelist_series_ids=(),
+                ondemand_idle_ttl_s=1,
+            ),
+        )
         series_id = "binance:spot:BTC/USDT:1m"
         starts: list[str] = []
 
@@ -237,12 +265,14 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
         sup = IngestSupervisor(
             store=store,
             hub=hub,
-            whitelist_series_ids=(),
-            config=IngestRuntimeConfig(
-                guardrail=IngestGuardrailConfig(
-                    enabled=True,
-                    crash_budget=1,
-                    open_cooldown_s=0.5,
+            options=IngestSupervisorInitConfig(
+                whitelist_series_ids=(),
+                runtime=IngestRuntimeConfig(
+                    guardrail=IngestGuardrailConfig(
+                        enabled=True,
+                        crash_budget=1,
+                        open_cooldown_s=0.5,
+                    ),
                 ),
             ),
         )

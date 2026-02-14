@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
+from ..core.ports import AlignedStorePort, DebugHubPort, HeadStorePort
 from ..core.schemas import (
     DrawDeltaV1,
     GetFactorSlicesResponseV1,
@@ -13,60 +13,18 @@ from ..core.schemas import (
     WorldTimeV1,
 )
 from ..core.service_errors import ServiceError
+from .ports import DrawReadServicePort, FactorReadServicePort
 
 
-class _StoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
-
-
-class _OverlayStoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-
-class _FactorReadServiceLike(Protocol):
-    def read_slices(
-        self,
-        *,
-        series_id: str,
-        at_time: int,
-        window_candles: int,
-        aligned_time: int | None = None,
-        ensure_fresh: bool = True,
-    ) -> GetFactorSlicesResponseV1: ...
-
-
-class _DrawReadServiceLike(Protocol):
-    def read_delta(
-        self,
-        *,
-        series_id: str,
-        cursor_version_id: int,
-        window_candles: int,
-        at_time: int | None = None,
-    ) -> DrawDeltaV1: ...
-
-
-class _DebugHubLike(Protocol):
-    def emit(
-        self,
-        *,
-        pipe: str,
-        event: str,
-        level: str = "info",
-        message: str,
-        series_id: str | None = None,
-        data: dict | None = None,
-    ) -> None: ...
+_DebugHubLike = DebugHubPort
 
 
 @dataclass(frozen=True)
 class WorldReadService:
-    store: _StoreLike
-    overlay_store: _OverlayStoreLike
-    factor_read_service: _FactorReadServiceLike
-    draw_read_service: _DrawReadServiceLike
+    store: AlignedStorePort
+    overlay_store: HeadStorePort
+    factor_read_service: FactorReadServicePort
+    draw_read_service: DrawReadServicePort
     debug_hub: _DebugHubLike
     debug_api_enabled: bool = False
 

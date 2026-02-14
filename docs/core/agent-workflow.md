@@ -2,7 +2,7 @@
 title: Agent 工作流（入口 / 门禁 / 证据 / 验收 SOP）
 status: draft
 created: 2026-02-05
-updated: 2026-02-13
+updated: 2026-02-14
 ---
 
 # Agent 工作流（入口 / 门禁 / 证据 / 验收 SOP）
@@ -54,6 +54,26 @@ flowchart TD
 - Python/后端：`pytest -q --collect-only`
 - 前端/TS：`cd frontend && npx tsc -b --pretty false --noEmit`
 
+### 澄清与确认协议（提效补充）
+
+- 问题包协议：一次性提 `1-5` 个关键决策问题；默认 2-3 个，高风险最多 5 个。
+- 每题优先给 2-3 个互斥选项并标注推荐项；标记 `必答`/`可选`，可选题未回复时按推荐默认继续。
+- 问题绑定三要素：每个问题都要明确 `purpose / constraints / success criteria`。
+- 中/高风险方案分段确认：按“架构与边界 → 数据流与契约 → 验收与回滚”逐段确认，降低返工。
+
+问题包输出模板（建议）：
+
+```text
+【问题包】
+Q1（必答）：...
+- 目的：
+- 约束：
+- 成功标准：
+- 选项（推荐）：
+- 影响（验收/回滚）：
+Q2（可选）：...
+```
+
 ---
 
 ## 1) 两档循环：Fast loop vs Delivery loop
@@ -99,6 +119,77 @@ flowchart TD
 - `命令`：脚本完整调用参数
 - `关键输出`：`summary.json` 的 `delivery_ratio / p95 / gate_ok`
 - `产物路径`：对应 run 目录绝对路径
+
+### 1.4 上下文与学习闭环（提效补充）
+
+- **上下文治理**：长会话、阶段切换、任务切换时触发 `tc-context-compact`，先落盘快照再 compact/切会话。
+- **经验沉淀**：每轮 `feat/fix/refactor` 交付后触发 `tc-learning-loop`，在 `docs/经验/` 沉淀原子经验卡（含证据与置信度）。
+- **升级规则**：经验卡连续复用稳定后，进入 `tc-skill-authoring` 升级为项目 skill。
+
+推荐命令：
+
+```bash
+# SessionEnd: 自动落盘会话快照
+python3 scripts/context_snapshot.py save \
+  --topic <topic> \
+  --phase 执行方案 \
+  --goal "<当前目标>" \
+  --next-step "<下一步动作>" \
+  --acceptance "<验收命令>" \
+  --rollback "<回滚方式>"
+
+# SessionStart: 新会话加载最近快照
+python3 scripts/context_snapshot.py resume --lines 80
+```
+
+### 1.5 Checkpoint Evals（pass@k / pass^k）
+
+目的：避免“只看一次通过”，将关键门禁转为趋势指标。
+
+推荐命令：
+
+```bash
+# 记录一次门禁尝试并自动更新统计
+python3 scripts/eval_checkpoint.py run \
+  --checkpoint quality-gate-main \
+  --command "bash scripts/quality_gate.sh"
+
+# 查看 checkpoint 历史趋势
+python3 scripts/eval_checkpoint.py report --checkpoint quality-gate-main --k 1,3,5
+python3 scripts/eval_checkpoint.py list
+```
+
+说明：
+- `pass@k`：最近 k 次窗口内至少一次成功的比例。
+- `pass^k`：最近 k 次窗口全部成功的比例（更严格）。
+
+### 1.6 子 session 编排（模拟子 agent）
+
+目的：当一个主任务可拆成多个低耦合子任务时，使用 fan-out + callback 提升吞吐，并保留可追踪证据。
+
+统一入口：`tc-subagent-orchestration`
+
+推荐命令：
+
+```bash
+# 生成 spec 模板
+python3 scripts/subagent_orchestrator.py template \
+  --output output/subagents/spec-example.json
+
+# fan-out 执行并生成回调/汇总
+python3 scripts/subagent_orchestrator.py run \
+  --spec output/subagents/spec-example.json \
+  --max-parallel 2
+```
+
+产物约定：
+- 子任务级：`output/subagents/<run_id>/<task_id>/events.jsonl|stderr.log|last_message.txt|result.json`
+- 汇总级：`output/subagents/<run_id>/summary.json|summary.md`
+
+边界约束：
+- 只在低耦合目录上并行；同文件高冲突任务禁止 fan-out。
+- 子任务 prompt 必须写清“允许改动目录/禁止改动目录”。
+- fan-out 结果是过程证据；最终交付仍要跑 `tc-verify`，跨模块时补 `tc-acceptance-e2e`。
 
 ---
 

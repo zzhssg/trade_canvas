@@ -12,6 +12,10 @@ metadata:
 本 skill **只做 worktree 生命周期的收尾**（review + merge + remove）。  
 如果你要做“最终交付门禁”（Playwright E2E + 证据），请用 `tc-acceptance-e2e`。
 
+与其他 skills 的关系：
+- `tc-worktree-lifecycle`：覆盖创建→开发→验收→删除全流程；本 skill 是其中“收尾阶段”的一键入口。
+- `tc-acceptance-e2e`：负责最终交付证据门禁；行为改动建议先跑它，再执行本 skill 的 `--yes` 合并删除。
+
 ---
 
 ## 1) 使用方式

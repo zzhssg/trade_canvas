@@ -4,14 +4,16 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from ..factor.slices_service import FactorSlicesService
 from ..factor.store import FactorStore
-from ..overlay.package_builder_v1 import OverlayReplayBuildParamsV1, build_overlay_replay_package_v1
+from ..overlay.package_builder_v1 import (
+    OverlayReplayBuildParamsV1,
+    build_overlay_replay_package_v1,
+    stable_json_dumps,
+)
 from ..overlay.store import OverlayStore
 from ..storage.candle_store import CandleStore
-from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from .package_protocol_v1 import (
     ReplayFactorHeadSnapshotV1,
     ReplayHistoryDeltaV1,
@@ -30,11 +32,6 @@ class ReplayBuildParamsV1:
     snapshot_interval: int = 25
     preload_offset: int = 0
 
-
-def stable_json_dumps(obj: Any) -> str:
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-
-
 def build_replay_package_v1(
     *,
     package_path: Path,
@@ -45,49 +42,35 @@ def build_replay_package_v1(
     factor_slices_service: FactorSlicesService,
     params: ReplayBuildParamsV1,
 ) -> None:
-    tf_s = timeframe_to_seconds(series_id_timeframe(params.series_id))
     window_candles = max(1, int(params.window_candles))
-    window_size = max(1, int(params.window_size))
-    snapshot_interval = max(1, int(params.snapshot_interval))
-
-    end_time = int(params.to_candle_time)
-    start_time = max(0, end_time - (window_candles - 1) * int(tf_s))
-    candles = candle_store.get_closed_between_times(
-        params.series_id,
-        start_time=int(start_time),
-        end_time=int(end_time),
-        limit=int(window_candles) + 10,
-    )
-    kline_all = [
-        ReplayKlineBarV1(
-            time=int(candle.candle_time),
-            open=float(candle.open),
-            high=float(candle.high),
-            low=float(candle.low),
-            close=float(candle.close),
-            volume=float(candle.volume),
-        )
-        for candle in candles
-    ]
-    if kline_all:
-        kline_all.sort(key=lambda row: int(row.time))
-    if not kline_all:
-        raise ValueError("no_candles")
-
-    from_time = int(kline_all[0].time)
-    to_time = int(kline_all[-1].time)
     overlay_pkg = build_overlay_replay_package_v1(
         candle_store=candle_store,
         overlay_store=overlay_store,
         params=OverlayReplayBuildParamsV1(
             series_id=params.series_id,
-            to_candle_time=int(to_time),
-            window_candles=int(window_candles),
-            window_size=int(window_size),
-            snapshot_interval=int(snapshot_interval),
+            to_candle_time=int(params.to_candle_time),
+            window_candles=int(params.window_candles),
+            window_size=int(params.window_size),
+            snapshot_interval=int(params.snapshot_interval),
             preload_offset=int(params.preload_offset),
         ),
     )
+    if int(overlay_pkg.metadata.total_candles) <= 0:
+        raise ValueError("no_candles")
+    kline_all = [
+        ReplayKlineBarV1(
+            time=int(bar.time),
+            open=float(bar.open),
+            high=float(bar.high),
+            low=float(bar.low),
+            close=float(bar.close),
+            volume=float(bar.volume),
+        )
+        for window in overlay_pkg.windows
+        for bar in window.kline
+    ]
+    from_time = int(overlay_pkg.metadata.from_candle_time)
+    to_time = int(overlay_pkg.metadata.to_candle_time)
 
     events = factor_store.get_events_between_times(
         series_id=params.series_id,
@@ -145,12 +128,12 @@ def build_replay_package_v1(
     metadata = ReplayPackageMetadataV1(
         schema_version=1,
         series_id=params.series_id,
-        timeframe_s=int(tf_s),
-        total_candles=int(len(kline_all)),
-        from_candle_time=int(from_time),
-        to_candle_time=int(to_time),
-        window_size=int(window_size),
-        snapshot_interval=int(snapshot_interval),
+        timeframe_s=int(overlay_pkg.metadata.timeframe_s),
+        total_candles=int(overlay_pkg.metadata.total_candles),
+        from_candle_time=int(overlay_pkg.metadata.from_candle_time),
+        to_candle_time=int(overlay_pkg.metadata.to_candle_time),
+        window_size=int(overlay_pkg.metadata.window_size),
+        snapshot_interval=int(overlay_pkg.metadata.snapshot_interval),
         preload_offset=int(params.preload_offset),
         idx_to_time="windows[*].kline[idx].time",
     )

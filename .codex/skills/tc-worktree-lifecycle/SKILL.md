@@ -16,6 +16,11 @@ metadata:
 - **验收阶段**：Quality Gate 通过 + E2E 通过 + Code Review + Plan 状态更新
 - **删除阶段**：确认已合并到 main，归档元数据
 
+与相关 skills 的边界：
+- `tc-worktree-lifecycle`：覆盖全生命周期（创建/开发/验收/删除）。
+- `验收`：只处理“当前 worktree 收尾”的快捷入口（底层同样调用 `scripts/worktree_acceptance.sh`）。
+- `tc-acceptance-e2e`：只负责最终交付证据门禁；通常在 `验收` 之前执行。
+
 ---
 
 ## 1) 创建阶段（Creation Gate）
@@ -28,7 +33,7 @@ metadata:
 - **plan 文档（中/高风险必填）**：`docs/plan/YYYY-MM-DD-<topic>.md`
   - 低风险（仅 docs/test/style）允许不建 plan
   - 中/高风险（任何非低风险改动）必须有 plan（否则 `scripts/worktree_acceptance.sh` 会在验收门禁失败）
-- **分支命名规范**：`{type}/{feature-name}`，如 `feature/draw-tools-v1`
+- **分支命名规范**：`codex/<topic>`，如 `codex/draw-tools-v1`
 
 ### 1.2 创建方式
 
@@ -45,7 +50,7 @@ metadata:
 curl -X POST http://localhost:8000/api/dev/worktrees \
   -H "Content-Type: application/json" \
   -d '{
-    "branch": "feature/my-feature",
+    "branch": "codex/my-feature",
     "description": "实现 XXX 功能，包括 A、B、C 三个模块",
     "plan_path": "docs/plan/2026-02-xx-my-feature.md",
     "base_branch": "main"

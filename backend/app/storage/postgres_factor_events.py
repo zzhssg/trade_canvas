@@ -1,37 +1,11 @@
 from __future__ import annotations
 
-import json
+from contextlib import AbstractContextManager
 from typing import Any, Callable, Iterator
 
 from ..factor.store import FactorEventRow
-
-
-def row_get(row: Any, *, index: int, key: str) -> Any:
-    if isinstance(row, dict):
-        return row.get(key)
-    if hasattr(row, "keys"):
-        try:
-            return row[key]
-        except (KeyError, IndexError):
-            pass
-    return row[index]
-
-
-def json_load(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, (bytes, bytearray)):
-        try:
-            value = value.decode("utf-8")
-        except (UnicodeDecodeError, AttributeError):
-            return {}
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except (json.JSONDecodeError, ValueError):
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-    return {}
+from .contracts import DbConnection
+from .postgres_common import json_load, row_get
 
 
 def decode_event_rows(rows: list[Any]) -> list[FactorEventRow]:
@@ -53,7 +27,7 @@ def decode_event_rows(rows: list[Any]) -> list[FactorEventRow]:
 
 def get_events_between_times(
     *,
-    connect: Callable[[], Any],
+    connect: Callable[[], AbstractContextManager[DbConnection]],
     events_table: str,
     series_id: str,
     factor_name: str | None,
@@ -97,7 +71,7 @@ def get_events_between_times(
 
 def get_events_between_times_paged(
     *,
-    connect: Callable[[], Any],
+    connect: Callable[[], AbstractContextManager[DbConnection]],
     events_table: str,
     series_id: str,
     factor_name: str | None,
@@ -120,7 +94,7 @@ def get_events_between_times_paged(
 
 def iter_events_between_times_paged(
     *,
-    connect: Callable[[], Any],
+    connect: Callable[[], AbstractContextManager[DbConnection]],
     events_table: str,
     series_id: str,
     factor_name: str | None,

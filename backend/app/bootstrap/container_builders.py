@@ -9,7 +9,7 @@ from ..backtest.service import BacktestService
 from ..core.config import Settings
 from ..debug.hub import DebugHub
 from ..factor.orchestrator import FactorOrchestrator
-from ..factor.runtime_config import FactorSettings
+from ..factor.runtime_config import build_factor_orchestrator_runtime_config
 from ..factor.slices_service import FactorSlicesService
 from ..factor.store import FactorStore
 from ..ledger.sync_service import LedgerSyncService
@@ -73,34 +73,36 @@ def build_domain_core(*, settings: Settings, runtime_flags: RuntimeFlags, postgr
     )
     factor_store: FactorStore
     if postgres_pool is not None:
-        factor_store = PostgresFactorRepository(
-            pool=postgres_pool,
-            schema=settings.postgres_schema,
+        factor_store = cast(
+            FactorStore,
+            PostgresFactorRepository(
+                pool=postgres_pool,
+                schema=settings.postgres_schema,
+            ),
         )
     else:
         factor_store = FactorStore(db_path=settings.db_path)
 
+    factor_runtime_config = build_factor_orchestrator_runtime_config(runtime_flags=runtime_flags)
     factor_orchestrator = FactorOrchestrator(
         candle_store=store,
         factor_store=factor_store,
-        settings=FactorSettings(
-            pivot_window_major=int(runtime_flags.factor_pivot_window_major),
-            pivot_window_minor=int(runtime_flags.factor_pivot_window_minor),
-            lookback_candles=int(runtime_flags.factor_lookback_candles),
-            state_rebuild_event_limit=int(runtime_flags.factor_state_rebuild_event_limit),
-        ),
-        ingest_enabled=bool(runtime_flags.enable_factor_ingest),
-        fingerprint_rebuild_enabled=bool(runtime_flags.enable_factor_fingerprint_rebuild),
-        factor_rebuild_keep_candles=int(runtime_flags.factor_rebuild_keep_candles),
-        logic_version_override=str(runtime_flags.factor_logic_version_override or ""),
+        settings=factor_runtime_config.settings,
+        ingest_enabled=factor_runtime_config.ingest_enabled,
+        fingerprint_rebuild_enabled=factor_runtime_config.fingerprint_rebuild_enabled,
+        factor_rebuild_keep_candles=factor_runtime_config.rebuild_keep_candles,
+        logic_version_override=factor_runtime_config.logic_version_override,
     )
     factor_slices_service = FactorSlicesService(candle_store=store, factor_store=factor_store)
 
     overlay_store: OverlayStore
     if postgres_pool is not None:
-        overlay_store = PostgresOverlayRepository(
-            pool=postgres_pool,
-            schema=settings.postgres_schema,
+        overlay_store = cast(
+            OverlayStore,
+            PostgresOverlayRepository(
+                pool=postgres_pool,
+                schema=settings.postgres_schema,
+            ),
         )
     else:
         overlay_store = OverlayStore(db_path=settings.db_path)

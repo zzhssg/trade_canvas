@@ -48,7 +48,12 @@ function pickAnchorRef(value: unknown): AnchorRef | null {
   };
 }
 
-function pickHeadPen(value: unknown, minTime: number | null, maxTime: number | null): HeadPen | null {
+function pickHeadPen(
+  value: unknown,
+  minTime: number | null,
+  maxTime: number | null,
+  candleTimeSet: Set<number>
+): HeadPen | null {
   if (!value || typeof value !== "object") return null;
   const data = value as Record<string, unknown>;
   const startTime = Math.floor(Number(data["start_time"]));
@@ -59,6 +64,7 @@ function pickHeadPen(value: unknown, minTime: number | null, maxTime: number | n
   if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || !Number.isFinite(startPrice) || !Number.isFinite(endPrice) || !Number.isFinite(direction)) return null;
   if (startTime <= 0 || endTime <= 0 || startTime >= endTime) return null;
   if (minTime != null && maxTime != null && (startTime < minTime || endTime > maxTime)) return null;
+  if (!candleTimeSet.has(startTime) || !candleTimeSet.has(endTime)) return null;
   return {
     start_time: startTime,
     end_time: endTime,
@@ -74,11 +80,17 @@ export function derivePenAnchorStateFromSlices(params: {
   slices: GetFactorSlicesResponseV1;
   minTime: number | null;
   maxTime: number | null;
+  candleTimes: number[];
   replayEnabled: boolean;
   enablePenSegmentColor: boolean;
   segmentRenderLimit: number;
 }): PenAnchorRuntimeState {
-  const { slices, minTime, maxTime, replayEnabled, enablePenSegmentColor, segmentRenderLimit } = params;
+  const { slices, minTime, maxTime, candleTimes, replayEnabled, enablePenSegmentColor, segmentRenderLimit } = params;
+  const candleTimeSet = new Set(
+    (candleTimes ?? [])
+      .map((value) => Math.floor(Number(value)))
+      .filter((value) => Number.isFinite(value) && value > 0)
+  );
   const anchor = slices.snapshots?.["anchor"];
   const pen = slices.snapshots?.["pen"];
 
@@ -113,6 +125,7 @@ export function derivePenAnchorStateFromSlices(params: {
     if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || !Number.isFinite(startPrice) || !Number.isFinite(endPrice) || !Number.isFinite(direction)) continue;
     if (startTime <= 0 || endTime <= 0 || startTime >= endTime) continue;
     if (minTime != null && maxTime != null && (startTime < minTime || endTime > maxTime)) continue;
+    if (!candleTimeSet.has(startTime) || !candleTimeSet.has(endTime)) continue;
 
     const startPoint: PenLinePoint = { time: startTime as UTCTimestamp, value: startPrice };
     const endPoint: PenLinePoint = { time: endTime as UTCTimestamp, value: endPrice };
@@ -130,8 +143,8 @@ export function derivePenAnchorStateFromSlices(params: {
   }
 
   const penHead = (pen?.head ?? {}) as Record<string, unknown>;
-  const extendingPen = pickHeadPen(penHead["extending"], minTime, maxTime);
-  const candidatePen = pickHeadPen(penHead["candidate"], minTime, maxTime);
+  const extendingPen = pickHeadPen(penHead["extending"], minTime, maxTime, candleTimeSet);
+  const candidatePen = pickHeadPen(penHead["candidate"], minTime, maxTime, candleTimeSet);
 
   let anchorHighlightPoints: PenLinePoint[] | null = null;
   let anchorHighlightDashed = false;

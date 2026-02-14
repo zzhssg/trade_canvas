@@ -27,6 +27,16 @@ class IngestPipelineSyncPort(Protocol):
     def refresh_series_sync(self, *, up_to_times: Mapping[str, int]) -> RefreshResultPort: ...
 
 
+class BackfillPort(Protocol):
+    def ensure_tail_coverage(self, *, series_id: str, target_candles: int, to_time: int | None) -> int: ...
+
+
+class OverlayOrchestratorPort(Protocol):
+    def reset_series(self, *, series_id: str) -> None: ...
+
+    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None: ...
+
+
 class DebugHubPort(Protocol):
     def emit(
         self,

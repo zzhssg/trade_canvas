@@ -1,4 +1,5 @@
 import { logDebugEvent } from "../../debug/debug";
+import { emitMarketPulse } from "../../lib/marketPulse";
 
 import { fetchCandles } from "./api";
 import { mergeCandlesWindow, mergeCandleWindow, toChartCandle } from "./candles";
@@ -19,6 +20,7 @@ export function buildLiveSessionWsHandlers(
       if (time != null) {
         args.lastWsCandleTimeRef.current = time;
         args.setLastWsCandleTime(time);
+        emitMarketPulse({ seriesId: args.seriesId, type: "candles_batch", candleTime: time });
       }
 
       args.setCandles((prev) => {
@@ -66,6 +68,7 @@ export function buildLiveSessionWsHandlers(
       const time = msg.candle.candle_time;
       args.lastWsCandleTimeRef.current = time;
       args.setLastWsCandleTime(time);
+      emitMarketPulse({ seriesId: args.seriesId, type: "candle_closed", candleTime: time });
 
       const next = toChartCandle(msg.candle);
       args.candlesRef.current = mergeCandleWindow(args.candlesRef.current, next, args.windowCandles);
@@ -85,6 +88,7 @@ export function buildLiveSessionWsHandlers(
       schedule(time);
     },
     onGap: (msg) => {
+      emitMarketPulse({ seriesId: args.seriesId, type: "gap", candleTime: msg.actual_time ?? msg.expected_next_time ?? null });
       logDebugEvent({
         pipe: "read",
         event: "read.ws.market_gap",

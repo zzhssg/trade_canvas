@@ -1,0 +1,43 @@
+name: docs-governance
+
+on:
+  pull_request:
+    paths:
+      - "AGENTS.md"
+      - "docs/**"
+      - ".codex/skills/**"
+      - "scripts/context_snapshot.py"
+      - "scripts/eval_checkpoint.py"
+      - "scripts/subagent_orchestrator.py"
+      - ".github/workflows/docs-governance.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "AGENTS.md"
+      - "docs/**"
+      - ".codex/skills/**"
+      - "scripts/context_snapshot.py"
+      - "scripts/eval_checkpoint.py"
+      - "scripts/subagent_orchestrator.py"
+      - ".github/workflows/docs-governance.yml"
+
+jobs:
+  docs-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run doc audit (includes workflow consistency)
+        run: bash docs/scripts/doc_audit.sh
+
+      - name: Validate new automation scripts
+        run: |
+          python3 -m py_compile scripts/context_snapshot.py scripts/eval_checkpoint.py scripts/subagent_orchestrator.py

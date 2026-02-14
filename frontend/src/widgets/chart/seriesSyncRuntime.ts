@@ -1,14 +1,11 @@
 import { LineSeries, LineStyle, type IChartApi, type ISeriesApi, type SeriesMarker, type Time } from "lightweight-charts";
 import type { MutableRefObject } from "react";
-
 import { MAX_BAR_SPACING_ON_FIT_CONTENT, clampBarSpacing } from "./barSpacing";
 import { buildSmaLineData, computeSmaAtIndex, isSmaKey } from "./sma";
 import type { Candle } from "./types";
 import type { PenLinePoint, PenSegment } from "./penAnchorRuntime";
-
-type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
-
-type SyncCandlesToSeriesArgs = {
+import type { ReplayPenPreviewFeature } from "./liveSessionRuntimeTypes";
+export type SyncCandlesToSeriesArgs = {
   candles: Candle[];
   series: ISeriesApi<"Candlestick">;
   chart: IChartApi | null;
@@ -18,17 +15,13 @@ type SyncCandlesToSeriesArgs = {
   entryMarkersRef: MutableRefObject<Array<SeriesMarker<Time>>>;
   syncMarkers: () => void;
 };
-
 export function syncCandlesToSeries(args: SyncCandlesToSeriesArgs) {
   const { candles, series, chart, appliedRef, lineSeriesByKeyRef, entryEnabledRef, entryMarkersRef, syncMarkers } = args;
   if (candles.length === 0) return;
-
   const last = candles[candles.length - 1]!;
   const previous = appliedRef.current;
-
   const isAppendOne = previous.len === candles.length - 1 && (previous.lastTime == null || (last.time as number) >= previous.lastTime);
   const isUpdateLast = previous.len === candles.length && previous.lastTime != null && (last.time as number) === previous.lastTime;
-
   const syncAll = () => {
     series.setData(candles);
     for (const [key, item] of lineSeriesByKeyRef.current.entries()) {
@@ -37,7 +30,6 @@ export function syncCandlesToSeries(args: SyncCandlesToSeriesArgs) {
     }
     syncMarkers();
   };
-
   if (previous.len === 0) {
     syncAll();
     chart?.timeScale().fitContent();
@@ -56,7 +48,6 @@ export function syncCandlesToSeries(args: SyncCandlesToSeriesArgs) {
       if (value == null) continue;
       item.update({ time: last.time, value });
     }
-
     if (entryEnabledRef.current) {
       const f0 = computeSmaAtIndex(candles, index - 1, 5);
       const s0 = computeSmaAtIndex(candles, index - 1, 20);
@@ -73,11 +64,9 @@ export function syncCandlesToSeries(args: SyncCandlesToSeriesArgs) {
   } else {
     syncAll();
   }
-
   appliedRef.current = { len: candles.length, lastTime: last.time as number };
 }
-
-type SyncOverlayLayersArgs = {
+export type SyncOverlayLayersArgs = {
   chart: IChartApi;
   visibleFeatures: Record<string, boolean | undefined>;
   effectiveVisible: (key: string) => boolean;
@@ -103,7 +92,6 @@ type SyncOverlayLayersArgs = {
   setPenPointCount: (value: number) => void;
   syncMarkers: () => void;
 };
-
 export function syncOverlayLayers(args: SyncOverlayLayersArgs) {
   const {
     chart,
@@ -131,11 +119,9 @@ export function syncOverlayLayers(args: SyncOverlayLayersArgs) {
     setPenPointCount,
     syncMarkers
   } = args;
-
   const visibleSmaKeys = Object.keys(visibleFeatures)
     .filter((key) => isSmaKey(key) != null)
     .filter((key) => effectiveVisible(key));
-
   const wantSma = new Set(visibleSmaKeys);
   for (const [key, series] of lineSeriesByKeyRef.current.entries()) {
     if (!wantSma.has(key)) {
@@ -143,7 +129,6 @@ export function syncOverlayLayers(args: SyncOverlayLayersArgs) {
       lineSeriesByKeyRef.current.delete(key);
     }
   }
-
   for (const key of wantSma) {
     const period = isSmaKey(key)!;
     let series = lineSeriesByKeyRef.current.get(key);
@@ -154,7 +139,6 @@ export function syncOverlayLayers(args: SyncOverlayLayersArgs) {
     }
     if (candlesRef.current.length > 0) series.setData(buildSmaLineData(candlesRef.current, period));
   }
-
   const showEntry = effectiveVisible("signal.entry");
   if (!showEntry) {
     entryEnabledRef.current = false;
@@ -181,15 +165,12 @@ export function syncOverlayLayers(args: SyncOverlayLayersArgs) {
     }
     entryMarkersRef.current = nextMarkers;
   }
-
   rebuildPivotMarkersFromOverlay();
   rebuildAnchorSwitchMarkersFromOverlay();
   rebuildOverlayPolylinesFromOverlay();
-
   const showPenConfirmed = effectiveVisible("pen.confirmed");
   const penPointTotal =
     enablePenSegmentColor && !replayEnabled ? penSegmentsRef.current.length * 2 : penPointsRef.current.length;
-
   const clearReplayPenPreviewSeries = () => {
     for (const feature of ["pen.extending", "pen.candidate"] as ReplayPenPreviewFeature[]) {
       const series = replayPenPreviewSeriesByFeatureRef.current[feature];
@@ -197,7 +178,6 @@ export function syncOverlayLayers(args: SyncOverlayLayersArgs) {
       replayPenPreviewSeriesByFeatureRef.current[feature] = null;
     }
   };
-
   if (!showPenConfirmed) {
     if (penSeriesRef.current) {
       chart.removeSeries(penSeriesRef.current);
@@ -256,7 +236,6 @@ export function syncOverlayLayers(args: SyncOverlayLayersArgs) {
       penSeriesRef.current.applyOptions({ lineStyle: LineStyle.Solid, priceLineVisible: false, lastValueVisible: false });
       penSeriesRef.current.setData(penPointsRef.current);
     }
-
     const anchorPoints = anchorPenPointsRef.current;
     if (enableAnchorTopLayer) {
       if (anchorPenSeriesRef.current) {
@@ -283,12 +262,10 @@ export function syncOverlayLayers(args: SyncOverlayLayersArgs) {
       }
       anchorPenSeriesRef.current.setData(anchorPoints);
     }
-
     const previewDefs: Array<{ feature: ReplayPenPreviewFeature; lineStyle: LineStyle }> = [
       { feature: "pen.extending", lineStyle: LineStyle.Dashed },
       { feature: "pen.candidate", lineStyle: LineStyle.Dashed }
     ];
-
     for (const preview of previewDefs) {
       const points = replayPenPreviewPointsRef.current[preview.feature];
       const shouldShow = replayEnabled && effectiveVisible(preview.feature) && points.length >= 2;
@@ -318,7 +295,6 @@ export function syncOverlayLayers(args: SyncOverlayLayersArgs) {
       replayPenPreviewSeriesByFeatureRef.current[preview.feature]?.setData(points);
     }
   }
-
   setPenPointCount(penPointTotal);
   syncMarkers();
 }

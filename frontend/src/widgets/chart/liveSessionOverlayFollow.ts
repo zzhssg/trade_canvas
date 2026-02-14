@@ -50,8 +50,8 @@ export function scheduleOverlayFollow(
   runOverlayFollowNow: (time: number) => void,
   time: number
 ) {
-  args.followPendingTimeRef.current = Math.max(args.followPendingTimeRef.current ?? 0, time);
   if (!args.isActive()) return;
+  args.followPendingTimeRef.current = Math.max(args.followPendingTimeRef.current ?? 0, time);
   if (args.overlayPullInFlightRef.current) return;
   if (args.followTimerIdRef.current != null) return;
   args.followTimerIdRef.current = window.setTimeout(() => {
@@ -110,7 +110,13 @@ export function runOverlayFollowNow(
         args.overlayPullInFlightRef.current = false;
         const pending = args.followPendingTimeRef.current;
         args.followPendingTimeRef.current = null;
-        if (pending != null && args.isActive()) schedule(pending);
+        if (pending != null && args.isActive()) {
+          schedule(pending);
+          return;
+        }
+        if (args.isActive() && time > 0 && args.lastFactorAtTimeRef.current !== time) {
+          schedule(time);
+        }
       });
     return;
   }
@@ -137,7 +143,13 @@ export function runOverlayFollowNow(
       args.overlayPullInFlightRef.current = false;
       const pending = args.followPendingTimeRef.current;
       args.followPendingTimeRef.current = null;
-      if (pending != null && args.isActive()) schedule(pending);
+      if (pending != null && args.isActive()) {
+        schedule(pending);
+        return;
+      }
+      if (args.isActive() && time > 0 && args.lastFactorAtTimeRef.current !== time) {
+        schedule(time);
+      }
     });
 
   void args.fetchAndApplyAnchorHighlightAtTime(time);

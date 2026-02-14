@@ -59,3 +59,7 @@ fi
 if [[ -x "docs/scripts/api_docs_audit.sh" ]]; then
   bash "docs/scripts/api_docs_audit.sh"
 fi
+
+if [[ -x "docs/scripts/workflow_consistency_audit.sh" ]]; then
+  bash "docs/scripts/workflow_consistency_audit.sh"
+fi

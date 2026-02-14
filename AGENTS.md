@@ -20,6 +20,17 @@
 - `tc-acceptance-e2e`：最终交付门禁（E2E + 证据）
 - `验收`：worktree 收尾 SOP（review → merge main → 删除 worktree + 文档状态推进）
 
+### 60 秒执行快照（先选链路再开工）
+
+- `docs-only`：`tc-planning`（可选）→ `tc-verify`（可选）→ `验收`；最小命令：`bash docs/scripts/doc_audit.sh`
+- `test-only`：`tc-debug`（修回归时）→ `tc-verify` → `验收`；最小命令：`pytest -q`
+- `单模块行为改动`：`tc-planning` → `tc-e2e-gate` → `tc-verify`；最小命令：`pytest -q` 或 `cd frontend && npm run build`
+- `跨模块主链路改动`：`tc-planning` → `tc-e2e-gate` → `tc-verify` → `tc-acceptance-e2e` → `验收`；最小命令：`bash scripts/quality_gate.sh && bash scripts/e2e_acceptance.sh`
+- `只做 worktree 收尾`：直接 `验收`；若涉及“最终上线证据”，先补跑 `tc-acceptance-e2e`
+- `长会话/切任务`：`tc-context-compact`；最小动作：先落盘快照再切换会话或阶段
+- `多子任务并行`：`tc-subagent-orchestration`；最小命令：`python3 scripts/subagent_orchestrator.py run --spec <spec.json>`
+- `交付后经验沉淀`：`tc-learning-loop`；最小命令：`bash docs/scripts/doc_audit.sh`（更新 `docs/经验` 时）
+
 ## AI助手核心规则
 
 ### 三阶段工作流
@@ -57,7 +68,7 @@
 - ❌ 不分析就推荐方案
 
 阶段转换规则：本阶段你要向我提问。  
-如果存在多个你无法抉择的方案，要问我，作为提问的一部分。  
+如果存在多个你无法抉择的方案，使用“问题包”一次性提问（1-5 个）。  
 如果没有需要问我的，则直接进入下一阶段。
 
 #### 阶段二：制定方案
@@ -97,6 +108,29 @@
 如果在这个阶段发现了拿不准的问题，请向我提问。
 
 收到用户消息时，一般从 `【分析问题】` 阶段开始，除非用户明确指定阶段的名字。
+
+### 提问与确认协议（提效补充）
+
+- **问题包协议（强制）**：`【分析问题】` / `【制定方案】` 阶段一次性提 `1-5` 个关键问题；默认 2-3 个，高风险最多 5 个。
+- **多选优先（强制）**：每题优先给 2-3 个互斥选项，并标注推荐项；同时写清该选择会影响的验收/回滚内容。
+- **优先级标注（强制）**：每题标记 `必答`/`可选`；若可选题未回复，默认按推荐项继续推进，避免阻塞。
+- **分段确认（中/高风险）**：方案输出按“架构与边界 → 数据流与契约 → 验收与回滚”分段推进，每段都可独立确认；低风险快通道可合并输出。
+- **YAGNI 明确化（强制）**：每轮方案都要写“本轮不做什么、为什么不做、何时再评估”，避免范围膨胀。
+
+问题包固定模板（建议直接复用）：
+
+```text
+【问题包】
+Q1（必答）：<问题>
+- 目的：<purpose>
+- 约束：<constraints>
+- 成功标准：<success criteria>
+- 选项：A / B / C（推荐：A）
+- 默认：<未回复时默认动作，仅可选题填写>
+- 影响：<对验收/回滚的影响>
+
+Q2（可选）：...
+```
 
 ### 设计质量附加准则（本仓新增）
 
@@ -203,6 +237,17 @@
   - frontend TS/样式：`cd frontend && npm run build`
   - Python/后端/测试：`pytest -q`
 
+#### 低风险快通道执行模板（推荐直接复用）
+
+- `docs-only`：
+  1) `【制定方案】`：列出变更文档 + 回滚路径；
+  2) `【执行方案】`：执行改动后跑 `bash docs/scripts/doc_audit.sh`；
+  3) 交付时写 `Doc Impact: yes` + 文档路径 + 命令输出摘要。
+- `test-only`：
+  1) `【制定方案】`：写明“仅改测试，不改生产逻辑”的边界；
+  2) `【执行方案】`：执行改动后跑 `pytest -q`（若触及前端 TS 测试，补 `cd frontend && npm run build`）；
+  3) 交付时给“失败前后对比 + 命令输出摘要 + 回滚方式”。
+
 高风险：仍必须完整走三阶段工作流；阶段二不自动切到阶段三。
 
 #### 中风险快通道（建议条款）
@@ -276,15 +321,13 @@ trade_canvas 是一个面向量化/回测/实盘接入的研究与执行工作�
 - 禁止：在已有产物时全量重算；必须基于已有状态做增量更新（无产物才允许全量重建）。
 
 
-### 目录建议（逐步落地，不一次性全建）
+### 目录建议（基于当前代码，增量演进）
 
 - `frontend/`：图表与操作台（Vite/React/TS/Tailwind）。
-- `packages/factor_kernel/`：因子内核（只吃 closed）。
-- `packages/factor_store/`：event log + snapshot（可先 PostgreSQL/jsonl）。
-- `packages/adapters/`：
-  - `freqtrade_adapter/`：ledger → dataframe/信号
-  - `chart_adapter/`：overlay → 前端（ws/http）
-- `fixtures/`：黄金数据（固定 K 线样本，用于可复现测试）
+- `backend/app/bootstrap|core|runtime|lifecycle/`：启动装配、配置真源、运行时门禁与生命周期。
+- `backend/app/pipelines|storage|factor|overlay|market|ingest/`：主写链路与市场数据链路。
+- `backend/app/read_models|replay|backtest|freqtrade/`：读模型、回放、回测与外部策略适配。
+- `fixtures/`：黄金数据（固定 K 线样本，用于可复现测试）。
 
 ### 运行与检查
 
@@ -352,6 +395,7 @@ message 聚焦“为什么/意图”，细节放 body（可选）。
   - 只要改动前端/TS：`cd frontend && npm run build`
 - **回归保护必补**：新增/修复任何行为问题时，至少补 1 条“能失败的”回归保护（unit/集成/E2E 任一即可；优先贴近主链路）。
 - **证据必交付**：汇报时必须附上 `命令 + 关键输出 + 产物路径`（例如 `output/` 下的截图/日志/trace）。
+- **真源一致**：`Doc Impact`、`交付三问`、文档状态推进以本节和 `docs/core/agent-workflow.md` 为唯一真源；skills 不得维护冲突版本。
 - **文档/契约同步**：改了核心链路/不变量/接口契约，必须同步更新 `docs/core/` 或 `docs/core/contracts/`，并跑 `bash docs/scripts/doc_audit.sh`。
 - **文档影响声明（Doc Impact）**：每个 `feat/fix/refactor` 的交付说明必须包含 `Doc Impact: yes/no`。若为 yes：列出受影响文档路径，并必须跑 `bash docs/scripts/doc_audit.sh` 作为证据。
 - **回滚可行**：每一步要么可用 feature flag/开关禁用，要么能通过 `git revert` 直接回退（不接受“只能手工修复”）。
@@ -379,6 +423,14 @@ message 聚焦“为什么/意图”，细节放 body（可选）。
 - 调试/回归：`tc-debug`（跨模块升级 `systematic-debugging`）
 - 重构/治理债收口：`tc-verify`（交付前统一质量门禁）
 - 市场 K 线链路：`tc-market-kline-fastpath-v2`
+- 长会话或阶段切换：`tc-context-compact`
+- 需要主会话拆分并行子任务：`tc-subagent-orchestration`
+- 交付后经验沉淀：`tc-learning-loop`
+- **冲突裁决（按优先级）**：
+  1) 开发过程主链路门禁：`tc-e2e-gate`
+  2) 最终交付证据门禁：`tc-acceptance-e2e`（不替代 `tc-e2e-gate`）
+  3) worktree 收尾：`验收`（全生命周期治理走 `tc-worktree-lifecycle`）
+- **多 skill 推荐顺序**：`tc-planning` → `tc-e2e-gate` → `tc-verify` → `tc-acceptance-e2e` → `验收`
 
 ### 多 Agent 并行开发边界（Worktree + 目录所有权）
 

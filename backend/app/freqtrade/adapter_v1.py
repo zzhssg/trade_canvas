@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from ..core.event_buckets import build_event_bucket_config, collect_event_buckets
 from ..factor.graph import FactorGraph, FactorSpec
 from ..factor.orchestrator import FactorOrchestrator
 from ..factor.plugin_registry import FactorPluginRegistry
-from ..factor.runtime_config import FactorSettings
+from ..factor.runtime_config import build_factor_orchestrator_runtime_config
 from ..factor.store import FactorStore
 from ..runtime.flags import load_runtime_flags
 from ..core.schemas import CandleClosed
@@ -73,57 +74,16 @@ def _build_signal_runtime(signal_plugins: tuple[FreqtradeSignalPlugin, ...] | No
     graph = FactorGraph([FactorSpec(factor_name=s.factor_name, depends_on=s.depends_on) for s in registry.specs()])
     topo_plugins = tuple(cast(FreqtradeSignalPlugin, registry.require(name)) for name in graph.topo_order)
 
-    by_kind: dict[tuple[str, str], str] = {}
-    sort_keys: dict[str, tuple[str, str]] = {}
-    bucket_names: set[str] = set()
-    for plugin in topo_plugins:
-        for spec in plugin.bucket_specs:
-            factor_name = str(spec.factor_name)
-            event_kind = str(spec.event_kind)
-            bucket_name = str(spec.bucket_name)
-            key = (factor_name, event_kind)
-            existing_bucket = by_kind.get(key)
-            if existing_bucket is not None and existing_bucket != bucket_name:
-                raise RuntimeError(f"signal_bucket_conflict:{factor_name}:{event_kind}")
-            by_kind[key] = bucket_name
-            bucket_names.add(bucket_name)
-            if spec.sort_keys is not None:
-                sort_pair = (str(spec.sort_keys[0]), str(spec.sort_keys[1]))
-                existing_sort = sort_keys.get(bucket_name)
-                if existing_sort is not None and existing_sort != sort_pair:
-                    raise RuntimeError(f"signal_bucket_sort_conflict:{bucket_name}")
-                sort_keys[bucket_name] = sort_pair
+    by_kind, sort_keys, bucket_names = build_event_bucket_config(
+        bucket_specs=(spec for plugin in topo_plugins for spec in plugin.bucket_specs),
+        conflict_prefix="signal",
+    )
     return _FreqtradeSignalRuntime(
         plugins=topo_plugins,
         event_bucket_by_kind=by_kind,
         event_bucket_sort_keys=sort_keys,
-        event_bucket_names=tuple(sorted(bucket_names)),
+        event_bucket_names=bucket_names,
     )
-
-
-def _collect_signal_event_buckets(
-    *,
-    rows: list[Any],
-    event_bucket_by_kind: dict[tuple[str, str], str],
-    event_bucket_sort_keys: dict[str, tuple[str, str]],
-    event_bucket_names: tuple[str, ...],
-) -> dict[str, list[dict[str, Any]]]:
-    buckets: dict[str, list[dict[str, Any]]] = {name: [] for name in event_bucket_names}
-    for row in rows:
-        bucket_name = event_bucket_by_kind.get((str(row.factor_name), str(row.kind)))
-        if bucket_name is None:
-            continue
-        payload = dict(row.payload or {})
-        if "candle_time" not in payload:
-            payload["candle_time"] = int(row.candle_time or 0)
-        if "visible_time" not in payload:
-            payload["visible_time"] = int(row.candle_time or 0)
-        buckets[bucket_name].append(payload)
-
-    for bucket_name, sort_pair in event_bucket_sort_keys.items():
-        key_a, key_b = sort_pair
-        buckets[bucket_name].sort(key=lambda d: (int(d.get(key_a) or 0), int(d.get(key_b) or 0)))
-    return buckets
 
 
 def annotate_factor_ledger(
@@ -159,21 +119,17 @@ def annotate_factor_ledger(
 
     db = _resolve_db_path(db_path)
     runtime_flags = load_runtime_flags()
+    factor_runtime_config = build_factor_orchestrator_runtime_config(runtime_flags=runtime_flags)
     store = CandleStore(db_path=db)
     factor_store = FactorStore(db_path=db)
     orchestrator = FactorOrchestrator(
         candle_store=store,
         factor_store=factor_store,
-        settings=FactorSettings(
-            pivot_window_major=int(runtime_flags.factor_pivot_window_major),
-            pivot_window_minor=int(runtime_flags.factor_pivot_window_minor),
-            lookback_candles=int(runtime_flags.factor_lookback_candles),
-            state_rebuild_event_limit=int(runtime_flags.factor_state_rebuild_event_limit),
-        ),
-        ingest_enabled=bool(runtime_flags.enable_factor_ingest),
-        fingerprint_rebuild_enabled=bool(runtime_flags.enable_factor_fingerprint_rebuild),
-        factor_rebuild_keep_candles=int(runtime_flags.factor_rebuild_keep_candles),
-        logic_version_override=str(runtime_flags.factor_logic_version_override or ""),
+        settings=factor_runtime_config.settings,
+        ingest_enabled=factor_runtime_config.ingest_enabled,
+        fingerprint_rebuild_enabled=factor_runtime_config.fingerprint_rebuild_enabled,
+        factor_rebuild_keep_candles=factor_runtime_config.rebuild_keep_candles,
+        logic_version_override=factor_runtime_config.logic_version_override,
     )
 
     times = df["date"].map(_to_unix_seconds)
@@ -233,7 +189,7 @@ def annotate_factor_ledger(
         start_candle_time=start_time,
         end_candle_time=end_time,
     )
-    buckets = _collect_signal_event_buckets(
+    buckets = collect_event_buckets(
         rows=factor_events,
         event_bucket_by_kind=signal_runtime.event_bucket_by_kind,
         event_bucket_sort_keys=signal_runtime.event_bucket_sort_keys,

@@ -1,7 +1,45 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Self
+from pathlib import Path
+from threading import Lock
+from typing import Any, Callable, Literal, Self, TypeVar
+
+StateT = TypeVar("StateT")
+
+
+def store_key(db_path: Path) -> str:
+    return str(Path(db_path))
+
+
+def get_or_create_store_state(
+    *,
+    store_states: dict[str, StateT],
+    lock: Lock,
+    db_path: Path,
+    factory: Callable[[], StateT],
+) -> StateT:
+    key = store_key(db_path)
+    with lock:
+        state = store_states.get(key)
+        if state is None:
+            state = factory()
+            store_states[key] = state
+        return state
+
+
+def merge_series_head_time(*, series_head: dict[str, int], series_id: str, head_time: int) -> int:
+    sid = str(series_id)
+    next_head = int(head_time)
+    current = series_head.get(sid)
+    merged = max(int(current), next_head) if current is not None else next_head
+    series_head[sid] = int(merged)
+    return int(merged)
+
+
+def read_series_head_time(*, series_head: dict[str, int], series_id: str) -> int | None:
+    value = series_head.get(str(series_id))
+    return None if value is None else int(value)
 
 
 @dataclass(frozen=True)

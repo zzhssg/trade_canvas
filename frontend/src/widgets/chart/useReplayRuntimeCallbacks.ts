@@ -1,143 +1,77 @@
-import type { ISeriesApi, UTCTimestamp } from "lightweight-charts";
-import { useCallback, type MutableRefObject } from "react";
-
-import type { PenLinePoint, PenSegment } from "./penAnchorRuntime";
+import type { UTCTimestamp } from "lightweight-charts";
+import { useCallback, useMemo, type MutableRefObject } from "react";
 import {
   applyReplayOverlayAtTimeRuntime,
   applyReplayPackageWindowRuntime,
-  requestReplayFrameAtTimeRuntime
+  requestReplayFrameAtTimeRuntime,
+  type ReplayOverlayRuntimeArgs
 } from "./replayOverlayRuntime";
 import { timeframeToSeconds } from "./timeframe";
-import type {
-  Candle,
-  GetFactorSlicesResponseV1,
-  OverlayInstructionPatchItemV1,
-  ReplayFactorHeadSnapshotV1,
-  ReplayHistoryDeltaV1,
-  ReplayKlineBarV1,
-  ReplayWindowV1
-} from "./types";
+import type { Candle, OverlayInstructionPatchItemV1, ReplayFactorHeadSnapshotV1, ReplayHistoryDeltaV1, ReplayKlineBarV1, ReplayWindowV1 } from "./types";
 
 export function toReplayCandle(bar: ReplayKlineBarV1): Candle {
-  return {
-    time: bar.time as UTCTimestamp,
-    open: bar.open,
-    high: bar.high,
-    low: bar.low,
-    close: bar.close
-  };
+  return { time: bar.time as UTCTimestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close };
 }
 
-type UseReplayOverlayRuntimeArgs = {
+type ReplayWindowBundleLike = {
+  window: ReplayWindowV1;
+  headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>>;
+  historyDeltaByIdx: Record<number, ReplayHistoryDeltaV1>;
+};
+
+type UseReplayOverlayRuntimeArgs = ReplayOverlayRuntimeArgs & {
   timeframe: string;
   windowCandles: number;
-  replayEnabled: boolean;
-  enablePenSegmentColor: boolean;
   replayPatchRef: MutableRefObject<OverlayInstructionPatchItemV1[]>;
   replayPatchAppliedIdxRef: MutableRefObject<number>;
   replayWindowIndexRef: MutableRefObject<number | null>;
-  overlayCatalogRef: MutableRefObject<Map<string, OverlayInstructionPatchItemV1>>;
-  overlayActiveIdsRef: MutableRefObject<Set<string>>;
-  recomputeActiveIdsFromCatalog: (params: { cutoffTime: number; toTime: number }) => string[];
-  setReplayDrawInstructions: (items: OverlayInstructionPatchItemV1[]) => void;
-  rebuildPivotMarkersFromOverlay: () => void;
-  rebuildAnchorSwitchMarkersFromOverlay: () => void;
-  rebuildPenPointsFromOverlay: () => void;
-  rebuildOverlayPolylinesFromOverlay: () => void;
-  syncMarkers: () => void;
-  effectiveVisible: (key: string) => boolean;
-  penSeriesRef: MutableRefObject<ISeriesApi<"Line"> | null>;
-  penPointsRef: MutableRefObject<PenLinePoint[]>;
-  penSegmentsRef: MutableRefObject<PenSegment[]>;
-  setPenPointCount: (value: number) => void;
 };
 
 export function useReplayOverlayRuntime(args: UseReplayOverlayRuntimeArgs) {
+  const overlayRuntimeArgs = useMemo<ReplayOverlayRuntimeArgs>(
+    () => ({
+      overlayCatalogRef: args.overlayCatalogRef,
+      overlayActiveIdsRef: args.overlayActiveIdsRef,
+      recomputeActiveIdsFromCatalog: args.recomputeActiveIdsFromCatalog,
+      setReplayDrawInstructions: args.setReplayDrawInstructions,
+      rebuildPivotMarkersFromOverlay: args.rebuildPivotMarkersFromOverlay,
+      rebuildAnchorSwitchMarkersFromOverlay: args.rebuildAnchorSwitchMarkersFromOverlay,
+      rebuildPenPointsFromOverlay: args.rebuildPenPointsFromOverlay,
+      rebuildOverlayPolylinesFromOverlay: args.rebuildOverlayPolylinesFromOverlay,
+      syncMarkers: args.syncMarkers,
+      effectiveVisible: args.effectiveVisible,
+      penSeriesRef: args.penSeriesRef,
+      penPointsRef: args.penPointsRef,
+      penSegmentsRef: args.penSegmentsRef,
+      enablePenSegmentColor: args.enablePenSegmentColor,
+      replayEnabled: args.replayEnabled,
+      setPenPointCount: args.setPenPointCount
+    }),
+    [args.effectiveVisible, args.enablePenSegmentColor, args.rebuildOverlayPolylinesFromOverlay, args.rebuildPenPointsFromOverlay, args.rebuildPivotMarkersFromOverlay, args.rebuildAnchorSwitchMarkersFromOverlay, args.recomputeActiveIdsFromCatalog, args.replayEnabled, args.setPenPointCount, args.setReplayDrawInstructions, args.syncMarkers]
+  );
+
   const applyReplayOverlayAtTime = useCallback(
-    (toTime: number) => {
+    (toTime: number) =>
       applyReplayOverlayAtTimeRuntime({
         toTime,
         timeframeSeconds: timeframeToSeconds(args.timeframe),
         windowCandles: args.windowCandles,
         replayPatchRef: args.replayPatchRef,
         replayPatchAppliedIdxRef: args.replayPatchAppliedIdxRef,
-        overlayCatalogRef: args.overlayCatalogRef,
-        overlayActiveIdsRef: args.overlayActiveIdsRef,
-        recomputeActiveIdsFromCatalog: args.recomputeActiveIdsFromCatalog,
-        setReplayDrawInstructions: args.setReplayDrawInstructions,
-        rebuildPivotMarkersFromOverlay: args.rebuildPivotMarkersFromOverlay,
-        rebuildAnchorSwitchMarkersFromOverlay: args.rebuildAnchorSwitchMarkersFromOverlay,
-        rebuildPenPointsFromOverlay: args.rebuildPenPointsFromOverlay,
-        rebuildOverlayPolylinesFromOverlay: args.rebuildOverlayPolylinesFromOverlay,
-        syncMarkers: args.syncMarkers,
-        effectiveVisible: args.effectiveVisible,
-        penSeriesRef: args.penSeriesRef,
-        penPointsRef: args.penPointsRef,
-        penSegmentsRef: args.penSegmentsRef,
-        enablePenSegmentColor: args.enablePenSegmentColor,
-        replayEnabled: args.replayEnabled,
-        setPenPointCount: args.setPenPointCount
-      });
-    },
-    [
-      args.effectiveVisible,
-      args.enablePenSegmentColor,
-      args.rebuildOverlayPolylinesFromOverlay,
-      args.rebuildPenPointsFromOverlay,
-      args.rebuildPivotMarkersFromOverlay,
-      args.rebuildAnchorSwitchMarkersFromOverlay,
-      args.recomputeActiveIdsFromCatalog,
-      args.replayEnabled,
-      args.setPenPointCount,
-      args.setReplayDrawInstructions,
-      args.syncMarkers,
-      args.timeframe,
-      args.windowCandles
-    ]
+        ...overlayRuntimeArgs
+      }),
+    [args.replayPatchAppliedIdxRef, args.replayPatchRef, args.timeframe, args.windowCandles, overlayRuntimeArgs]
   );
 
   const applyReplayPackageWindow = useCallback(
-    (
-      bundle: {
-        window: ReplayWindowV1;
-        headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>>;
-        historyDeltaByIdx: Record<number, ReplayHistoryDeltaV1>;
-      },
-      targetIdx: number
-    ) => {
-      return applyReplayPackageWindowRuntime({
+    (bundle: ReplayWindowBundleLike, targetIdx: number) =>
+      applyReplayPackageWindowRuntime({
         bundle,
         targetIdx,
         replayWindowIndexRef: args.replayWindowIndexRef,
-        overlayCatalogRef: args.overlayCatalogRef,
-        overlayActiveIdsRef: args.overlayActiveIdsRef,
-        setReplayDrawInstructions: args.setReplayDrawInstructions,
-        rebuildPivotMarkersFromOverlay: args.rebuildPivotMarkersFromOverlay,
-        rebuildAnchorSwitchMarkersFromOverlay: args.rebuildAnchorSwitchMarkersFromOverlay,
-        rebuildPenPointsFromOverlay: args.rebuildPenPointsFromOverlay,
-        rebuildOverlayPolylinesFromOverlay: args.rebuildOverlayPolylinesFromOverlay,
-        syncMarkers: args.syncMarkers,
-        effectiveVisible: args.effectiveVisible,
-        penSeriesRef: args.penSeriesRef,
-        penPointsRef: args.penPointsRef,
-        penSegmentsRef: args.penSegmentsRef,
-        enablePenSegmentColor: args.enablePenSegmentColor,
-        replayEnabled: args.replayEnabled,
-        setPenPointCount: args.setPenPointCount
-      });
-    },
-    [
-      args.effectiveVisible,
-      args.enablePenSegmentColor,
-      args.rebuildOverlayPolylinesFromOverlay,
-      args.rebuildPenPointsFromOverlay,
-      args.rebuildPivotMarkersFromOverlay,
-      args.rebuildAnchorSwitchMarkersFromOverlay,
-      args.replayEnabled,
-      args.setPenPointCount,
-      args.setReplayDrawInstructions,
-      args.syncMarkers
-    ]
+        ...overlayRuntimeArgs
+      }),
+    [args.replayWindowIndexRef, overlayRuntimeArgs]
   );
 
   return { applyReplayOverlayAtTime, applyReplayPackageWindow };
@@ -161,8 +95,8 @@ type UseReplayFrameRequestArgs = {
 
 export function useReplayFrameRequest(args: UseReplayFrameRequestArgs) {
   return useCallback(
-    async (atTime: number) => {
-      await requestReplayFrameAtTimeRuntime({
+    async (atTime: number) =>
+      requestReplayFrameAtTimeRuntime({
         atTime,
         replayEnabled: args.replayEnabled,
         replayFrameLatestTimeRef: args.replayFrameLatestTimeRef,
@@ -177,19 +111,7 @@ export function useReplayFrameRequest(args: UseReplayFrameRequestArgs) {
         setReplaySlices: args.setReplaySlices,
         setReplayCandle: args.setReplayCandle,
         setReplayDrawInstructions: args.setReplayDrawInstructions
-      });
-    },
-    [
-      args.applyPenAndAnchorFromFactorSlices,
-      args.replayEnabled,
-      args.seriesId,
-      args.setReplayCandle,
-      args.setReplayDrawInstructions,
-      args.setReplayFrame,
-      args.setReplayFrameError,
-      args.setReplayFrameLoading,
-      args.setReplaySlices,
-      args.windowCandles
-    ]
+      }),
+    [args.applyPenAndAnchorFromFactorSlices, args.replayEnabled, args.seriesId, args.setReplayCandle, args.setReplayDrawInstructions, args.setReplayFrame, args.setReplayFrameError, args.setReplayFrameLoading, args.setReplaySlices, args.windowCandles]
   );
 }

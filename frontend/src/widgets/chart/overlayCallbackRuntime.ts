@@ -17,9 +17,8 @@ import type {
   OverlayLikeDeltaV1,
   WorldStateV1
 } from "./types";
+import type { ReplayPenPreviewFeature } from "./liveSessionRuntimeTypes";
 import type { OverlayCanvasPath } from "./useOverlayCanvas";
-
-type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
 
 type OverlayRuntimeBaseArgs = {
   candlesRef: MutableRefObject<Candle[]>;
@@ -146,6 +145,7 @@ export function applyPenAndAnchorFromFactorSlicesRuntime(args: {
     slices: args.slices,
     minTime,
     maxTime,
+    candleTimes: args.candlesRef.current.map((item) => Number(item.time)),
     replayEnabled: args.replayEnabled,
     enablePenSegmentColor: args.enablePenSegmentColor,
     segmentRenderLimit: args.segmentRenderLimit
@@ -165,32 +165,51 @@ export async function fetchAndApplyAnchorHighlightAtTimeRuntime(args: {
   seriesId: string;
   windowCandles: number;
   replayEnabled: boolean;
+  activeSeriesIdRef: MutableRefObject<string>;
   factorPullPendingTimeRef: MutableRefObject<number | null>;
   factorPullInFlightRef: MutableRefObject<boolean>;
   lastFactorAtTimeRef: MutableRefObject<number | null>;
   applyPenAndAnchorFromFactorSlices: (slices: GetFactorSlicesResponseV1) => void;
   setReplaySlices: (slices: GetFactorSlicesResponseV1) => void;
 }) {
+  if (args.activeSeriesIdRef.current !== args.seriesId) return;
   const at = Math.max(0, Math.floor(args.time));
   if (at <= 0) return;
 
+  const retryLimit = 8;
+  const retryDelayMs = 150;
+  let retryBudget = retryLimit;
   args.factorPullPendingTimeRef.current = at;
   if (args.factorPullInFlightRef.current) return;
   args.factorPullInFlightRef.current = true;
 
   try {
     while (args.factorPullPendingTimeRef.current != null) {
-      const next = args.factorPullPendingTimeRef.current;
+      if (args.activeSeriesIdRef.current !== args.seriesId) break;
+      const pendingTime: number | null = args.factorPullPendingTimeRef.current;
+      if (pendingTime == null) break;
+      const next: number = pendingTime;
       args.factorPullPendingTimeRef.current = null;
       if (args.lastFactorAtTimeRef.current === next) continue;
-      const slices = await fetchFactorSlices({ seriesId: args.seriesId, atTime: next, windowCandles: args.windowCandles });
-      args.lastFactorAtTimeRef.current = next;
-      args.applyPenAndAnchorFromFactorSlices(slices);
-      if (args.replayEnabled) args.setReplaySlices(slices);
+      try {
+        const slices = await fetchFactorSlices({ seriesId: args.seriesId, atTime: next, windowCandles: args.windowCandles });
+        if (args.activeSeriesIdRef.current !== args.seriesId) break;
+        if (slices.series_id !== args.seriesId) continue;
+        args.lastFactorAtTimeRef.current = next;
+        args.applyPenAndAnchorFromFactorSlices(slices);
+        if (args.replayEnabled) args.setReplaySlices(slices);
+        retryBudget = retryLimit;
+      } catch {
+        if (args.activeSeriesIdRef.current !== args.seriesId) break;
+        const queued = args.factorPullPendingTimeRef.current;
+        args.factorPullPendingTimeRef.current = queued == null ? next : Math.max(queued, next);
+        retryBudget -= 1;
+        if (retryBudget < 0) break;
+        await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs));
+      }
     }
-  } catch {
-    // ignore (best-effort)
   } finally {
+    if (args.activeSeriesIdRef.current !== args.seriesId) return;
     args.factorPullInFlightRef.current = false;
   }
 }

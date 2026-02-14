@@ -16,7 +16,41 @@ def build_factor_meta(*, ctx: FactorSliceBuildContext, factor_name: str) -> Fact
     )
 
 
-def anchor_ref_strength(*, ref: dict[str, int | str] | None, pen_confirmed: list[dict[str, Any]]) -> float:
+def _segment_strength_if_exact_match(
+    *,
+    ref: dict[str, int | str] | None,
+    segment: Any,
+) -> float | None:
+    if not isinstance(ref, dict) or not isinstance(segment, dict):
+        return None
+    start_time = int(ref.get("start_time") or 0)
+    end_time = int(ref.get("end_time") or 0)
+    direction = int(ref.get("direction") or 0)
+    if start_time <= 0 or end_time <= 0 or direction not in {-1, 1}:
+        return None
+    if (
+        int(segment.get("start_time") or 0) != start_time
+        or int(segment.get("end_time") or 0) != end_time
+        or int(segment.get("direction") or 0) != direction
+    ):
+        return None
+    return abs(float(segment.get("end_price") or 0.0) - float(segment.get("start_price") or 0.0))
+
+
+def anchor_ref_strength(
+    *,
+    ref: dict[str, int | str] | None,
+    pen_confirmed: list[dict[str, Any]],
+    pen_head_extending: Any = None,
+    pen_head_candidate: Any = None,
+) -> float:
+    extending_strength = _segment_strength_if_exact_match(ref=ref, segment=pen_head_extending)
+    if extending_strength is not None:
+        return float(extending_strength)
+    candidate_strength = _segment_strength_if_exact_match(ref=ref, segment=pen_head_candidate)
+    if candidate_strength is not None:
+        return float(candidate_strength)
+
     if not isinstance(ref, dict):
         return -1.0
     start_time = int(ref.get("start_time") or 0)

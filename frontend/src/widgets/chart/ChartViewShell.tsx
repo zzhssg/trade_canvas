@@ -1,13 +1,8 @@
 import type { MutableRefObject, RefCallback } from "react";
 
-import type { IChartApi, ISeriesApi } from "lightweight-charts";
+import { ChartViewOverlayLayer, type ChartViewOverlayLayerProps } from "./ChartViewOverlayLayer";
 
-import { ChartViewOverlayLayer } from "./ChartViewOverlayLayer";
-import type { FibInst, PositionInst } from "./draw_tools/types";
-import type { DrawMeasureState } from "./draw_tools/useDrawToolState";
-import type { LiveLoadStatus } from "./liveSessionRuntimeTypes";
-
-type ChartViewShellProps = {
+type ChartViewShellProps = ChartViewOverlayLayerProps & {
   wheelGuardRef: MutableRefObject<HTMLDivElement | null>;
   bindContainerRef: RefCallback<HTMLDivElement>;
   seriesId: string;
@@ -21,35 +16,16 @@ type ChartViewShellProps = {
   zhongshuCount: number;
   anchorCount: number;
   anchorSwitchCount: number;
+  anchorHighlightPointCount: number;
+  anchorHighlightStartTime: number | null;
+  anchorHighlightEndTime: number | null;
+  anchorHighlightDashed: boolean;
   enableAnchorTopLayer: boolean;
   anchorTopLayerPathCount: number;
-  replayEnabled: boolean;
   replayIndex: number;
   replayTotal: number;
   replayFocusTime: number | null;
   replayPlaying: boolean;
-  error: string | null;
-  replayMaskX: number | null;
-  enableDrawTools: boolean;
-  activeChartTool: string;
-  containerRef: MutableRefObject<HTMLDivElement | null>;
-  candleTimesSec: number[];
-  measureState: DrawMeasureState;
-  positionTools: PositionInst[];
-  fibTools: FibInst[];
-  fibPreviewTool: FibInst | null;
-  activeToolId: string | null;
-  chartRef: MutableRefObject<IChartApi | null>;
-  seriesRef: MutableRefObject<ISeriesApi<"Candlestick"> | null>;
-  onUpdatePositionTool: (id: string, updates: Partial<PositionInst>) => void;
-  onRemovePositionTool: (id: string) => void;
-  onUpdateFibTool: (id: string, updates: Partial<FibInst>) => void;
-  onRemoveFibTool: (id: string) => void;
-  onSelectTool: (id: string | null) => void;
-  onInteractionLockChange: (locked: boolean) => void;
-  liveLoadStatus: LiveLoadStatus;
-  liveLoadMessage: string;
-  toastMessage: string | null;
 };
 
 export function ChartViewShell(props: ChartViewShellProps) {
@@ -72,6 +48,10 @@ export function ChartViewShell(props: ChartViewShellProps) {
       data-zhongshu-count={String(props.zhongshuCount)}
       data-anchor-count={String(props.anchorCount)}
       data-anchor-switch-count={String(props.anchorSwitchCount)}
+      data-anchor-highlight-point-count={String(props.anchorHighlightPointCount)}
+      data-anchor-highlight-start-time={props.anchorHighlightStartTime != null ? String(props.anchorHighlightStartTime) : ""}
+      data-anchor-highlight-end-time={props.anchorHighlightEndTime != null ? String(props.anchorHighlightEndTime) : ""}
+      data-anchor-highlight-dashed={props.anchorHighlightDashed ? "1" : "0"}
       data-anchor-on={props.anchorCount > 0 ? "1" : "0"}
       data-anchor-top-layer={props.enableAnchorTopLayer ? "1" : "0"}
       data-anchor-top-layer-path-count={String(props.anchorTopLayerPathCount)}

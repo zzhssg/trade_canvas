@@ -1,6 +1,6 @@
 ---
 name: tc-skill-authoring
-description: Guide for writing and maintaining project-local Codex skills for trade_canvas in .codex/skills, and keeping docs/ indexes in sync via tc-docs.
+description: Guide for writing and maintaining project-local Codex skills for trade_canvas in .codex/skills, and keeping docs indexes in sync.
 metadata:
   short-description: 本项目 skill 编写指南
 ---
@@ -41,8 +41,7 @@ metadata:
 1) 更新 `docs/core/skills.md`（新增条目/用途/脚本）
 2) 更新 `docs/core/README.md`（如果新增核心入口文档）
 3) 跑 `bash docs/scripts/doc_audit.sh`
-
-文档规范细节遵循 `tc-docs`（必要时先执行 `tc-docs` 的流程）。
+4) 如涉及状态字段，遵循 `docs/core/doc-status.md` 约定（`status` + `updated` 同步维护）
 
 ## 安装（让 Codex 能发现项目 skills）
 
@@ -57,4 +56,3 @@ bash scripts/install_project_skills.sh
 ```bash
 bash scripts/install_project_skills.sh --uninstall
 ```
-

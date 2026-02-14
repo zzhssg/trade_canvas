@@ -5,9 +5,8 @@ import type { PenLinePoint, PenSegment } from "./penAnchorRuntime";
 import { useOverlayRenderCallbacks, usePenWorldCallbacks } from "./chartOverlayCallbacks";
 import { useReplayFrameRequest, useReplayOverlayRuntime } from "./useReplayRuntimeCallbacks";
 import type { Candle, GetFactorSlicesResponseV1, OverlayInstructionPatchItemV1 } from "./types";
+import type { ReplayPenPreviewFeature } from "./liveSessionRuntimeTypes";
 import type { OverlayCanvasPath } from "./useOverlayCanvas";
-
-type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
 
 type UseChartRuntimeCallbacksArgs = {
   seriesId: string;
@@ -19,6 +18,7 @@ type UseChartRuntimeCallbacksArgs = {
   segmentRenderLimit: number;
   chartRef: MutableRefObject<IChartApi | null>;
   markersApiRef: MutableRefObject<{ setMarkers: (markers: Array<SeriesMarker<Time>>) => void } | null>;
+  activeSeriesIdRef: MutableRefObject<string>;
   candlesRef: MutableRefObject<Candle[]>;
   overlayActiveIdsRef: MutableRefObject<Set<string>>;
   overlayCatalogRef: MutableRefObject<Map<string, OverlayInstructionPatchItemV1>>;
@@ -92,6 +92,7 @@ export function useChartRuntimeCallbacks(args: UseChartRuntimeCallbacksArgs) {
     replayEnabled: args.replayEnabled,
     enablePenSegmentColor: args.enablePenSegmentColor,
     segmentRenderLimit: args.segmentRenderLimit,
+    activeSeriesIdRef: args.activeSeriesIdRef,
     candlesRef: args.candlesRef,
     penSegmentsRef: args.penSegmentsRef,
     penPointsRef: args.penPointsRef,

@@ -235,6 +235,59 @@ class OverlayRendererPluginTests(unittest.TestCase):
         self.assertEqual(int(points[1]["time"]), 240)
         self.assertEqual(str(anchor_current[2].get("lineStyle")), "dashed")
 
+    def test_structure_renderer_keeps_candidate_anchor_when_extending_stronger(self) -> None:
+        renderer = StructureOverlayRenderer()
+        candles = [
+            SimpleNamespace(candle_time=100, open=10, high=10.0, low=10.0, close=10.0, volume=1),
+            SimpleNamespace(candle_time=150, open=11, high=16.0, low=11.0, close=15.0, volume=1),
+            SimpleNamespace(candle_time=200, open=15, high=20.0, low=14.0, close=18.0, volume=1),
+            SimpleNamespace(candle_time=300, open=18, high=30.0, low=18.0, close=29.0, volume=1),
+            SimpleNamespace(candle_time=350, open=29, high=29.0, low=25.0, close=26.0, volume=1),
+            SimpleNamespace(candle_time=500, open=26, high=28.0, low=26.0, close=27.0, volume=1),
+        ]
+        rendered = renderer.render(
+            ctx=OverlayRenderContext(
+                series_id="binance:spot:BTC/USDT:5m",
+                to_time=500,
+                cutoff_time=60,
+                window_candles=2000,
+                candles=candles,
+                buckets={
+                    "pivot_major": [
+                        {"pivot_time": 100, "pivot_price": 10.0, "direction": "support", "visible_time": 100},
+                        {"pivot_time": 200, "pivot_price": 20.0, "direction": "resistance", "visible_time": 200},
+                    ],
+                    "pen_confirmed": [
+                        {
+                            "start_time": 40,
+                            "end_time": 80,
+                            "start_price": 9.0,
+                            "end_price": 10.0,
+                            "direction": 1,
+                            "visible_time": 80,
+                        }
+                    ],
+                    "anchor_switches": [
+                        {
+                            "switch_time": 400,
+                            "new_anchor": {"kind": "candidate", "start_time": 100, "end_time": 300, "direction": 1},
+                        }
+                    ],
+                },
+            )
+        )
+        anchor_current = next((row for row in rendered.polyline_defs if row[0] == "anchor.current"), None)
+        self.assertIsNotNone(anchor_current)
+        if anchor_current is None:
+            return
+        points = anchor_current[2].get("points")
+        self.assertIsInstance(points, list)
+        if not isinstance(points, list) or len(points) < 2:
+            self.fail("anchor.current points should include current candidate start/end")
+        self.assertEqual(int(points[0]["time"]), 100)
+        self.assertEqual(int(points[1]["time"]), 300)
+        self.assertEqual(str(anchor_current[2].get("lineStyle")), "dashed")
+
     def test_sr_renderer_builds_active_and_broken_lines(self) -> None:
         renderer = SrOverlayRenderer()
         rendered = renderer.render(

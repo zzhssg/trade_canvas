@@ -1,103 +1,60 @@
 from __future__ import annotations
 
 import json
-import re
 import time
 from contextlib import AbstractContextManager
-from pathlib import Path
 from typing import Any
 
-from ..overlay.store import OverlayInstructionVersionRow, OverlayStore
+from ..overlay.store import OverlayInstructionVersionRow
+from .contracts import DbConnection
+from .postgres_common import (
+    json_load,
+    normalize_identifier,
+    query_series_head_time,
+    row_get,
+    upsert_series_head_time,
+)
 from .postgres_pool import PostgresPool
 
 
-_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def _normalize_identifier(value: str, *, key: str) -> str:
-    candidate = str(value or "").strip()
-    if not candidate:
-        raise ValueError(f"postgres_{key}_required")
-    if _IDENTIFIER.fullmatch(candidate) is None:
-        raise ValueError(f"postgres_{key}_invalid:{candidate}")
-    return candidate
-
-
-def _row_get(row: Any, *, index: int, key: str) -> Any:
-    if isinstance(row, dict):
-        return row.get(key)
-    if hasattr(row, "keys"):
-        try:
-            return row[key]
-        except (KeyError, IndexError):
-            pass
-    return row[index]
-
-
-def _json_load(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, (bytes, bytearray)):
-        try:
-            value = value.decode("utf-8")
-        except (UnicodeDecodeError, AttributeError):
-            return {}
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except (json.JSONDecodeError, ValueError):
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-    return {}
-
-
-class PostgresOverlayRepository(OverlayStore):
+class PostgresOverlayRepository:
     _pool: PostgresPool
     _schema: str
     _series_state_table: str
     _versions_table: str
 
     def __init__(self, *, pool: PostgresPool, schema: str) -> None:
-        super().__init__(db_path=Path("backend/data/postgres_overlay_store_unused.db"))
         object.__setattr__(self, "_pool", pool)
-        schema_name = _normalize_identifier(schema, key="schema")
+        schema_name = normalize_identifier(schema, key="schema")
         object.__setattr__(self, "_schema", schema_name)
         object.__setattr__(self, "_series_state_table", f"{schema_name}.overlay_series_state")
         object.__setattr__(self, "_versions_table", f"{schema_name}.overlay_instruction_versions")
 
-    def connect(self) -> AbstractContextManager[Any]:  # type: ignore[override]
+    def connect(self) -> AbstractContextManager[DbConnection]:
         return self._pool.connect()
 
-    def upsert_head_time_in_conn(self, conn: Any, *, series_id: str, head_time: int) -> None:  # type: ignore[override]
-        now_ms = int(time.time() * 1000)
-        conn.execute(
-            f"""
-            INSERT INTO {self._series_state_table}(series_id, head_time, updated_at_ms)
-            VALUES (%s, %s, %s)
-            ON CONFLICT(series_id) DO UPDATE SET
-              head_time=GREATEST({self._series_state_table}.head_time, EXCLUDED.head_time),
-              updated_at_ms=EXCLUDED.updated_at_ms
-            """,
-            (str(series_id), int(head_time), now_ms),
+    def upsert_head_time_in_conn(self, conn: DbConnection, *, series_id: str, head_time: int) -> None:
+        upsert_series_head_time(
+            conn,
+            series_state_table=self._series_state_table,
+            series_id=series_id,
+            head_time=head_time,
         )
 
-    def clear_series_in_conn(self, conn: Any, *, series_id: str) -> None:  # type: ignore[override]
+    def clear_series_in_conn(self, conn: DbConnection, *, series_id: str) -> None:
         sid = str(series_id)
         conn.execute(f"DELETE FROM {self._versions_table} WHERE series_id = %s", (sid,))
         conn.execute(f"DELETE FROM {self._series_state_table} WHERE series_id = %s", (sid,))
 
-    def head_time(self, series_id: str) -> int | None:  # type: ignore[override]
+    def head_time(self, series_id: str) -> int | None:
         with self.connect() as conn:
-            row = conn.execute(
-                f"SELECT head_time FROM {self._series_state_table} WHERE series_id = %s",
-                (str(series_id),),
-            ).fetchone()
-        if row is None:
-            return None
-        value = _row_get(row, index=0, key="head_time")
-        return None if value is None else int(value)
+            return query_series_head_time(
+                conn,
+                series_state_table=self._series_state_table,
+                series_id=series_id,
+            )
 
-    def last_version_id(self, series_id: str) -> int:  # type: ignore[override]
+    def last_version_id(self, series_id: str) -> int:
         with self.connect() as conn:
             row = conn.execute(
                 f"SELECT MAX(version_id) AS v FROM {self._versions_table} WHERE series_id = %s",
@@ -105,19 +62,19 @@ class PostgresOverlayRepository(OverlayStore):
             ).fetchone()
         if row is None:
             return 0
-        value = _row_get(row, index=0, key="v")
+        value = row_get(row, index=0, key="v")
         return 0 if value is None else int(value)
 
     def insert_instruction_version_in_conn(
         self,
-        conn: Any,
+        conn: DbConnection,
         *,
         series_id: str,
         instruction_id: str,
         kind: str,
         visible_time: int,
         payload: dict[str, Any],
-    ) -> int:  # type: ignore[override]
+    ) -> int:
         now_ms = int(time.time() * 1000)
         row = conn.execute(
             f"""
@@ -136,14 +93,14 @@ class PostgresOverlayRepository(OverlayStore):
         ).fetchone()
         if row is None:
             raise RuntimeError("overlay_instruction_versions_insert_missing_rowid")
-        return int(_row_get(row, index=0, key="version_id"))
+        return int(row_get(row, index=0, key="version_id"))
 
     def get_latest_defs_up_to_time(
         self,
         *,
         series_id: str,
         up_to_time: int,
-    ) -> list[OverlayInstructionVersionRow]:  # type: ignore[override]
+    ) -> list[OverlayInstructionVersionRow]:
         with self.connect() as conn:
             rows = conn.execute(
                 f"""
@@ -169,7 +126,7 @@ class PostgresOverlayRepository(OverlayStore):
         after_version_id: int,
         up_to_time: int,
         limit: int = 50000,
-    ) -> list[OverlayInstructionVersionRow]:  # type: ignore[override]
+    ) -> list[OverlayInstructionVersionRow]:
         with self.connect() as conn:
             rows = conn.execute(
                 f"""
@@ -190,7 +147,7 @@ class PostgresOverlayRepository(OverlayStore):
         start_visible_time: int,
         end_visible_time: int,
         limit: int = 200000,
-    ) -> list[OverlayInstructionVersionRow]:  # type: ignore[override]
+    ) -> list[OverlayInstructionVersionRow]:
         with self.connect() as conn:
             rows = conn.execute(
                 f"""
@@ -209,7 +166,7 @@ class PostgresOverlayRepository(OverlayStore):
         *,
         series_id: str,
         instruction_id: str,
-    ) -> dict[str, Any] | None:  # type: ignore[override]
+    ) -> dict[str, Any] | None:
         with self.connect() as conn:
             return self.get_latest_def_for_instruction_in_conn(
                 conn,
@@ -219,11 +176,11 @@ class PostgresOverlayRepository(OverlayStore):
 
     def get_latest_def_for_instruction_in_conn(
         self,
-        conn: Any,
+        conn: DbConnection,
         *,
         series_id: str,
         instruction_id: str,
-    ) -> dict[str, Any] | None:  # type: ignore[override]
+    ) -> dict[str, Any] | None:
         row = conn.execute(
             f"""
             SELECT def_json
@@ -236,7 +193,7 @@ class PostgresOverlayRepository(OverlayStore):
         ).fetchone()
         if row is None:
             return None
-        payload = _json_load(_row_get(row, index=0, key="def_json"))
+        payload = json_load(row_get(row, index=0, key="def_json"))
         return payload if payload else None
 
     @staticmethod
@@ -245,12 +202,12 @@ class PostgresOverlayRepository(OverlayStore):
         for row in rows:
             out.append(
                 OverlayInstructionVersionRow(
-                    version_id=int(_row_get(row, index=0, key="version_id")),
-                    series_id=str(_row_get(row, index=1, key="series_id")),
-                    instruction_id=str(_row_get(row, index=2, key="instruction_id")),
-                    kind=str(_row_get(row, index=3, key="kind")),
-                    visible_time=int(_row_get(row, index=4, key="visible_time")),
-                    payload=_json_load(_row_get(row, index=5, key="def_json")),
+                    version_id=int(row_get(row, index=0, key="version_id")),
+                    series_id=str(row_get(row, index=1, key="series_id")),
+                    instruction_id=str(row_get(row, index=2, key="instruction_id")),
+                    kind=str(row_get(row, index=3, key="kind")),
+                    visible_time=int(row_get(row, index=4, key="visible_time")),
+                    payload=json_load(row_get(row, index=5, key="def_json")),
                 )
             )
         return out

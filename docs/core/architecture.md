@@ -2,7 +2,7 @@
 title: trade_canvas 架构总览
 status: done
 created: 2026-02-02
-updated: 2026-02-12
+updated: 2026-02-14
 ---
 
 # trade_canvas 架构总览
@@ -16,13 +16,22 @@ updated: 2026-02-12
 
 ---
 
+## 0. 架构硬约束（先看）
+
+- 单向数据流：`ingest -> store -> factor -> overlay -> read_model -> route`
+- `closed candle` 是唯一权威输入；`forming` 只用于展示
+- 读链路固定 strict：只读不写，不做隐式 repair，不做隐式重算
+- 运行时开关单真源：`backend/app/runtime/flags.py`（默认关闭高风险能力）
+
+---
+
 ## 1. 设计原则（当前版本）
 
 1. `closed candle` 是唯一权威输入，驱动 factor/overlay/strategy。
 2. `forming candle` 只用于图表展示，不落库、不进因子、不进策略。
 3. 写链路单路径：`candles -> factor -> overlay`，统一由 `IngestPipeline` 执行。
 4. 读链路读写分离：HTTP/WS 路由只做协议与参数，业务在 service/orchestrator。
-5. 运行时配置单真源：`FeatureFlags + RuntimeFlags`，由容器启动时注入。
+5. 运行时配置单真源：`RuntimeFlags`，由容器启动时注入；基础 env 解析工具集中在 `backend/app/core/flags.py`。
 
 ---
 
@@ -31,9 +40,9 @@ updated: 2026-02-12
 ### 2.1 应用装配层（Bootstrap）
 
 - 入口：`backend/app/main.py`
-- 容器：`backend/app/container.py`
-- 市场运行时装配：`backend/app/market_runtime_builder.py`
-- 生命周期编排：`backend/app/app_lifecycle_service.py`
+- 容器：`backend/app/bootstrap/container.py`
+- 市场运行时装配：`backend/app/market/runtime_builder.py`
+- 生命周期编排：`backend/app/lifecycle/service.py`
 
 职责：
 - 初始化 `AppContainer`（store、orchestrator、service、runtime）。
@@ -43,29 +52,27 @@ updated: 2026-02-12
 
 ### 2.2 配置层（Config/Flags）
 
-- 基础配置：`backend/app/config.py` (`Settings`)
-- 稳态功能开关：`backend/app/flags.py` (`FeatureFlags`)
-- 运行时参数与高风险开关：`backend/app/runtime_flags.py` (`RuntimeFlags`)
+- 基础配置：`backend/app/core/config.py` (`Settings`)
+- env 解析工具：`backend/app/core/flags.py`
+- 功能开关与运行时参数：`backend/app/runtime/flags.py` (`RuntimeFlags`)
 
 职责：
 - 统一读取 env。
 - 在启动阶段一次性解析。
 - 通过依赖注入传入 service/orchestrator，避免运行期散读 env。
-- `TRADE_CANVAS_ENABLE_DEV_API`（默认 `0`）统一控制 `/api/dev/**` 调试/运维入口；关闭时返回 `404 not_found`。
-- `TRADE_CANVAS_ENABLE_RUNTIME_METRICS`（默认 `0`）控制运行时指标采集与 `/api/market/debug/metrics` 可见性。
-- `TRADE_CANVAS_ENABLE_STRICT_CLOSED_ONLY`（默认 `0`）控制 read-side tail coverage 在 `to_time=None` 时是否强制只补到“上一根已收盘 K 线”（避免把 forming 桶写进 closed store）。
+- 高风险能力必须有 `TRADE_CANVAS_ENABLE_*` kill-switch（默认关闭）。
+- 详细参数与默认值以 `backend/app/runtime/flags.py` 为真源；专题说明分别见 `docs/core/market-kline-sync.md` 与 `docs/core/backtest.md`。
 - SQLite store 统一使用 schema migrations 初始化，无 legacy `CREATE TABLE IF NOT EXISTS` 兼容分支。
-- `TRADE_CANVAS_ENABLE_MARKET_BACKFILL_PROGRESS_PERSISTENCE`（默认 `0`）控制 backfill 进度状态落盘（单机重启可恢复最近快照）。
 
 ### 2.3 主链路层（Domain Runtime）
 
 - 市场写入编排：`backend/app/pipelines/ingest_pipeline.py`
-- 因子编排：`backend/app/factor_orchestrator.py`
-- 绘图编排：`backend/app/overlay_orchestrator.py`
-- 绘图读写拆分：`backend/app/overlay_ingest_reader.py` + `backend/app/overlay_ingest_writer.py`
+- 因子编排：`backend/app/factor/orchestrator.py`
+- 绘图编排：`backend/app/overlay/orchestrator.py`
+- 绘图读写拆分：`backend/app/overlay/ingest_reader.py` + `backend/app/overlay/ingest_writer.py`
 - 绘图编排支持 reader/writer 依赖注入（便于测试与替换实现）。
-- 市场实时监督：`backend/app/ingest_supervisor.py`
-- 市场应用服务：`backend/app/market_ingest_service.py`
+- 市场实时监督：`backend/app/ingest/supervisor.py`
+- 市场应用服务：`backend/app/market/ingest_service.py`
 - 市场运行时上下文：`MarketReadContext` / `MarketIngestContext` / `MarketRealtimeContext`
 
 职责：
@@ -91,9 +98,9 @@ updated: 2026-02-12
 
 ### 2.5 外部适配层（Adapters）
 
-- backtest：`backend/app/backtest_service.py`
-- freqtrade 映射：`backend/app/freqtrade_adapter_v1.py`
-- replay 打包：`backend/app/replay_package_service_v1.py`
+- backtest：`backend/app/backtest/service.py`
+- freqtrade 映射：`backend/app/freqtrade/adapter_v1.py`
+- replay 打包：`backend/app/replay/package_service_v1.py`
 
 职责：
 - 把内部 ledger / draw / candles 映射到外部协议。
@@ -102,6 +109,8 @@ updated: 2026-02-12
 ---
 
 ## 3. 后端主链路
+
+本节只描述骨架；函数级时序与故障定位入口见 `docs/core/backend-chain-breakdown.md`。
 
 ### 3.1 写链路（HTTP/WS/回放共用）
 
@@ -160,9 +169,9 @@ flowchart LR
 ### 4.1 新增因子
 
 优先修改：
-- `backend/app/factor_processor_*.py`
-- `backend/app/factor_slice_plugins.py`
-- `backend/app/factor_default_components.py`
+- `backend/app/factor/processor_*.py`
+- `backend/app/factor/slice_plugins.py`
+- `backend/app/factor/default_components.py`
 - 对应契约：`docs/core/contracts/factor_*.md`
 
 原则：
@@ -173,8 +182,8 @@ flowchart LR
 
 优先修改：
 - `backend/app/market_data/`
-- `backend/app/market_runtime_builder.py`
-- `backend/app/runtime_flags.py`
+- `backend/app/market/runtime_builder.py`
+- `backend/app/runtime/flags.py`
 
 原则：
 - 新能力必须由 `TRADE_CANVAS_ENABLE_*` 开关控制（默认关闭）。
@@ -184,9 +193,9 @@ flowchart LR
 ### 4.3 新增回测/适配能力
 
 优先修改：
-- `backend/app/backtest_service.py`
-- `backend/app/freqtrade_adapter_v1.py`
-- `backend/app/freqtrade_signal_plugins.py`
+- `backend/app/backtest/service.py`
+- `backend/app/freqtrade/adapter_v1.py`
+- `backend/app/freqtrade/signal_plugins.py`
 
 原则：
 - 对外接口保持稳定。
@@ -194,9 +203,13 @@ flowchart LR
 
 ---
 
-## 5. 质量门禁
+## 5. 质量门禁与文档自检
 
 后端架构类改动最小门禁：
+
+```bash
+pytest -q --collect-only
+```
 
 ```bash
 pytest -q
@@ -216,9 +229,18 @@ bash scripts/e2e_acceptance.sh
 
 ---
 
-## 6. 当前已下线/不再推荐口径
+## 6. 文档边界（防漂移）
 
-- 不再使用 `market_flags.py` 作为市场链路配置真源（已收口到 `FeatureFlags + RuntimeFlags`）。
-- 不再在路由实现中直接读取散落 `app.state.*` 字段（统一通过 `dependencies.py` 获取容器依赖）。
+- 本文只维护“边界 + 不变量 + 扩展策略”，不承载函数级细节。
+- 调用顺序、关键函数入口、排障路径统一维护在 `docs/core/backend-chain-breakdown.md`。
+- 数据结构与接口语义统一维护在 `docs/core/contracts/` 与 `docs/core/api/v1/`。
+- 真源映射统一维护在 `docs/core/source-of-truth.md`。
+
+---
+
+## 7. 当前已下线/不再推荐口径
+
+- 不再使用 `market_flags.py` 作为市场链路配置真源（已收口到 `RuntimeFlags`）。
+- 不再在路由实现中直接读取散落 `app.state.*` 字段（统一通过 `backend/app/deps/` 获取容器依赖）。
 - 不再保留“写路径多套实现”的灰度分支（统一走 `IngestPipeline`）。
 - 不再允许 draw/factor 读接口在请求内触发隐式 overlay repair；需走显式 repair 入口（受 `TRADE_CANVAS_ENABLE_READ_REPAIR_API` 控制）。

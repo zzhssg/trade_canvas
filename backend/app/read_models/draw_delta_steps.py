@@ -1,52 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 
+from ..core.ports import AlignedStorePort, DebugHubPort
 from ..overlay.integrity_plugins import evaluate_overlay_integrity
 from ..overlay.store import OverlayInstructionVersionRow
 from ..core.schemas import GetFactorSlicesResponseV1, OverlayInstructionPatchItemV1
 from ..core.service_errors import ServiceError
+from .ports import FactorReadServicePort, OverlayStoreReadPort
 
 
-class StoreLike(Protocol):
-    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
+StoreLike = AlignedStorePort
+OverlayStoreLike = OverlayStoreReadPort
+FactorReadServiceLike = FactorReadServicePort
 
 
-class OverlayStoreLike(Protocol):
-    def get_patch_after_version(
-        self,
-        *,
-        series_id: str,
-        after_version_id: int,
-        up_to_time: int,
-        limit: int = 50000,
-    ) -> list[OverlayInstructionVersionRow]: ...
-
-
-class FactorReadServiceLike(Protocol):
-    def read_slices(
-        self,
-        *,
-        series_id: str,
-        at_time: int,
-        window_candles: int,
-        aligned_time: int | None = None,
-        ensure_fresh: bool = True,
-    ) -> GetFactorSlicesResponseV1: ...
-
-
-class DebugHubLike(Protocol):
-    def emit(
-        self,
-        *,
-        pipe: str,
-        event: str,
-        level: str = "info",
-        message: str,
-        series_id: str | None = None,
-        data: dict | None = None,
-    ) -> None: ...
+DebugHubLike = DebugHubPort
 
 
 @dataclass(frozen=True)

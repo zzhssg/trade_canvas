@@ -1,46 +1,23 @@
 from __future__ import annotations
 
-import re
 from contextlib import AbstractContextManager
-from typing import Any
 
 from ..core.schemas import CandleClosed
+from .contracts import DbConnection
+from .postgres_common import normalize_identifier, row_get
 from .postgres_pool import PostgresPool
-
-
-_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def _normalize_identifier(value: str, *, key: str) -> str:
-    candidate = str(value or "").strip()
-    if not candidate:
-        raise ValueError(f"postgres_{key}_required")
-    if _IDENTIFIER.fullmatch(candidate) is None:
-        raise ValueError(f"postgres_{key}_invalid:{candidate}")
-    return candidate
-
-
-def _row_get(row: Any, *, index: int, key: str) -> Any:
-    if isinstance(row, dict):
-        return row.get(key)
-    if hasattr(row, "keys"):
-        try:
-            return row[key]
-        except (KeyError, IndexError):
-            pass
-    return row[index]
 
 
 class PostgresCandleRepository:
     def __init__(self, *, pool: PostgresPool, schema: str) -> None:
         self._pool = pool
-        self._schema = _normalize_identifier(schema, key="schema")
+        self._schema = normalize_identifier(schema, key="schema")
         self._table = f"{self._schema}.candles"
 
-    def connect(self) -> AbstractContextManager[Any]:
+    def connect(self) -> AbstractContextManager[DbConnection]:
         return self._pool.connect()
 
-    def upsert_closed_in_conn(self, conn: Any, series_id: str, candle: CandleClosed) -> None:
+    def upsert_closed_in_conn(self, conn: DbConnection, series_id: str, candle: CandleClosed) -> None:
         conn.execute(
             f"""
             INSERT INTO {self._table}(series_id, candle_time, open, high, low, close, volume)
@@ -63,7 +40,7 @@ class PostgresCandleRepository:
             ),
         )
 
-    def upsert_many_closed_in_conn(self, conn: Any, series_id: str, candles: list[CandleClosed]) -> None:
+    def upsert_many_closed_in_conn(self, conn: DbConnection, series_id: str, candles: list[CandleClosed]) -> None:
         if not candles:
             return
         for candle in candles:
@@ -76,7 +53,7 @@ class PostgresCandleRepository:
             self.upsert_many_closed_in_conn(conn, series_id, candles)
             conn.commit()
 
-    def existing_closed_times_in_conn(self, conn: Any, *, series_id: str, candle_times: list[int]) -> set[int]:
+    def existing_closed_times_in_conn(self, conn: DbConnection, *, series_id: str, candle_times: list[int]) -> set[int]:
         times = sorted({int(t) for t in candle_times if int(t) > 0})
         if not times:
             return set()
@@ -90,9 +67,9 @@ class PostgresCandleRepository:
             [str(series_id), *times],
         )
         rows = cur.fetchall()
-        return {int(_row_get(row, index=0, key="candle_time")) for row in rows}
+        return {int(row_get(row, index=0, key="candle_time")) for row in rows}
 
-    def delete_closed_times_in_conn(self, conn: Any, *, series_id: str, candle_times: list[int]) -> int:
+    def delete_closed_times_in_conn(self, conn: DbConnection, *, series_id: str, candle_times: list[int]) -> int:
         times = sorted({int(t) for t in candle_times if int(t) > 0})
         if not times:
             return 0
@@ -126,7 +103,7 @@ class PostgresCandleRepository:
             ).fetchone()
             if row is None:
                 return None
-            value = _row_get(row, index=0, key="head_time")
+            value = row_get(row, index=0, key="head_time")
             return None if value is None else int(value)
 
     def first_time(self, series_id: str) -> int | None:
@@ -137,7 +114,7 @@ class PostgresCandleRepository:
             ).fetchone()
             if row is None:
                 return None
-            value = _row_get(row, index=0, key="first_time")
+            value = row_get(row, index=0, key="first_time")
             return None if value is None else int(value)
 
     def count_closed_between_times(self, series_id: str, *, start_time: int, end_time: int) -> int:
@@ -152,10 +129,10 @@ class PostgresCandleRepository:
             ).fetchone()
             if row is None:
                 return 0
-            value = _row_get(row, index=0, key="cnt")
+            value = row_get(row, index=0, key="cnt")
             return 0 if value is None else int(value)
 
-    def trim_series_to_latest_n_in_conn(self, conn: Any, *, series_id: str, keep: int) -> int:
+    def trim_series_to_latest_n_in_conn(self, conn: DbConnection, *, series_id: str, keep: int) -> int:
         keep_n = max(1, int(keep))
         row = conn.execute(
             f"""
@@ -169,7 +146,7 @@ class PostgresCandleRepository:
         ).fetchone()
         if row is None:
             return 0
-        cutoff = int(_row_get(row, index=0, key="candle_time"))
+        cutoff = int(row_get(row, index=0, key="candle_time"))
         cur = conn.execute(
             f"DELETE FROM {self._table} WHERE series_id = %s AND candle_time < %s",
             (str(series_id), int(cutoff)),
@@ -198,11 +175,11 @@ class PostgresCandleRepository:
             ).fetchone()
             if row is None:
                 return None
-            value = _row_get(row, index=0, key="t")
+            value = row_get(row, index=0, key="t")
             return None if value is None else int(value)
 
     def get_closed(self, series_id: str, *, since: int | None, limit: int) -> list[CandleClosed]:
-        query_params: list[Any] = [str(series_id)]
+        query_params: list[object] = [str(series_id)]
         if since is None:
             sql = f"""
                 SELECT candle_time, open, high, low, close, volume
@@ -225,12 +202,12 @@ class PostgresCandleRepository:
             rows = conn.execute(sql, query_params).fetchall()
         candles = [
             CandleClosed(
-                candle_time=int(_row_get(row, index=0, key="candle_time")),
-                open=float(_row_get(row, index=1, key="open")),
-                high=float(_row_get(row, index=2, key="high")),
-                low=float(_row_get(row, index=3, key="low")),
-                close=float(_row_get(row, index=4, key="close")),
-                volume=float(_row_get(row, index=5, key="volume")),
+                candle_time=int(row_get(row, index=0, key="candle_time")),
+                open=float(row_get(row, index=1, key="open")),
+                high=float(row_get(row, index=2, key="high")),
+                low=float(row_get(row, index=3, key="low")),
+                close=float(row_get(row, index=4, key="close")),
+                volume=float(row_get(row, index=5, key="volume")),
             )
             for row in rows
         ]
@@ -259,12 +236,12 @@ class PostgresCandleRepository:
             ).fetchall()
         return [
             CandleClosed(
-                candle_time=int(_row_get(row, index=0, key="candle_time")),
-                open=float(_row_get(row, index=1, key="open")),
-                high=float(_row_get(row, index=2, key="high")),
-                low=float(_row_get(row, index=3, key="low")),
-                close=float(_row_get(row, index=4, key="close")),
-                volume=float(_row_get(row, index=5, key="volume")),
+                candle_time=int(row_get(row, index=0, key="candle_time")),
+                open=float(row_get(row, index=1, key="open")),
+                high=float(row_get(row, index=2, key="high")),
+                low=float(row_get(row, index=3, key="low")),
+                close=float(row_get(row, index=4, key="close")),
+                volume=float(row_get(row, index=5, key="volume")),
             )
             for row in rows
         ]

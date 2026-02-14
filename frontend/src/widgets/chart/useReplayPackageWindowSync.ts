@@ -1,18 +1,7 @@
 import { useEffect } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-
 import type { ReplayWindowBundle } from "../../state/replayStore";
-
-import type {
-  Candle,
-  GetFactorSlicesResponseV1,
-  ReplayFactorHeadSnapshotV1,
-  ReplayHistoryDeltaV1,
-  ReplayHistoryEventV1,
-  ReplayKlineBarV1,
-  ReplayPackageMetadataV1,
-  ReplayWindowV1
-} from "./types";
+import type { Candle, GetFactorSlicesResponseV1, ReplayFactorHeadSnapshotV1, ReplayHistoryEventV1, ReplayKlineBarV1, ReplayPackageMetadataV1 } from "./types";
 
 type BuildReplayFactorSlices = (args: {
   atTime: number;
@@ -20,15 +9,7 @@ type BuildReplayFactorSlices = (args: {
   historyEvents: ReplayHistoryEventV1[];
   headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>>;
 }) => GetFactorSlicesResponseV1;
-
-type ApplyReplayPackageWindow = (
-  bundle: {
-    window: ReplayWindowV1;
-    headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>>;
-    historyDeltaByIdx: Record<number, ReplayHistoryDeltaV1>;
-  },
-  targetIdx: number
-) => string[];
+type ApplyReplayPackageWindow = (bundle: ReplayWindowBundle, targetIdx: number) => string[];
 
 type UseReplayPackageWindowSyncArgs = {
   enabled: boolean;
@@ -55,17 +36,6 @@ type UseReplayPackageWindowSyncArgs = {
   setCandles: Dispatch<SetStateAction<Candle[]>>;
 };
 
-/**
- * 回放窗口数据同步 hook — 将 package window 数据投射到图表。
- *
- * 当 status="ready" 且 replayIndex 变化时:
- * 1. ensureWindowRange 确保所有窗口数据已加载
- * 2. 填充 replayAllCandlesRef (全量 candle 数组) 并更新图表 candles
- * 3. applyReplayPackageWindow 应用当前窗口的 overlay 数据
- * 4. buildReplayFactorSlices 构建当前帧的因子切片
- * 5. applyPenAndAnchorFromFactorSlices 渲染 pen/anchor 到图表
- * 6. setReplayCandle 更新当前帧的 candleId + activeIds
- */
 export function useReplayPackageWindowSync({
   enabled,
   status,
@@ -91,12 +61,9 @@ export function useReplayPackageWindowSync({
   setCandles
 }: UseReplayPackageWindowSyncArgs) {
   useEffect(() => {
-    if (!enabled) return;
-    if (status !== "ready") return;
+    if (!enabled || status !== "ready" || !metadata || metadata.total_candles <= 0) return;
     const meta = metadata;
-    if (!meta || meta.total_candles <= 0) return;
-    const metaValue = meta;
-    const total = metaValue.total_candles;
+    const total = meta.total_candles;
     setReplayTotal(total);
     const desiredIndex = replayFocusTime == null ? total - 1 : replayIndex;
     const clamped = Math.max(0, Math.min(desiredIndex, total - 1));
@@ -123,16 +90,13 @@ export function useReplayPackageWindowSync({
       }
 
       const filled = replayAllCandlesRef.current.filter(Boolean) as Candle[];
-      if (filled.length === total) {
-        const all = replayAllCandlesRef.current as Candle[];
-        candlesRef.current = all;
-        setCandles(all);
-      } else if (filled.length > 0) {
-        candlesRef.current = filled;
-        setCandles(filled);
+      const synced = filled.length === total ? (replayAllCandlesRef.current as Candle[]) : filled;
+      if (synced.length > 0) {
+        candlesRef.current = synced;
+        setCandles(synced);
       }
 
-      const windowIndex = Math.floor(clamped / metaValue.window_size);
+      const windowIndex = Math.floor(clamped / meta.window_size);
       const bundle = windows[windowIndex];
       if (!bundle) return;
 

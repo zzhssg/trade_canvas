@@ -20,9 +20,8 @@ import type {
   OverlayLikeDeltaV1,
   WorldStateV1
 } from "./types";
+import type { ReplayPenPreviewFeature } from "./liveSessionRuntimeTypes";
 import type { OverlayCanvasPath } from "./useOverlayCanvas";
-
-type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
 
 type UseOverlayRenderCallbacksArgs = {
   chartRef: MutableRefObject<IChartApi | null>;
@@ -143,6 +142,7 @@ type UsePenWorldCallbacksArgs = {
   replayEnabled: boolean;
   enablePenSegmentColor: boolean;
   segmentRenderLimit: number;
+  activeSeriesIdRef: MutableRefObject<string>;
   candlesRef: MutableRefObject<Candle[]>;
   penSegmentsRef: MutableRefObject<PenSegment[]>;
   penPointsRef: MutableRefObject<PenLinePoint[]>;
@@ -195,6 +195,7 @@ export function usePenWorldCallbacks(args: UsePenWorldCallbacksArgs) {
         seriesId: args.seriesId,
         windowCandles: args.windowCandles,
         replayEnabled: args.replayEnabled,
+        activeSeriesIdRef: args.activeSeriesIdRef,
         factorPullPendingTimeRef: args.factorPullPendingTimeRef,
         factorPullInFlightRef: args.factorPullInFlightRef,
         lastFactorAtTimeRef: args.lastFactorAtTimeRef,

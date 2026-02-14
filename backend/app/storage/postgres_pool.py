@@ -3,15 +3,12 @@ from __future__ import annotations
 import importlib
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator, Protocol
+from typing import Iterator, Protocol
 
-
-class _PostgresConnection(Protocol):
-    def close(self) -> None: ...
-
+from .contracts import DbConnection
 
 class _PostgresDriver(Protocol):
-    def connect(self, dsn: str, *, connect_timeout: int) -> _PostgresConnection: ...
+    def connect(self, dsn: str, *, connect_timeout: int) -> DbConnection: ...
 
 
 @dataclass(frozen=True)
@@ -55,7 +52,7 @@ class PostgresPool:
         return _load_postgres_driver() is not None
 
     @contextmanager
-    def connect(self) -> Iterator[Any]:
+    def connect(self) -> Iterator[DbConnection]:
         driver = _load_postgres_driver()
         if driver is None:
             raise RuntimeError("postgres_driver_missing:install_psycopg")

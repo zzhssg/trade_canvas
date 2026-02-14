@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Mapping, Protocol
 
 from .sr_analyzer_support import (
     calculate_atr,
@@ -35,8 +35,6 @@ class SrPriceLevel:
     band_low: float | None = None
     band_high: float | None = None
     band_width_atr: float | None = None
-
-
 @dataclass(frozen=True)
 class SrAnalyzerParams:
     tolerance_atr: float = 0.5
@@ -47,16 +45,25 @@ class SrAnalyzerParams:
     broken_cross_count: int = 3
     atr_period: int = 14
     cluster_pivot_limit: int | None = 200
-
-
+@dataclass(frozen=True)
+class _LevelBuildContext:
+    candles: list[SrCandleLike]
+    pivots: list[Mapping[str, float | int | bool]]
+    start: Mapping[str, float | int | bool]
+    chosen: Mapping[str, float | int | bool]
+    kind: str
+    line_price: float
+    overlap_low: float
+    overlap_high: float
+    atr_values: list[float]
+    closes: list[float]
+    current_price: float
 class SupportResistanceAnalyzer:
     def __init__(self, *, params: SrAnalyzerParams) -> None:
         self._params = params
 
     def find_levels(self, *, candles: list[SrCandleLike], pivot_data: dict[str, list[dict]] | None) -> list[SrPriceLevel]:
-        if len(candles) < 5:
-            return []
-        if not pivot_data:
+        if len(candles) < 5 or not pivot_data:
             return []
 
         highs = [float(candle.high) for candle in candles]
@@ -103,13 +110,10 @@ class SupportResistanceAnalyzer:
         levels.sort(key=lambda item: float(item.distance_to_current))
         active = [item for item in levels if str(item.status) in {"active", "flip"}]
         broken = [item for item in levels if str(item.status) not in {"active", "flip"}]
-        return list(active[: int(self._params.max_levels)]) + sorted(
-            broken,
-            key=lambda item: float(item.distance_to_current),
-        )
+        return list(active[: int(self._params.max_levels)]) + sorted(broken, key=lambda item: float(item.distance_to_current))
 
-    def _normalize_pivots(self, *, pivots: list[dict], candles: list[SrCandleLike]) -> list[dict[str, float | int | bool]]:
-        out: list[dict[str, float | int | bool]] = []
+    def _normalize_pivots(self, *, pivots: list[dict], candles: list[SrCandleLike]) -> list[Mapping[str, float | int | bool]]:
+        out: list[Mapping[str, float | int | bool]] = []
         for pivot in pivots:
             try:
                 idx = int(pivot.get("idx", -1))
@@ -137,7 +141,7 @@ class SupportResistanceAnalyzer:
         self,
         *,
         candles: list[SrCandleLike],
-        pivots: list[dict[str, float | int | bool]],
+        pivots: list[Mapping[str, float | int | bool]],
         kind: str,
         atr_values: list[float],
         closes: list[float],
@@ -158,22 +162,21 @@ class SupportResistanceAnalyzer:
             )
             if chosen is None:
                 continue
-
             line_price = float(overlap_high if kind == "res" else overlap_low)
             level = self._build_level(
-                ctx={
-                    "candles": candles,
-                    "pivots": pivots,
-                    "start": start,
-                    "chosen": chosen,
-                    "kind": kind,
-                    "line_price": line_price,
-                    "overlap_low": float(overlap_low),
-                    "overlap_high": float(overlap_high),
-                    "atr_values": atr_values,
-                    "closes": closes,
-                    "current_price": float(current_price),
-                }
+                ctx=_LevelBuildContext(
+                    candles=candles,
+                    pivots=pivots,
+                    start=start,
+                    chosen=chosen,
+                    kind=kind,
+                    line_price=line_price,
+                    overlap_low=float(overlap_low),
+                    overlap_high=float(overlap_high),
+                    atr_values=atr_values,
+                    closes=closes,
+                    current_price=float(current_price),
+                )
             )
             self._upsert_level(levels=out, level=level, tolerance=float(tolerance), line_price=line_price)
         return out
@@ -181,12 +184,12 @@ class SupportResistanceAnalyzer:
     def _pick_overlap(
         self,
         *,
-        pivots: list[dict[str, float | int | bool]],
-        start: dict[str, float | int | bool],
+        pivots: list[Mapping[str, float | int | bool]],
+        start: Mapping[str, float | int | bool],
         kind: str,
         atr_values: list[float],
         closes: list[float],
-    ) -> tuple[dict[str, float | int | bool] | None, float, float, float]:
+    ) -> tuple[Mapping[str, float | int | bool] | None, float, float, float]:
         for candidate in sorted(
             [item for item in pivots if int(item["idx"]) < int(start["idx"])],
             key=lambda item: int(item["idx"]),
@@ -216,18 +219,18 @@ class SupportResistanceAnalyzer:
             return candidate, float(overlap_low), float(overlap_high), float(tolerance)
         return None, 0.0, 0.0, 0.0
 
-    def _build_level(self, *, ctx: dict[str, object]) -> SrPriceLevel:
-        candles = list(ctx["candles"])  # type: ignore[arg-type]
-        pivots = list(ctx["pivots"])  # type: ignore[arg-type]
-        start = dict(ctx["start"])  # type: ignore[arg-type]
-        chosen = dict(ctx["chosen"])  # type: ignore[arg-type]
-        kind = str(ctx["kind"])
-        line_price = float(ctx["line_price"])
-        overlap_low = float(ctx["overlap_low"])
-        overlap_high = float(ctx["overlap_high"])
-        atr_values = list(ctx["atr_values"])  # type: ignore[arg-type]
-        closes = list(ctx["closes"])  # type: ignore[arg-type]
-        current_price = float(ctx["current_price"])
+    def _build_level(self, *, ctx: _LevelBuildContext) -> SrPriceLevel:
+        candles = ctx.candles
+        pivots = ctx.pivots
+        start = ctx.start
+        chosen = ctx.chosen
+        kind = str(ctx.kind)
+        line_price = float(ctx.line_price)
+        overlap_low = float(ctx.overlap_low)
+        overlap_high = float(ctx.overlap_high)
+        atr_values = ctx.atr_values
+        closes = ctx.closes
+        current_price = float(ctx.current_price)
         band_low, band_high, band_width_atr = clamp_band(
             overlap_low=float(overlap_low),
             overlap_high=float(overlap_high),

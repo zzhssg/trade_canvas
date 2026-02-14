@@ -2,7 +2,7 @@
 title: Source of Truth（真源总表）
 status: done
 created: 2026-02-02
-updated: 2026-02-11
+updated: 2026-02-14
 ---
 
 # Source of Truth（真源总表）
@@ -31,10 +31,10 @@ updated: 2026-02-11
 | world state/delta 契约 | `docs/core/contracts/world_state_v1.md` / `docs/core/contracts/world_delta_v1.md` | 世界态聚合与增量轮询语义 |
 | replay package 契约 | `docs/core/contracts/replay_package_v1.md` | replay 打包接口与窗口语义 |
 | 市场榜单契约 | `docs/core/contracts/market_list_v1.md` | top markets HTTP/SSE 契约 |
-| 配置真源（代码） | `backend/app/flags.py` / `backend/app/runtime_flags.py` | FeatureFlags 与 RuntimeFlags 唯一实现 |
-| DI 装配真源（代码） | `backend/app/container.py` | 所有核心依赖的启动装配入口 |
+| 配置真源（代码） | `backend/app/core/flags.py` / `backend/app/runtime/flags.py` | env 解析工具 + RuntimeFlags 唯一实现 |
+| DI 装配真源（代码） | `backend/app/bootstrap/container.py` | 所有核心依赖的启动装配入口 |
 | 写链路真源（代码） | `backend/app/pipelines/ingest_pipeline.py` | candles->factor->overlay 单路径编排 |
-| 读修复入口（代码） | `backend/app/repair_routes.py` / `backend/app/read_models/repair_service.py` | 显式 repair（默认关闭，受 `TRADE_CANVAS_ENABLE_READ_REPAIR_API` 控制） |
+| 读修复入口（代码） | `backend/app/routes/repair.py` / `backend/app/read_models/repair_service.py` | 显式 repair（默认关闭，受 `TRADE_CANVAS_ENABLE_READ_REPAIR_API` 控制） |
 
 ## 非真源文档处理
 

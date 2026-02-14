@@ -6,7 +6,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..storage.local_store_runtime import LocalConnectionBase, MemoryCursor
+from ..storage.local_store_runtime import (
+    LocalConnectionBase,
+    MemoryCursor,
+    get_or_create_store_state,
+    merge_series_head_time,
+    read_series_head_time,
+)
 
 
 @dataclass(frozen=True)
@@ -30,18 +36,13 @@ _STORE_STATES: dict[str, _OverlayStoreState] = {}
 _STORE_STATES_LOCK = threading.Lock()
 
 
-def _store_key(db_path: Path) -> str:
-    return str(Path(db_path))
-
-
 def _get_store_state(db_path: Path) -> _OverlayStoreState:
-    key = _store_key(db_path)
-    with _STORE_STATES_LOCK:
-        state = _STORE_STATES.get(key)
-        if state is None:
-            state = _OverlayStoreState()
-            _STORE_STATES[key] = state
-        return state
+    return get_or_create_store_state(
+        store_states=_STORE_STATES,
+        lock=_STORE_STATES_LOCK,
+        db_path=db_path,
+        factory=_OverlayStoreState,
+    )
 
 
 class _OverlayStoreConnection(LocalConnectionBase):
@@ -115,10 +116,11 @@ class OverlayStore:
         return _OverlayStoreConnection(_get_store_state(self.db_path))
 
     def upsert_head_time_in_conn(self, conn: _OverlayStoreConnection, *, series_id: str, head_time: int) -> None:
-        sid = str(series_id)
-        current = conn._state.series_head.get(sid)
-        merged = max(int(current), int(head_time)) if current is not None else int(head_time)
-        conn._state.series_head[sid] = int(merged)
+        merge_series_head_time(
+            series_head=conn._state.series_head,
+            series_id=series_id,
+            head_time=head_time,
+        )
         conn.total_changes += 1
 
     def clear_series_in_conn(self, conn: _OverlayStoreConnection, *, series_id: str) -> None:
@@ -133,8 +135,10 @@ class OverlayStore:
             conn.total_changes += int(removed)
 
     def head_time(self, series_id: str) -> int | None:
-        value = _get_store_state(self.db_path).series_head.get(str(series_id))
-        return None if value is None else int(value)
+        return read_series_head_time(
+            series_head=_get_store_state(self.db_path).series_head,
+            series_id=series_id,
+        )
 
     def last_version_id(self, series_id: str) -> int:
         sid = str(series_id)

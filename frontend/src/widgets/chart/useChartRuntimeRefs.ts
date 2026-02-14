@@ -3,11 +3,11 @@ import { useRef, useState } from "react";
 
 import type { PenLinePoint, PenSegment } from "./penAnchorRuntime";
 import type { Candle, OverlayInstructionPatchItemV1 } from "./types";
+import type { ReplayPenPreviewFeature } from "./liveSessionRuntimeTypes";
 import type { OverlayCanvasPath } from "./useOverlayCanvas";
 
-type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
-
 export function useChartRuntimeRefs(enableWorldFrame: boolean) {
+  const activeSeriesIdRef = useRef("");
   const candlesRef = useRef<Candle[]>([]);
   const candleTimesSecRef = useRef<number[]>([]);
   const appliedRef = useRef<{ len: number; lastTime: number | null }>({ len: 0, lastTime: null });
@@ -68,6 +68,7 @@ export function useChartRuntimeRefs(enableWorldFrame: boolean) {
   const [anchorTopLayerPathCount, setAnchorTopLayerPathCount] = useState(0);
 
   return {
+    activeSeriesIdRef,
     candlesRef,
     candleTimesSecRef,
     appliedRef,

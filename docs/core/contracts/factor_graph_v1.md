@@ -2,7 +2,7 @@
 title: Factor Graph Contract v1（因子拓扑与调度）
 status: done
 created: 2026-02-02
-updated: 2026-02-11
+updated: 2026-02-14
 ---
 
 # Factor Graph Contract v1（因子拓扑与调度）
@@ -76,13 +76,13 @@ updated: 2026-02-11
 ## 5. 运行时绑定（2026-02）
 
 当前后端实现对应关系：
-- 注册中心：`backend/app/factor_registry.py`
-- Tick 插件集合：`backend/app/factor_processors.py`
-- 统一装配清单：`backend/app/factor_manifest.py`
-- DAG 构建：`backend/app/factor_graph.py`
-- 调度入口：`backend/app/factor_orchestrator.py`
-- 读路径插件：`backend/app/factor_slice_plugins.py`
-- 读路径调度：`backend/app/factor_slices_service.py`
+- 注册中心：`backend/app/factor/registry.py`
+- Tick 插件集合：`backend/app/factor/default_components.py` + `backend/app/factor/bundles/*.py`
+- 统一装配清单：`backend/app/factor/manifest.py`
+- DAG 构建：`backend/app/factor/graph.py`
+- 调度入口：`backend/app/factor/orchestrator.py`
+- 读路径插件：`backend/app/factor/slice_plugins.py`
+- 读路径调度：`backend/app/factor/slices_service.py`
 
 要求：
 - 默认运行时必须从同一份 manifest 同时注入写路径 tick_plugins 与读路径 slice_plugins，不允许两份手工列表长期分叉。

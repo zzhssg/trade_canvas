@@ -2,7 +2,7 @@
 title: Factor Plugin Contract v1（因子插件契约）
 status: done
 created: 2026-02-10
-updated: 2026-02-13
+updated: 2026-02-14
 ---
 
 # Factor Plugin Contract v1（因子插件契约）
@@ -168,10 +168,10 @@ def build_default_factor_manifest() -> FactorManifest: ...
 - 插件声明：
   - `name: str`
   - `evaluate(ctx) -> OverlayIntegrityResult`
-- `draw_routes` 只负责：
+- `backend/app/routes/draw.py` 只负责：
   - 在 `cursor_version_id=0` 读取首帧时执行 integrity plugins；
-  - 依据插件结论触发 `overlay_orchestrator` 重建；
-  - 避免在 `draw_routes.py` 中长期累积按 feature 手写判定分支。
+  - mismatch 时返回 `409 ledger_out_of_sync:overlay`（不在读请求中隐式重建）；
+  - 需要修复时走 `backend/app/routes/repair.py` 显式入口。
 
 ## 9. 验收门禁
 

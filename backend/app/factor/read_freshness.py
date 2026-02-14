@@ -2,19 +2,12 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from ..core.ports import AlignedStorePort, HeadStorePort
 from ..core.schemas import GetFactorSlicesResponseV1
 from ..core.service_errors import ServiceError
 
 
-class _AlignedStoreLike(Protocol):
-    def floor_time(self, series_id: str, *, at_time: int) -> int | None: ...
-
-
-class _FactorStoreLike(Protocol):
-    def head_time(self, series_id: str) -> int | None: ...
-
-
-class _FactorSlicesServiceLike(Protocol):
+class FactorSlicesServicePort(Protocol):
     def get_slices_aligned(
         self,
         *,
@@ -27,8 +20,8 @@ class _FactorSlicesServiceLike(Protocol):
 
 def _factor_head_time(
     *,
-    factor_store: _FactorStoreLike | None,
-    factor_slices_service: _FactorSlicesServiceLike,
+    factor_store: HeadStorePort | None,
+    factor_slices_service: FactorSlicesServicePort,
     series_id: str,
 ) -> int | None:
     try:
@@ -50,8 +43,8 @@ def _factor_head_time(
 
 def _ensure_strict_freshness(
     *,
-    factor_store: _FactorStoreLike | None,
-    factor_slices_service: _FactorSlicesServiceLike,
+    factor_store: HeadStorePort | None,
+    factor_slices_service: FactorSlicesServicePort,
     series_id: str,
     aligned_time: int | None,
 ) -> None:
@@ -72,14 +65,14 @@ def _ensure_strict_freshness(
 
 def read_factor_slices_with_freshness(
     *,
-    store: _AlignedStoreLike,
-    factor_slices_service: _FactorSlicesServiceLike,
+    store: AlignedStorePort,
+    factor_slices_service: FactorSlicesServicePort,
     series_id: str,
     at_time: int,
     window_candles: int,
     aligned_time: int | None = None,
     ensure_fresh: bool = True,
-    factor_store: _FactorStoreLike | None = None,
+    factor_store: HeadStorePort | None = None,
 ) -> GetFactorSlicesResponseV1:
     aligned: int | None
     if aligned_time is None:
