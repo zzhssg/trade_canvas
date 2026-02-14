@@ -15,17 +15,13 @@ from ..core.schemas import (
 from ..core.service_errors import ServiceError
 from .ports import DrawReadServicePort, FactorReadServicePort
 
-
-_DebugHubLike = DebugHubPort
-
-
 @dataclass(frozen=True)
 class WorldReadService:
     store: AlignedStorePort
     overlay_store: HeadStorePort
     factor_read_service: FactorReadServicePort
     draw_read_service: DrawReadServicePort
-    debug_hub: _DebugHubLike
+    debug_hub: DebugHubPort
     debug_api_enabled: bool = False
 
     def _debug_enabled(self) -> bool:

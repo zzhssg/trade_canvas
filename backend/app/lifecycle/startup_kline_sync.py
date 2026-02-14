@@ -2,16 +2,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Mapping
 
+from ..core.ports import AlignedStorePort, BackfillPort, DebugHubPort
+from ..ledger.ports import LedgerSyncPreparePort
 from ..runtime.blocking import run_blocking
 from ..core.timeframe import expected_latest_closed_time, series_id_timeframe, timeframe_to_seconds
 from .startup_kline_sync_contracts import (
-    BackfillLike as _BackfillLike,
-    DebugHubLike as _DebugHubLike,
-    LedgerSyncLike as _LedgerSyncLike,
     RuntimeLike as _RuntimeLike,
-    StoreLike as _StoreLike,
     runtime_backfill as _runtime_backfill,
     runtime_ledger_sync as _runtime_ledger_sync,
 )
@@ -52,9 +49,9 @@ def _target_time_for_series(*, series_id: str, now_time: int) -> int | None:
 
 def _sync_one_series(
     *,
-    store: _StoreLike,
-    backfill: _BackfillLike,
-    ledger_sync: _LedgerSyncLike,
+    store: AlignedStorePort,
+    backfill: BackfillPort,
+    ledger_sync: LedgerSyncPreparePort,
     series_id: str,
     target_candles: int,
     now_time: int,
@@ -135,13 +132,13 @@ def _is_lagging(item: StartupKlineSyncSeriesResult) -> bool:
 
 async def run_startup_kline_sync(
     *,
-    store: _StoreLike,
-    backfill: _BackfillLike,
-    ledger_sync: _LedgerSyncLike,
+    store: AlignedStorePort,
+    backfill: BackfillPort,
+    ledger_sync: LedgerSyncPreparePort,
     series_ids: tuple[str, ...] | list[str] | None,
     enabled: bool,
     target_candles: int,
-    debug_hub: _DebugHubLike | None = None,
+    debug_hub: DebugHubPort | None = None,
     now_time: int | None = None,
 ) -> StartupKlineSyncResult:
     normalized_series_ids = _safe_series_ids(series_ids)

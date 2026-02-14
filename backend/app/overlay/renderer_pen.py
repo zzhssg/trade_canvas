@@ -4,19 +4,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..factor.plugin_contract import FactorPluginSpec
-from .renderer_contract import OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput
+from .renderer_contract import PEN_CONFIRMED_BUCKET_SPEC, OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput
 
 
 @dataclass(frozen=True)
 class PenOverlayRenderer:
     spec: FactorPluginSpec = FactorPluginSpec(factor_name="overlay.pen", depends_on=())
     bucket_specs: tuple[OverlayEventBucketSpec, ...] = (
-        OverlayEventBucketSpec(
-            factor_name="pen",
-            event_kind="pen.confirmed",
-            bucket_name="pen_confirmed",
-            sort_keys=("visible_time", "start_time"),
-        ),
+        PEN_CONFIRMED_BUCKET_SPEC,
     )
 
     def render(self, *, ctx: OverlayRenderContext) -> OverlayRenderOutput:

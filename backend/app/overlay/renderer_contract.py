@@ -14,6 +14,42 @@ class OverlayEventBucketSpec:
     sort_keys: tuple[str, str] | None = None
 
 
+PIVOT_MAJOR_BUCKET_SPEC = OverlayEventBucketSpec(
+    factor_name="pivot",
+    event_kind="pivot.major",
+    bucket_name="pivot_major",
+    sort_keys=("visible_time", "pivot_time"),
+)
+PIVOT_MINOR_BUCKET_SPEC = OverlayEventBucketSpec(
+    factor_name="pivot",
+    event_kind="pivot.minor",
+    bucket_name="pivot_minor",
+)
+ANCHOR_SWITCH_BUCKET_SPEC = OverlayEventBucketSpec(
+    factor_name="anchor",
+    event_kind="anchor.switch",
+    bucket_name="anchor_switches",
+    sort_keys=("visible_time", "switch_time"),
+)
+PEN_CONFIRMED_BUCKET_SPEC = OverlayEventBucketSpec(
+    factor_name="pen",
+    event_kind="pen.confirmed",
+    bucket_name="pen_confirmed",
+    sort_keys=("visible_time", "start_time"),
+)
+ZHONGSHU_DEAD_BUCKET_SPEC = OverlayEventBucketSpec(
+    factor_name="zhongshu",
+    event_kind="zhongshu.dead",
+    bucket_name="zhongshu_dead",
+)
+SR_SNAPSHOT_BUCKET_SPEC = OverlayEventBucketSpec(
+    factor_name="sr",
+    event_kind="sr.snapshot",
+    bucket_name="sr_snapshots",
+    sort_keys=("visible_time", "visible_time"),
+)
+
+
 @dataclass(frozen=True)
 class OverlayRenderContext:
     series_id: str

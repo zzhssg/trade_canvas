@@ -7,7 +7,15 @@ from ..factor.anchor_semantics import build_anchor_history_from_switches, normal
 from ..factor.plugin_contract import FactorPluginSpec
 from ..factor.slices import build_pen_head_candidate, build_pen_head_preview
 from ..factor.zhongshu import build_alive_zhongshu_from_confirmed_pens
-from .renderer_contract import OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput
+from .renderer_contract import (
+    ANCHOR_SWITCH_BUCKET_SPEC,
+    PEN_CONFIRMED_BUCKET_SPEC,
+    PIVOT_MAJOR_BUCKET_SPEC,
+    ZHONGSHU_DEAD_BUCKET_SPEC,
+    OverlayEventBucketSpec,
+    OverlayRenderContext,
+    OverlayRenderOutput,
+)
 from .renderer_structure_helpers import (
     PolylineRequest,
     append_polyline,
@@ -24,29 +32,10 @@ class StructureOverlayRenderer:
         depends_on=("overlay.pen",),
     )
     bucket_specs: tuple[OverlayEventBucketSpec, ...] = (
-        OverlayEventBucketSpec(
-            factor_name="pivot",
-            event_kind="pivot.major",
-            bucket_name="pivot_major",
-            sort_keys=("visible_time", "pivot_time"),
-        ),
-        OverlayEventBucketSpec(
-            factor_name="pen",
-            event_kind="pen.confirmed",
-            bucket_name="pen_confirmed",
-            sort_keys=("visible_time", "start_time"),
-        ),
-        OverlayEventBucketSpec(
-            factor_name="zhongshu",
-            event_kind="zhongshu.dead",
-            bucket_name="zhongshu_dead",
-        ),
-        OverlayEventBucketSpec(
-            factor_name="anchor",
-            event_kind="anchor.switch",
-            bucket_name="anchor_switches",
-            sort_keys=("visible_time", "switch_time"),
-        ),
+        PIVOT_MAJOR_BUCKET_SPEC,
+        PEN_CONFIRMED_BUCKET_SPEC,
+        ZHONGSHU_DEAD_BUCKET_SPEC,
+        ANCHOR_SWITCH_BUCKET_SPEC,
     )
 
     def render(self, *, ctx: OverlayRenderContext) -> OverlayRenderOutput:

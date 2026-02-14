@@ -17,17 +17,13 @@ from .draw_delta_steps import (
     resolve_to_time,
 )
 
-
-_DebugHubLike = DebugHubPort
-
-
 @dataclass(frozen=True)
 class DrawReadService:
     store: AlignedStorePort
     overlay_store: OverlayStoreReadPort
     overlay_orchestrator: OverlayOrchestratorReadPort
     factor_read_service: FactorReadServicePort
-    debug_hub: _DebugHubLike
+    debug_hub: DebugHubPort
     debug_api_enabled: bool = False
 
     def _empty_delta(self, *, series_id: str, cursor_version_id: int) -> DrawDeltaV1:

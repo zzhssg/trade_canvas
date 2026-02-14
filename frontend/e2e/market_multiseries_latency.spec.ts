@@ -95,7 +95,7 @@ async function waitSeriesCandlesReady(
   throw new Error(`series candles not ready: ${seriesId}`);
 }
 
-test("btc eth sol all timeframes refresh latest kline/factor/draw within 3s after close", async ({ page, request }) => {
+test("btc eth sol all timeframes refresh latest kline/factor/draw within 3s after close @mainflow", async ({ page, request }) => {
   test.setTimeout(180_000);
   const runId = Date.now().toString(36).toUpperCase();
   const symbols = [`BTCTC${runId}/USDT`, `ETHTC${runId}/USDT`, `SOLTC${runId}/USDT`];

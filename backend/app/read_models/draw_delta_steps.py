@@ -9,19 +9,10 @@ from ..core.schemas import GetFactorSlicesResponseV1, OverlayInstructionPatchIte
 from ..core.service_errors import ServiceError
 from .ports import FactorReadServicePort, OverlayStoreReadPort
 
-
-StoreLike = AlignedStorePort
-OverlayStoreLike = OverlayStoreReadPort
-FactorReadServiceLike = FactorReadServicePort
-
-
-DebugHubLike = DebugHubPort
-
-
 @dataclass(frozen=True)
 class DrawDeltaDebugEmitRequest:
     debug_enabled: bool
-    debug_hub: DebugHubLike
+    debug_hub: DebugHubPort
     series_id: str
     cursor_version_id: int
     next_version_id: int
@@ -46,7 +37,7 @@ def assert_overlay_head_covers(*, required_time: int, overlay_head: int | None) 
 
 def resolve_to_time(
     *,
-    store: StoreLike,
+    store: AlignedStorePort,
     series_id: str,
     at_time: int | None,
     store_head: int | None,
@@ -72,7 +63,7 @@ def resolve_to_time(
 
 def read_slices_for_overlay_if_needed(
     *,
-    factor_read_service: FactorReadServiceLike | None,
+    factor_read_service: FactorReadServicePort | None,
     series_id: str,
     cursor_version_id: int,
     window_candles: int,
@@ -104,7 +95,7 @@ def ensure_overlay_integrity_if_needed(
     latest_defs: list[OverlayInstructionVersionRow],
     slices_for_overlay: GetFactorSlicesResponseV1 | None,
     debug_enabled: bool,
-    debug_hub: DebugHubLike,
+    debug_hub: DebugHubPort,
 ) -> None:
     if int(cursor_version_id) != 0:
         return
@@ -193,7 +184,7 @@ def collect_active_ids(
 
 def build_patch(
     *,
-    overlay_store: OverlayStoreLike,
+    overlay_store: OverlayStoreReadPort,
     series_id: str,
     cursor_version_id: int,
     to_time: int,

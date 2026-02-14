@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..factor.plugin_contract import FactorPluginSpec
-from .renderer_contract import OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput
+from .renderer_contract import SR_SNAPSHOT_BUCKET_SPEC, OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput
 
 
 @dataclass(frozen=True)
@@ -14,12 +14,7 @@ class SrOverlayRenderer:
         depends_on=("overlay.structure",),
     )
     bucket_specs: tuple[OverlayEventBucketSpec, ...] = (
-        OverlayEventBucketSpec(
-            factor_name="sr",
-            event_kind="sr.snapshot",
-            bucket_name="sr_snapshots",
-            sort_keys=("visible_time", "visible_time"),
-        ),
+        SR_SNAPSHOT_BUCKET_SPEC,
     )
 
     def render(self, *, ctx: OverlayRenderContext) -> OverlayRenderOutput:

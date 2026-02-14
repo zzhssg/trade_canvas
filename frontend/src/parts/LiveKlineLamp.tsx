@@ -53,7 +53,7 @@ const normalizeError = (cause: unknown): string => {
 const fetchMarketHealth = (nextSeriesId: string): Promise<MarketHealthPayload> =>
   apiJson<MarketHealthPayload>(`/api/market/health?series_id=${encodeURIComponent(nextSeriesId)}`);
 
-const isFastTone = (tone: KlineHealthTone): boolean => tone === "yellow";
+const isFastTone = (tone: KlineHealthTone): boolean => tone === "yellow" || tone === "red";
 
 export function LiveKlineLamp({ seriesId }: { seriesId: string }) {
   const { payload, error } = useHealthLampPolling<MarketHealthPayload, KlineHealthTone>({

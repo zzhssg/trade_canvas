@@ -5,17 +5,10 @@ from dataclasses import dataclass, field
 from threading import Lock
 from typing import Protocol
 
-from ..market_data import CatchupReadRequest, CatchupReadResult, FreshnessSnapshot
+from ..market_data import CatchupReadRequest, MarketDataOrchestrator
 from ..core.ports import BackfillPort, DebugHubPort
 from ..runtime.metrics import RuntimeMetrics
 from ..core.schemas import GetCandlesResponse
-
-
-class _MarketDataLike(Protocol):
-    def read_candles(self, req: CatchupReadRequest) -> CatchupReadResult: ...
-
-    def freshness(self, *, series_id: str, now_time: int | None = None) -> FreshnessSnapshot: ...
-
 
 class _RuntimeFlagsLike(Protocol):
     @property
@@ -33,7 +26,7 @@ _DebugHubLike = DebugHubPort
 
 @dataclass(frozen=True)
 class MarketQueryService:
-    market_data: _MarketDataLike
+    market_data: MarketDataOrchestrator
     backfill: BackfillPort
     runtime_flags: _RuntimeFlagsLike
     debug_hub: _DebugHubLike

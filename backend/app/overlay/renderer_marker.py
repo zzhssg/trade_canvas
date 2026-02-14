@@ -4,30 +4,23 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..factor.plugin_contract import FactorPluginSpec
-from .renderer_contract import OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput
+from .renderer_contract import (
+    ANCHOR_SWITCH_BUCKET_SPEC,
+    PIVOT_MAJOR_BUCKET_SPEC,
+    PIVOT_MINOR_BUCKET_SPEC,
+    OverlayEventBucketSpec,
+    OverlayRenderContext,
+    OverlayRenderOutput,
+)
 
 
 @dataclass(frozen=True)
 class MarkerOverlayRenderer:
     spec: FactorPluginSpec = FactorPluginSpec(factor_name="overlay.marker", depends_on=())
     bucket_specs: tuple[OverlayEventBucketSpec, ...] = (
-        OverlayEventBucketSpec(
-            factor_name="pivot",
-            event_kind="pivot.major",
-            bucket_name="pivot_major",
-            sort_keys=("visible_time", "pivot_time"),
-        ),
-        OverlayEventBucketSpec(
-            factor_name="pivot",
-            event_kind="pivot.minor",
-            bucket_name="pivot_minor",
-        ),
-        OverlayEventBucketSpec(
-            factor_name="anchor",
-            event_kind="anchor.switch",
-            bucket_name="anchor_switches",
-            sort_keys=("visible_time", "switch_time"),
-        ),
+        PIVOT_MAJOR_BUCKET_SPEC,
+        PIVOT_MINOR_BUCKET_SPEC,
+        ANCHOR_SWITCH_BUCKET_SPEC,
     )
 
     def render(self, *, ctx: OverlayRenderContext) -> OverlayRenderOutput:

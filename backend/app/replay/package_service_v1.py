@@ -5,6 +5,13 @@ from pathlib import Path
 from typing import Any
 
 from ..build.artifacts import resolve_artifacts_root
+from ..build.package_service_helpers import (
+    WindowParamBounds,
+    build_status_payload,
+    error_status_payload,
+    normalize_job_identity,
+    normalize_window_params,
+)
 from ..factor.slices_service import FactorSlicesService
 from ..factor.store import FactorStore
 from ..overlay.store import OverlayStore
@@ -118,13 +125,13 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
         window_size: int | None,
         snapshot_interval: int | None,
     ) -> tuple[int, int, int]:
-        wc = int(window_candles or self._defaults["window_candles"])
-        ws = int(window_size or self._defaults["window_size"])
-        si = int(snapshot_interval or self._defaults["snapshot_interval"])
-        wc = min(5000, max(100, wc))
-        ws = min(2000, max(50, ws))
-        si = min(200, max(5, si))
-        return (wc, ws, si)
+        return normalize_window_params(
+            defaults=self._defaults,
+            window_candles=window_candles,
+            window_size=window_size,
+            snapshot_interval=snapshot_interval,
+            bounds=WindowParamBounds(window_candles_max=5000),
+        )
 
     def _preflight_build(
         self,
@@ -224,8 +231,7 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
         return ("building", reservation.job_id, reservation.cache_key)
 
     def status(self, *, job_id: str, include_preload: bool, include_history: bool) -> dict[str, Any]:
-        normalized_job_id = str(job_id)
-        cache_key = normalized_job_id
+        normalized_job_id, cache_key = normalize_job_identity(job_id)
         status, tracked_job = self._resolve_build_status(
             job_id=normalized_job_id,
             cache_exists=self._reader.cache_exists,
@@ -236,12 +242,8 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
             done_meta: ReplayPackageMetadataV1 | None = (
                 self._reader.read_meta(cache_key) if self._reader.cache_exists(cache_key) else None
             )
-            out: dict[str, Any] = {
-                "status": "done",
-                "job_id": normalized_job_id,
-                "cache_key": cache_key,
-                "metadata": done_meta.model_dump(mode="json") if done_meta else None,
-            }
+            out: dict[str, Any] = build_status_payload(status="done", job_id=normalized_job_id, cache_key=cache_key)
+            out["metadata"] = done_meta.model_dump(mode="json") if done_meta else None
             if include_preload and done_meta is not None:
                 preload = self._read_preload_window(cache_key, done_meta)
                 out["preload_window"] = preload.model_dump(mode="json") if preload else None
@@ -249,14 +251,8 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
                 out["history_events"] = [e.model_dump(mode="json") for e in self._reader.read_history_events(cache_key)]
             return out
         if status == "error":
-            err = tracked_job.error if tracked_job is not None else None
-            return {
-                "status": "error",
-                "job_id": normalized_job_id,
-                "cache_key": cache_key,
-                "error": err or "unknown_error",
-            }
-        return {"status": "building", "job_id": normalized_job_id, "cache_key": cache_key}
+            return error_status_payload(job_id=normalized_job_id, cache_key=cache_key, tracked_job=tracked_job)
+        return build_status_payload(status="building", job_id=normalized_job_id, cache_key=cache_key)
 
     def window(self, *, job_id: str, target_idx: int) -> ReplayWindowV1:
         cache_key = str(job_id)
