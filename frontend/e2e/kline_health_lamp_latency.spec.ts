@@ -20,7 +20,7 @@ async function readExpectedLatestClosedTime(request: APIRequestContext, seriesId
   return payload.expected_latest_closed_time
 }
 
-test("kline health lamp becomes green within 6s after closed candle ingest", async ({ page, request }) => {
+test("kline health lamp becomes green within 3s after closed candle ingest", async ({ page, request }) => {
   test.setTimeout(60_000)
 
   const symbol = uniqueSymbol("LAMPTC")
@@ -52,5 +52,5 @@ test("kline health lamp becomes green within 6s after closed candle ingest", asy
   })
 
   await expect(chart).toHaveAttribute("data-last-time", String(expectedLatestClosedTime), { timeout: 3_000 })
-  await expect(lamp).toHaveAttribute("data-kline-status", "green", { timeout: 6_000 })
+  await expect(lamp).toHaveAttribute("data-kline-status", "green", { timeout: 3_000 })
 })

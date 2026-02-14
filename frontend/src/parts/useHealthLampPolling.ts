@@ -46,6 +46,7 @@ export function useHealthLampPolling<TPayload, TTone extends string = "green" | 
   const delaysRef = useRef(delays)
   const timerRef = useRef<number | null>(null)
   const inFlightRef = useRef(false)
+  const pendingForceRef = useRef(false)
   const cancelledRef = useRef(false)
   const lastPulseRefreshAtRef = useRef(0)
 
@@ -58,6 +59,7 @@ export function useHealthLampPolling<TPayload, TTone extends string = "green" | 
 
   useEffect(() => {
     cancelledRef.current = false
+    pendingForceRef.current = false
     const clearTimer = () => {
       if (timerRef.current == null) return
       window.clearTimeout(timerRef.current)
@@ -85,7 +87,7 @@ export function useHealthLampPolling<TPayload, TTone extends string = "green" | 
     const load = async (force: boolean) => {
       if (cancelledRef.current) return
       if (inFlightRef.current) {
-        if (!force) return
+        if (force) pendingForceRef.current = true
         return
       }
       inFlightRef.current = true
@@ -105,6 +107,12 @@ export function useHealthLampPolling<TPayload, TTone extends string = "green" | 
         scheduleNext(tone)
       } finally {
         inFlightRef.current = false
+        if (cancelledRef.current) return
+        if (pendingForceRef.current) {
+          pendingForceRef.current = false
+          clearTimer()
+          void load(true)
+        }
       }
     }
     const onFocus = () => void load(true)
@@ -126,6 +134,7 @@ export function useHealthLampPolling<TPayload, TTone extends string = "green" | 
     void load(true)
     return () => {
       cancelledRef.current = true
+      pendingForceRef.current = false
       unsubscribePulse()
       window.removeEventListener("focus", onFocus)
       document.removeEventListener("visibilitychange", onVisibilityChange)
