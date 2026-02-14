@@ -297,5 +297,4 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
 def _hash_short(payload: str) -> str:
     import hashlib
 
-    h = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return h[:24]
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]

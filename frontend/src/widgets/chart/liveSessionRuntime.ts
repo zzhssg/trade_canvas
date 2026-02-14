@@ -25,6 +25,7 @@ function resetLiveSessionRuntime(args: StartChartLiveSessionArgs) {
   args.setCandles([]);
   args.candlesRef.current = [];
   args.candleSeriesRef.current?.setData([]);
+  args.setLiveLoadState("loading", "正在加载K线...");
   args.lastWsCandleTimeRef.current = null;
   args.setLastWsCandleTime(null);
   args.appliedRef.current = { len: 0, lastTime: null };
@@ -62,11 +63,13 @@ function resetLiveSessionRuntime(args: StartChartLiveSessionArgs) {
 }
 
 async function waitForInitialCandles(args: StartChartLiveSessionOptions) {
+  args.setLiveLoadState("loading", "正在加载K线...");
   let initial = await fetchCandles({ seriesId: args.seriesId, limit: args.windowCandles });
   if (initial.candles.length > 0 || args.replayEnabled) return initial;
 
-  const retryLimit = 8;
-  const retryDelayMs = 300;
+  args.setLiveLoadState("backfilling", "正在补历史K线...");
+  const retryLimit = 5;
+  const retryDelayMs = 250;
   for (let attempt = 0; attempt < retryLimit; attempt += 1) {
     if (!args.isActive()) return initial;
     await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs));
@@ -100,6 +103,7 @@ async function runLiveSession(args: StartChartLiveSessionOptions): Promise<WebSo
   });
 
   if (initial.candles.length > 0) {
+    args.setLiveLoadState("ready");
     if (args.replayEnabled) {
       logDebugEvent({
         pipe: "read",
@@ -145,6 +149,8 @@ async function runLiveSession(args: StartChartLiveSessionOptions): Promise<WebSo
     args.candlesRef.current = initial.candles;
     args.setCandles(initial.candles);
     cursor = initial.candles[initial.candles.length - 1]!.time as number;
+  } else if (!args.replayEnabled) {
+    args.setLiveLoadState("empty", "暂无K线，等待后台同步...");
   }
 
   try {
@@ -198,7 +204,9 @@ export function startChartLiveSession(args: StartChartLiveSessionArgs): { stop: 
     })
     .catch((error: unknown) => {
       if (!active) return;
-      args.setError(error instanceof Error ? error.message : "Failed to load market candles");
+      const message = error instanceof Error ? error.message : "Failed to load market candles";
+      args.setError(message);
+      args.setLiveLoadState("error", message);
     });
 
   return {
@@ -208,6 +216,7 @@ export function startChartLiveSession(args: StartChartLiveSessionArgs): { stop: 
       ws?.close();
       args.setCandles([]);
       args.candleSeriesRef.current?.setData([]);
+      args.setLiveLoadState("idle");
     }
   };
 }

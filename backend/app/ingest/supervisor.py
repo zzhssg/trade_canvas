@@ -43,20 +43,20 @@ class IngestSupervisor:
         cfg = config or IngestRuntimeConfig()
         self._whitelist = set(whitelist_series_ids)
         self._whitelist_ingest_enabled = bool(whitelist_ingest_enabled)
-        self._ingest_role_guard_enabled = bool(cfg.role_guard_enabled)
-        self._ingest_role = normalize_ingest_role(cfg.ingest_role)
+        self._ingest_role_guard_enabled = bool(cfg.role.guard_enabled)
+        self._ingest_role = normalize_ingest_role(cfg.role.ingest_role)
         self._ingest_jobs_enabled = (not self._ingest_role_guard_enabled) or self._ingest_role in {"hybrid", "ingest"}
         self._settings = ingest_settings or WhitelistIngestSettings()
         self._idle_ttl_s = ondemand_idle_ttl_s
         self._ondemand_max_jobs = max(0, int(cfg.ondemand_max_jobs))
         self._ingest_pipeline = ingest_pipeline
         self._market_history_source = str(cfg.market_history_source or "").strip().lower()
-        self._derived_enabled = bool(cfg.derived_enabled)
-        self._derived_base_timeframe = str(cfg.derived_base_timeframe).strip() or "1m"
-        self._derived_timeframes = tuple(str(tf).strip() for tf in (cfg.derived_timeframes or ()) if str(tf).strip())
-        self._binance_ws_batch_max = max(1, int(cfg.ws_batch_max))
-        self._binance_ws_flush_s = max(0.05, float(cfg.ws_flush_s))
-        self._forming_min_interval_ms = max(0, int(cfg.forming_min_interval_ms))
+        self._derived_enabled = bool(cfg.derived.enabled)
+        self._derived_base_timeframe = str(cfg.derived.base_timeframe).strip() or "1m"
+        self._derived_timeframes = tuple(str(tf).strip() for tf in (cfg.derived.timeframes or ()) if str(tf).strip())
+        self._binance_ws_batch_max = max(1, int(cfg.ws.batch_max))
+        self._binance_ws_flush_s = max(0.05, float(cfg.ws.flush_s))
+        self._forming_min_interval_ms = max(0, int(cfg.ws.forming_min_interval_ms))
         self._source_registry = IngestSourceRegistry(
             bindings={
                 "binance": IngestSourceBinding(
@@ -89,13 +89,13 @@ class IngestSupervisor:
             ),
         )
         self._guardrails = IngestGuardrailRegistry(
-            enabled=bool(cfg.loop_guardrail_enabled),
+            enabled=bool(cfg.guardrail.enabled),
             config=IngestLoopGuardrailConfig(
-                crash_budget=max(1, int(cfg.guardrail_crash_budget)),
-                budget_window_s=max(1.0, float(cfg.guardrail_budget_window_s)),
-                backoff_initial_s=max(0.0, float(cfg.guardrail_backoff_initial_s)),
-                backoff_max_s=max(0.0, float(cfg.guardrail_backoff_max_s)),
-                open_cooldown_s=max(0.0, float(cfg.guardrail_open_cooldown_s)),
+                crash_budget=max(1, int(cfg.guardrail.crash_budget)),
+                budget_window_s=max(1.0, float(cfg.guardrail.budget_window_s)),
+                backoff_initial_s=max(0.0, float(cfg.guardrail.backoff_initial_s)),
+                backoff_max_s=max(0.0, float(cfg.guardrail.backoff_max_s)),
+                open_cooldown_s=max(0.0, float(cfg.guardrail.open_cooldown_s)),
             ),
         )
         self._lock = asyncio.Lock()

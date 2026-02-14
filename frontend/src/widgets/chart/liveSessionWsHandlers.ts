@@ -24,6 +24,7 @@ export function buildLiveSessionWsHandlers(
       args.setCandles((prev) => {
         const next = mergeCandlesWindow(prev, msg.candles.map(toChartCandle), args.windowCandles);
         args.candlesRef.current = next;
+        if (next.length > 0) args.setLiveLoadState("ready");
         return next;
       });
 
@@ -55,7 +56,11 @@ export function buildLiveSessionWsHandlers(
     onCandleForming: (msg) => {
       const next = toChartCandle(msg.candle);
       args.candlesRef.current = mergeCandleWindow(args.candlesRef.current, next, args.windowCandles);
-      args.setCandles((prev) => mergeCandleWindow(prev, next, args.windowCandles));
+      args.setCandles((prev) => {
+        const merged = mergeCandleWindow(prev, next, args.windowCandles);
+        if (merged.length > 0) args.setLiveLoadState("ready");
+        return merged;
+      });
     },
     onCandleClosed: (msg) => {
       const time = msg.candle.candle_time;
@@ -64,7 +69,11 @@ export function buildLiveSessionWsHandlers(
 
       const next = toChartCandle(msg.candle);
       args.candlesRef.current = mergeCandleWindow(args.candlesRef.current, next, args.windowCandles);
-      args.setCandles((prev) => mergeCandleWindow(prev, next, args.windowCandles));
+      args.setCandles((prev) => {
+        const merged = mergeCandleWindow(prev, next, args.windowCandles);
+        if (merged.length > 0) args.setLiveLoadState("ready");
+        return merged;
+      });
       logDebugEvent({
         pipe: "read",
         event: "read.ws.market_candle_closed",
@@ -108,6 +117,7 @@ export function buildLiveSessionWsHandlers(
         args.setCandles((prev) => {
           const next = mergeCandlesWindow(prev, chunk, args.windowCandles);
           args.candlesRef.current = next;
+          if (next.length > 0) args.setLiveLoadState("ready");
           return next;
         });
       });
@@ -163,6 +173,7 @@ export function buildLiveSessionWsHandlers(
     onSocketError: () => {
       if (!args.isActive()) return;
       args.setError("WS error");
+      args.setLiveLoadState("error", "WS error");
     }
   };
 }

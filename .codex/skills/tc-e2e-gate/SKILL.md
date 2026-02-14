@@ -38,6 +38,15 @@ description: "Enforce an E2E user-story gate for trade_canvas work: during plann
 - **写清产生的数据**：有哪些表/文件/消息/缓存 key/字段会被写入或改变（至少列出 key 字段）。
 - **写清证据采集方式**：跑哪些命令，产出哪些输出/文件作为证据（至少一条可自动化命令）。
 
+若本次是“新增 factor”：
+- 规划阶段必须先记录脚手架命令与依赖关系（先 dry-run）：
+
+```bash
+python3 scripts/new_factor_scaffold.py --factor <name> --depends-on <dep1,dep2> --dry-run
+```
+
+- E2E 故事里要明确覆盖三段链路：`factor ingest event -> factor slice/head -> overlay draw`。
+
 ### 1.4 API 变更的前置检查（新增强约束）
 
 当本次需求涉及“新增/修改 HTTP/WS/SSE endpoint”时，规划阶段必须额外完成：

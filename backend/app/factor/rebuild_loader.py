@@ -26,6 +26,8 @@ class FactorBootstrapState:
     last_major_idx: int | None
     anchor_current_ref: dict[str, Any] | None
     anchor_strength: float | None
+    sr_major_pivots: list[dict[str, Any]]
+    sr_snapshot: dict[str, Any]
 
 
 @dataclass
@@ -40,6 +42,8 @@ class _BootstrapReplayState:
     last_major_idx: int | None
     anchor_current_ref: dict[str, Any] | None
     anchor_strength: float | None
+    sr_major_pivots: list[dict[str, Any]]
+    sr_snapshot: dict[str, Any]
 
 
 class FactorRebuildStateLoader:
@@ -191,6 +195,8 @@ class FactorRebuildStateLoader:
             last_major_idx=None,
             anchor_current_ref=None,
             anchor_strength=None,
+            sr_major_pivots=[],
+            sr_snapshot={},
         )
         for factor_name in self._graph.topo_order:
             plugin = self._registry.require(str(factor_name))
@@ -205,4 +211,6 @@ class FactorRebuildStateLoader:
             last_major_idx=state.last_major_idx,
             anchor_current_ref=state.anchor_current_ref,
             anchor_strength=state.anchor_strength,
+            sr_major_pivots=state.sr_major_pivots,
+            sr_snapshot=state.sr_snapshot,
         )

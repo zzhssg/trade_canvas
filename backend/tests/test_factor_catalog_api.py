@@ -58,6 +58,7 @@ class FactorCatalogApiTests(unittest.TestCase):
         factors = payload.get("factors") or []
         keys = [str(item.get("key") or "") for item in factors]
         self.assertEqual(keys[:4], ["pivot", "pen", "zhongshu", "anchor"])
+        self.assertIn("sr", keys)
         self.assertIn("sma", keys)
         self.assertIn("signal", keys)
 
@@ -72,6 +73,10 @@ class FactorCatalogApiTests(unittest.TestCase):
         )
         self.assertFalse(bool(by_key["sma"].get("default_visible")))
         self.assertFalse(bool(by_key["signal"].get("default_visible")))
+        self.assertEqual(
+            [str(item.get("key") or "") for item in by_key["sr"].get("sub_features") or []],
+            ["sr.active", "sr.broken"],
+        )
 
     def test_factor_catalog_uses_tick_plugin_catalog_metadata(self) -> None:
         manifest = build_factor_manifest(

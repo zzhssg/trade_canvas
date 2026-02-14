@@ -47,6 +47,7 @@ export function buildReplayFactorSlices(params: {
   const penConfirmed: Record<string, unknown>[] = [];
   const zhongshuDead: Record<string, unknown>[] = [];
   const anchorSwitches: Record<string, unknown>[] = [];
+  const srSnapshots: Record<string, unknown>[] = [];
 
   for (const ev of historySlice) {
     const payload = ev.payload && typeof ev.payload === "object" ? (ev.payload as Record<string, unknown>) : {};
@@ -60,6 +61,8 @@ export function buildReplayFactorSlices(params: {
       zhongshuDead.push(payload);
     } else if (ev.factor_name === "anchor" && ev.kind === "anchor.switch") {
       anchorSwitches.push(payload);
+    } else if (ev.factor_name === "sr" && ev.kind === "sr.snapshot") {
+      srSnapshots.push(payload);
     }
   }
 
@@ -117,6 +120,29 @@ export function buildReplayFactorSlices(params: {
       meta: makeMeta("anchor")
     };
     factors.push("anchor");
+  }
+
+  const srHead = headForTime["sr"]?.head ?? {};
+  const latestSrSnapshot =
+    srSnapshots.length > 0
+      ? ((srSnapshots[srSnapshots.length - 1] ?? {}) as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+  const srHeadPayload =
+    srHead && Object.keys(srHead).length
+      ? srHead
+      : {
+          algorithm: latestSrSnapshot["algorithm"] ?? "",
+          levels: Array.isArray(latestSrSnapshot["levels"]) ? latestSrSnapshot["levels"] : [],
+          pivots: Array.isArray(latestSrSnapshot["pivots"]) ? latestSrSnapshot["pivots"] : []
+        };
+  if (srSnapshots.length || (srHeadPayload && Object.keys(srHeadPayload).length)) {
+    snapshots["sr"] = {
+      schema_version: 1,
+      history: { snapshots: srSnapshots },
+      head: srHeadPayload,
+      meta: makeMeta("sr")
+    };
+    factors.push("sr");
   }
 
   return {

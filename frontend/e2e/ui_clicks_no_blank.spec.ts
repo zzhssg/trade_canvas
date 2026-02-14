@@ -13,8 +13,35 @@ const frontendBase = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5173";
 const apiBase =
   process.env.E2E_API_BASE_URL ?? process.env.VITE_API_BASE ?? process.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
-function seriesId(symbol: string) {
-  return buildSeriesId(symbol, "1m");
+function seriesId(symbol: string, timeframe = "1m") {
+  return buildSeriesId(symbol, timeframe);
+}
+
+async function expectLiveLoadTransition(
+  page: Page,
+  args: { sidQuery: string; trigger: () => Promise<void> }
+) {
+  const chart = page.getByTestId("chart-view");
+  const candlesRespPromise = page.waitForResponse((r) => {
+    return (
+      r.url().includes("/api/market/candles") &&
+      r.url().includes(args.sidQuery) &&
+      r.request().method() === "GET" &&
+      r.status() === 200
+    );
+  });
+
+  await args.trigger();
+
+  await expect
+    .poll(async () => (await chart.getAttribute("data-live-load-status")) ?? "", { timeout: 4_000 })
+    .toMatch(/loading|backfilling/);
+
+  await candlesRespPromise;
+
+  await expect
+    .poll(async () => (await chart.getAttribute("data-live-load-status")) ?? "", { timeout: 8_000 })
+    .toMatch(/ready|empty|backfilling/);
 }
 
 async function expectChartCanvasVisible(page: Page) {
@@ -64,18 +91,43 @@ test("@smoke clicking tabs / changing symbol does not blank the app", async ({ p
 
   const ethSeriesId = seriesId("ETH/USDT");
   const ethSidQuery = `series_id=${encodeURIComponent(ethSeriesId)}`;
-  const candlesRespPromise = page.waitForResponse((r) => {
-    return (
-      r.url().includes("/api/market/candles") &&
-      r.url().includes(ethSidQuery) &&
-      r.request().method() === "GET" &&
-      r.status() === 200
-    );
+  const eth5mSeriesId = seriesId("ETH/USDT", "5m");
+  const eth5mSidQuery = `series_id=${encodeURIComponent(eth5mSeriesId)}`;
+  const delayedQueries = new Set<string>();
+  await page.route("**/api/market/candles*", async (route) => {
+    const url = route.request().url();
+    if (url.includes(ethSidQuery) && !delayedQueries.has(ethSidQuery)) {
+      delayedQueries.add(ethSidQuery);
+      await page.waitForTimeout(450);
+    } else if (url.includes(eth5mSidQuery) && !delayedQueries.has(eth5mSidQuery)) {
+      delayedQueries.add(eth5mSidQuery);
+      await page.waitForTimeout(450);
+    }
+    await route.continue();
   });
-  await symbolSelect.selectOption({ label: "ETH/USDT" });
-  const candlesResp = await candlesRespPromise;
-  const payload = (await candlesResp.json()) as GetCandlesResponse;
-  expect(payload.series_id).toContain("ETH/USDT");
+
+  await expectLiveLoadTransition(page, {
+    sidQuery: ethSidQuery,
+    trigger: async () => {
+      await symbolSelect.selectOption({ label: "ETH/USDT" });
+    }
+  });
+  const ethCandleResp = await request.get(`${apiBase}/api/market/candles`, {
+    params: { series_id: ethSeriesId, limit: 2000 }
+  });
+  const ethPayload = (await ethCandleResp.json()) as GetCandlesResponse;
+  expect(ethPayload.series_id).toContain("ETH/USDT");
+  await expectChartCanvasVisible(page);
+
+  const tf5mTag = page.getByTestId("timeframe-tag-5m");
+  await expect(tf5mTag).toBeVisible();
+  await expectLiveLoadTransition(page, {
+    sidQuery: eth5mSidQuery,
+    trigger: async () => {
+      await tf5mTag.click();
+    }
+  });
+  await expect(page.getByTestId("chart-view")).toHaveAttribute("data-series-id", eth5mSeriesId);
   await expectChartCanvasVisible(page);
 
   // Route/page switching should also not cause a blank screen.

@@ -66,7 +66,7 @@ class FactorSlicePluginsTests(unittest.TestCase):
         plugins = build_default_factor_slice_plugins()
         registry = FactorPluginRegistry(list(plugins))
         graph = FactorGraph([FactorSpec(factor_name=s.factor_name, depends_on=s.depends_on) for s in registry.specs()])
-        self.assertEqual(graph.topo_order, ("pivot", "pen", "zhongshu", "anchor"))
+        self.assertEqual(graph.topo_order, ("pivot", "pen", "zhongshu", "anchor", "sr"))
 
         from_plugins = {
             (spec.factor_name, spec.event_kind, spec.bucket_name)

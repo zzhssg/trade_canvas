@@ -11,6 +11,7 @@ from backend.app.factor.tick_state_slices import (
     FactorTickAnchorState,
     FactorTickPenState,
     FactorTickPivotState,
+    FactorTickSrState,
     FactorTickZhongshuState,
 )
 from backend.app.factor.tick_executor import FactorTickExecutor, FactorTickRunRequest, FactorTickState
@@ -138,6 +139,10 @@ def test_tick_executor_run_tick_steps_fail_fast_when_hook_missing() -> None:
             best_strong_pen_ref=None,
             best_strong_pen_strength=None,
             baseline_strength=None,
+        ),
+        sr=FactorTickSrState(
+            major_pivots=[],
+            snapshot={},
         ),
     )
     with pytest.raises(RuntimeError, match="factor_missing_run_tick:pivot"):

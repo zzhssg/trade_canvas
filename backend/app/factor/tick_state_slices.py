@@ -32,3 +32,9 @@ class FactorTickAnchorState:
     best_strong_pen_ref: dict[str, int | str] | None
     best_strong_pen_strength: float | None
     baseline_strength: float | None
+
+
+@dataclass
+class FactorTickSrState:
+    major_pivots: list[dict[str, Any]]
+    snapshot: dict[str, Any]

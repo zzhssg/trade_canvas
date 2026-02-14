@@ -32,8 +32,8 @@ class FactorManifestTests(unittest.TestCase):
         manifest = build_default_factor_manifest()
         tick_plugin_names = [p.spec.factor_name for p in manifest.tick_plugins]
         slice_names = [p.spec.factor_name for p in manifest.slice_plugins]
-        self.assertEqual(tick_plugin_names, ["pivot", "pen", "zhongshu", "anchor"])
-        self.assertEqual(slice_names, ["pivot", "pen", "zhongshu", "anchor"])
+        self.assertEqual(tick_plugin_names, ["pivot", "pen", "zhongshu", "anchor", "sr"])
+        self.assertEqual(slice_names, ["pivot", "pen", "zhongshu", "anchor", "sr"])
 
     def test_manifest_rejects_factor_set_mismatch(self) -> None:
         with self.assertRaises(FactorManifestError) as ctx:

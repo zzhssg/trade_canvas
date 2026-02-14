@@ -25,6 +25,18 @@ metadata:
 - **怎么回滚**：撤销改动的最短方式
 - **删什么**：本轮必须移除的旧文件/旧函数/旧接口（禁止“新旧双轨并存”）
 
+## 新增因子起手命令（新增约束）
+
+当计划包含“新增 factor 插件”时，先用脚手架生成骨架，再写 A/B 方案取舍，避免手写入口遗漏：
+
+```bash
+python3 scripts/new_factor_scaffold.py --factor <name> --depends-on <dep1,dep2> --dry-run
+python3 scripts/new_factor_scaffold.py --factor <name> --depends-on <dep1,dep2>
+```
+
+- 先 `--dry-run` 校验命名、依赖与目标路径，再落盘。
+- 生成后必须在 plan 写清：替代哪个旧实现、会删除哪些遗留路径、验收命令与回滚命令。
+
 ## 架构质量补充（必须）
 
 - **两次设计（Design it Twice）**：每个行为变更至少给出 A/B 两种方案，并写明最终取舍理由（契约稳定性、回滚成本、验收成本）。

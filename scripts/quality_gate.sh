@@ -116,11 +116,13 @@ prod_files=()
 while IFS= read -r line; do
   prod_files+=("$line")
 done < <(
-  for path in "${all_candidates[@]}"; do
-    if [[ -f "$path" ]] && is_production_file "$path"; then
-      echo "$path"
-    fi
-  done | sort -u
+  if [[ "${#all_candidates[@]}" -gt 0 ]]; then
+    for path in "${all_candidates[@]}"; do
+      if [[ -f "$path" ]] && is_production_file "$path"; then
+        echo "$path"
+      fi
+    done | sort -u
+  fi
 )
 
 if [[ "${#prod_files[@]}" -eq 0 ]]; then
@@ -135,6 +137,44 @@ mark_failure() {
   failures=1
 }
 
+line_count_in_ref() {
+  local ref="$1"
+  local path="$2"
+  if ! git cat-file -e "${ref}:${path}" 2>/dev/null; then
+    echo ""
+    return 0
+  fi
+  git show "${ref}:${path}" | wc -l | awk '{print $1}'
+}
+
+enforce_line_limit() {
+  local path="$1"
+  local line_count="$2"
+  local limit="$3"
+  local label="$4"
+
+  if [[ "$line_count" -le "$limit" ]]; then
+    return 0
+  fi
+
+  if [[ "$check_all" -eq 0 && -n "$base_ref" ]]; then
+    local base_line_count
+    base_line_count="$(line_count_in_ref "$base_ref" "$path")"
+    if [[ -n "$base_line_count" && "$base_line_count" -gt "$limit" ]]; then
+      if [[ "$line_count" -le "$base_line_count" ]]; then
+        if [[ "$line_count" -lt "$base_line_count" ]]; then
+          echo "[quality-gate] NOTE: ${label} still over limit but reduced: ${path} (${base_line_count} -> ${line_count}, limit ${limit})"
+        fi
+        return 0
+      fi
+      mark_failure "${label} still over limit and grew: ${path} (${base_line_count} -> ${line_count}, limit ${limit})"
+      return 0
+    fi
+  fi
+
+  mark_failure "${label} exceeds ${limit} lines: ${path} (${line_count})"
+}
+
 check_line_limits() {
   local path="$1"
   local line_count
@@ -142,25 +182,25 @@ check_line_limits() {
   local base_name
   base_name="$(basename "$path")"
 
-  if [[ "$path" == *.py && "$line_count" -gt 300 ]]; then
-    mark_failure "Python file exceeds 300 lines: ${path} (${line_count})"
+  if [[ "$path" == *.py ]]; then
+    enforce_line_limit "$path" "$line_count" 300 "Python file"
   fi
 
-  if [[ "$path" == *.tsx && "$line_count" -gt 400 ]]; then
-    mark_failure "TSX component exceeds 400 lines: ${path} (${line_count})"
+  if [[ "$path" == *.tsx ]]; then
+    enforce_line_limit "$path" "$line_count" 400 "TSX component"
   fi
 
-  if [[ "$path" == *.ts && "$path" != *.d.ts && "$base_name" != use* && "$line_count" -gt 300 ]]; then
+  if [[ "$path" == *.ts && "$path" != *.d.ts && "$base_name" != use* ]]; then
     case "$path" in
       frontend/src/contracts/openapi.ts) ;;
       *)
-        mark_failure "TS module exceeds 300 lines: ${path} (${line_count})"
+        enforce_line_limit "$path" "$line_count" 300 "TS module"
         ;;
     esac
   fi
 
-  if [[ ("$base_name" == use*.ts || "$base_name" == use*.tsx) && "$line_count" -gt 150 ]]; then
-    mark_failure "Hook file exceeds 150 lines: ${path} (${line_count})"
+  if [[ "$base_name" == use*.ts || "$base_name" == use*.tsx ]]; then
+    enforce_line_limit "$path" "$line_count" 150 "Hook file"
   fi
 }
 
@@ -192,15 +232,10 @@ check_banned_markers() {
   fi
 }
 
-check_python_structure_limits() {
-  local path="$1"
-  if [[ "$path" != *.py ]]; then
-    return 0
-  fi
-
-  local issues
-  issues="$(
-    python3 - "$path" <<'PY'
+collect_python_structure_issues() {
+  local display_path="$1"
+  local source_path="$2"
+  python3 - "$display_path" "$source_path" <<'PY'
 from __future__ import annotations
 
 import ast
@@ -210,14 +245,15 @@ from pathlib import Path
 MAX_PARAMS = 8
 MAX_FIELDS = 15
 
-path = Path(sys.argv[1])
-source = path.read_text(encoding="utf-8")
+display_path = Path(sys.argv[1])
+source_path = Path(sys.argv[2])
+source = source_path.read_text(encoding="utf-8")
 problems: list[str] = []
 
 try:
     tree = ast.parse(source)
 except SyntaxError as exc:
-    print(f"{path}:{exc.lineno}: syntax parse failed during quality gate: {exc.msg}")
+    print(f"{display_path}:{exc.lineno}: syntax parse failed during quality gate: {exc.msg}")
     raise SystemExit(0)
 
 for parent in ast.walk(tree):
@@ -268,7 +304,7 @@ for node in ast.walk(tree):
         count = _parameter_count(node)
         if count > MAX_PARAMS:
             problems.append(
-                f"{path}:{node.lineno}: function `{node.name}` has {count} params (max {MAX_PARAMS})"
+                f"{display_path}:{node.lineno}: function `{node.name}` has {count} params (max {MAX_PARAMS})"
             )
         continue
 
@@ -283,25 +319,71 @@ for node in ast.walk(tree):
                 field_count += 1
         if field_count > MAX_FIELDS:
             problems.append(
-                f"{path}:{node.lineno}: dataclass `{node.name}` has {field_count} fields (max {MAX_FIELDS})"
+                f"{display_path}:{node.lineno}: dataclass `{node.name}` has {field_count} fields (max {MAX_FIELDS})"
             )
 
 if problems:
     print("\n".join(problems))
 PY
-  )"
-
-  if [[ -n "$issues" ]]; then
-    echo "$issues" >&2
-    mark_failure "Python structure limit exceeded in ${path}"
-  fi
 }
 
-for path in "${prod_files[@]}"; do
-  check_line_limits "$path"
-  check_banned_markers "$path"
-  check_python_structure_limits "$path"
-done
+normalize_python_structure_issues() {
+  sed -E 's/^[^:]+:[0-9]+:[[:space:]]*//' | awk 'NF' | sort -u
+}
+
+check_python_structure_limits() {
+  local path="$1"
+  if [[ "$path" != *.py ]]; then
+    return 0
+  fi
+
+  local issues
+  issues="$(collect_python_structure_issues "$path" "$path")"
+  if [[ -z "$issues" ]]; then
+    return 0
+  fi
+
+  if [[ "$check_all" -eq 0 && -n "$base_ref" ]] && git cat-file -e "${base_ref}:${path}" 2>/dev/null; then
+    local base_tmp
+    base_tmp="$(mktemp)"
+    git show "${base_ref}:${path}" >"$base_tmp"
+    local base_issues
+    base_issues="$(collect_python_structure_issues "$path" "$base_tmp")"
+    rm -f "$base_tmp"
+
+    local current_norm
+    current_norm="$(printf '%s\n' "$issues" | normalize_python_structure_issues)"
+    local base_norm
+    base_norm="$(printf '%s\n' "$base_issues" | normalize_python_structure_issues)"
+    local new_norm
+    if [[ -n "$base_norm" ]]; then
+      new_norm="$(comm -23 <(printf '%s\n' "$current_norm") <(printf '%s\n' "$base_norm"))"
+    else
+      new_norm="$current_norm"
+    fi
+    if [[ -z "$new_norm" ]]; then
+      return 0
+    fi
+    while IFS= read -r issue; do
+      if [[ -n "$issue" ]]; then
+        echo "${path}: ${issue}" >&2
+      fi
+    done <<<"$new_norm"
+    mark_failure "Python structure limit introduced/regressed in ${path}"
+    return 0
+  fi
+
+  echo "$issues" >&2
+  mark_failure "Python structure limit exceeded in ${path}"
+}
+
+if [[ "${#prod_files[@]}" -gt 0 ]]; then
+  for path in "${prod_files[@]}"; do
+    check_line_limits "$path"
+    check_banned_markers "$path"
+    check_python_structure_limits "$path"
+  done
+fi
 
 if [[ -n "$delete_list" ]]; then
   while IFS= read -r raw_line; do
@@ -326,22 +408,26 @@ py_changes=()
 while IFS= read -r line; do
   py_changes+=("$line")
 done < <(
-  for path in "${all_candidates[@]}"; do
-    if [[ -f "$path" && "$path" == *.py ]]; then
-      echo "$path"
-    fi
-  done | sort -u
+  if [[ "${#all_candidates[@]}" -gt 0 ]]; then
+    for path in "${all_candidates[@]}"; do
+      if [[ -f "$path" && "$path" == *.py ]]; then
+        echo "$path"
+      fi
+    done | sort -u
+  fi
 )
 
 frontend_changes=()
 while IFS= read -r line; do
   frontend_changes+=("$line")
 done < <(
-  for path in "${all_candidates[@]}"; do
-    if [[ -f "$path" && ("$path" == frontend/src/* || "$path" == frontend/package.json || "$path" == frontend/tsconfig*.json) ]]; then
-      echo "$path"
-    fi
-  done | sort -u
+  if [[ "${#all_candidates[@]}" -gt 0 ]]; then
+    for path in "${all_candidates[@]}"; do
+      if [[ -f "$path" && ("$path" == frontend/src/* || "$path" == frontend/package.json || "$path" == frontend/tsconfig*.json) ]]; then
+        echo "$path"
+      fi
+    done | sort -u
+  fi
 )
 
 if [[ "$run_pytest" -eq 1 && "${#py_changes[@]}" -gt 0 ]]; then

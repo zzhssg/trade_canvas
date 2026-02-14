@@ -8,6 +8,7 @@ from backend.app.factor.graph import FactorGraph, FactorSpec
 from backend.app.factor.processor_anchor import AnchorProcessor
 from backend.app.factor.processor_pen import PenProcessor
 from backend.app.factor.processor_pivot import PivotProcessor
+from backend.app.factor.processor_sr import SrProcessor
 from backend.app.factor.processor_slice_buckets import build_default_slice_bucket_specs
 from backend.app.factor.processor_zhongshu import ZhongshuProcessor
 from backend.app.factor.registry import FactorRegistry, FactorRegistryError
@@ -28,15 +29,15 @@ class FactorRegistryTests(unittest.TestCase):
         self.assertIn("missing_factor:missing", str(ctx.exception))
 
     def test_registry_specs_can_build_graph(self) -> None:
-        reg = FactorRegistry([PivotProcessor(), PenProcessor(), ZhongshuProcessor(), AnchorProcessor()])
+        reg = FactorRegistry([PivotProcessor(), PenProcessor(), ZhongshuProcessor(), AnchorProcessor(), SrProcessor()])
         specs = [FactorSpec(factor_name=s.factor_name, depends_on=s.depends_on) for s in reg.specs()]
         graph = FactorGraph(specs)
-        self.assertEqual(graph.topo_order, ("pivot", "pen", "zhongshu", "anchor"))
+        self.assertEqual(graph.topo_order, ("pivot", "pen", "zhongshu", "anchor", "sr"))
 
     def test_default_tick_plugins_are_graph_ready(self) -> None:
         tick_plugins, _ = build_default_factor_components()
         reg = FactorRegistry(list(tick_plugins))
-        self.assertEqual([s.factor_name for s in reg.specs()], ["pivot", "pen", "zhongshu", "anchor"])
+        self.assertEqual([s.factor_name for s in reg.specs()], ["pivot", "pen", "zhongshu", "anchor", "sr"])
 
     def test_default_slice_bucket_specs_are_unique_and_cover_anchor(self) -> None:
         specs = build_default_slice_bucket_specs()

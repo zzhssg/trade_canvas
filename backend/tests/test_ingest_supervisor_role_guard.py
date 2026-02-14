@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.app.ingest.config import IngestRuntimeConfig
+from backend.app.ingest.config import IngestRoleConfig, IngestRuntimeConfig
 from backend.app.ingest.supervisor import IngestSupervisor, _Job
 from backend.app.storage.candle_store import CandleStore
 from backend.app.ws.hub import CandleHub
@@ -48,7 +48,12 @@ class IngestSupervisorRoleGuardTests(unittest.TestCase):
             hub=hub,
             whitelist_series_ids=(self.series_id,),
             whitelist_ingest_enabled=True,
-            config=IngestRuntimeConfig(role_guard_enabled=True, ingest_role="read"),
+            config=IngestRuntimeConfig(
+                role=IngestRoleConfig(
+                    guard_enabled=True,
+                    ingest_role="read",
+                )
+            ),
         )
 
         def _should_not_start(*args, **kwargs):  # noqa: ANN002, ANN003
@@ -78,7 +83,12 @@ class IngestSupervisorRoleGuardTests(unittest.TestCase):
             store=store,
             hub=hub,
             whitelist_series_ids=(),
-            config=IngestRuntimeConfig(role_guard_enabled=True, ingest_role="ingest"),
+            config=IngestRuntimeConfig(
+                role=IngestRoleConfig(
+                    guard_enabled=True,
+                    ingest_role="ingest",
+                )
+            ),
         )
 
         async def run() -> None:
@@ -100,7 +110,12 @@ class IngestSupervisorRoleGuardTests(unittest.TestCase):
             store=store,
             hub=hub,
             whitelist_series_ids=(),
-            config=IngestRuntimeConfig(role_guard_enabled=False, ingest_role="read"),
+            config=IngestRuntimeConfig(
+                role=IngestRoleConfig(
+                    guard_enabled=False,
+                    ingest_role="read",
+                )
+            ),
         )
 
         async def run() -> None:

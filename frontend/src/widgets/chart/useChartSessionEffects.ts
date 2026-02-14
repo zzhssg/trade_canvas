@@ -1,12 +1,13 @@
 import type { IChartApi, ISeriesApi, SeriesMarker, Time } from "lightweight-charts";
 import { useEffect, type MutableRefObject } from "react";
-
-import { startChartLiveSession } from "./liveSessionRuntime";
-import type { StartChartLiveSessionArgs } from "./liveSessionRuntimeTypes";
 import type { PenLinePoint, PenSegment } from "./penAnchorRuntime";
-import { resetReplayPackageState, syncReplayFocusFromIndex } from "./replayRuntimeHelpers";
 import { syncCandlesToSeries, syncOverlayLayers } from "./seriesSyncRuntime";
 import type { Candle } from "./types";
+export {
+  useChartLiveSessionEffect,
+  useReplayFocusSyncEffect,
+  useReplayPackageResetEffect
+} from "./chartReplaySessionEffects";
 
 type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
 
@@ -104,78 +105,5 @@ export function useChartSeriesSyncEffects(args: UseChartSeriesSyncEffectsArgs) {
     args.seriesId,
     args.syncMarkers,
     args.visibleFeatures
-  ]);
-}
-
-type UseChartLiveSessionEffectArgs = StartChartLiveSessionArgs & {
-  replayPackageEnabled: boolean;
-  replayPrepareStatus: string;
-};
-
-export function useChartLiveSessionEffect(args: UseChartLiveSessionEffectArgs) {
-  useEffect(() => {
-    if (args.replayPackageEnabled) return;
-    if (args.replayEnabled && args.replayPrepareStatus !== "ready") return;
-    const session = startChartLiveSession(args);
-    return () => session.stop();
-  }, [
-    args.applyOverlayDelta,
-    args.applyPenAndAnchorFromFactorSlices,
-    args.applyWorldFrame,
-    args.effectiveVisible,
-    args.fetchAndApplyAnchorHighlightAtTime,
-    args.fetchOverlayLikeDelta,
-    args.openMarketWs,
-    args.rebuildOverlayPolylinesFromOverlay,
-    args.rebuildPenPointsFromOverlay,
-    args.rebuildPivotMarkersFromOverlay,
-    args.rebuildAnchorSwitchMarkersFromOverlay,
-    args.replayEnabled,
-    args.replayPackageEnabled,
-    args.replayPrepareStatus,
-    args.replayPreparedAlignedTime,
-    args.seriesId,
-    args.showToast,
-    args.syncMarkers,
-    args.timeframe
-  ]);
-}
-
-type UseReplayPackageResetEffectArgs = Parameters<typeof resetReplayPackageState>[0] & {
-  replayPackageEnabled: boolean;
-  seriesId: string;
-};
-
-export function useReplayPackageResetEffect(args: UseReplayPackageResetEffectArgs) {
-  useEffect(() => {
-    if (!args.replayPackageEnabled) return;
-    resetReplayPackageState(args);
-  }, [
-    args.replayPackageEnabled,
-    args.seriesId,
-    args.setReplayCandle,
-    args.setReplayDrawInstructions,
-    args.setReplayFocusTime,
-    args.setReplayFrame,
-    args.setReplayIndex,
-    args.setReplayPlaying,
-    args.setReplaySlices,
-    args.setReplayTotal
-  ]);
-}
-
-export function useReplayFocusSyncEffect(args: Parameters<typeof syncReplayFocusFromIndex>[0]) {
-  useEffect(() => {
-    syncReplayFocusFromIndex(args);
-  }, [
-    args.applyReplayOverlayAtTime,
-    args.fetchAndApplyAnchorHighlightAtTime,
-    args.replayEnabled,
-    args.replayIndex,
-    args.replayPackageEnabled,
-    args.replayTotal,
-    args.requestReplayFrameAtTime,
-    args.setReplayFocusTime,
-    args.setReplayIndex
   ]);
 }

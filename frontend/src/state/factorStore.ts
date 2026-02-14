@@ -39,7 +39,7 @@ export const useFactorStore = create<FactorState>()(
     }),
     {
       name: "trade-canvas-factors",
-      version: 4,
+      version: 5,
       migrate: (persistedState: unknown, version) => {
         const state = (persistedState as { visibleFeatures?: Record<string, boolean> } | undefined) ?? {};
         const visibleFeatures = { ...(state.visibleFeatures ?? {}) };
@@ -71,6 +71,11 @@ export const useFactorStore = create<FactorState>()(
         }
         if (version < 4) {
           delete visibleFeatures["anchor.reverse"];
+        }
+        if (version < 5) {
+          visibleFeatures["sr"] = visibleFeatures["sr"] ?? true;
+          visibleFeatures["sr.active"] = visibleFeatures["sr.active"] ?? true;
+          visibleFeatures["sr.broken"] = visibleFeatures["sr.broken"] ?? false;
         }
         return { ...state, visibleFeatures };
       }

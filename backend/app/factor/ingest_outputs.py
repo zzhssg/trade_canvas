@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .store import FactorEventWrite, FactorStore
@@ -15,6 +15,8 @@ class HeadBuildState:
     confirmed_pens: list[dict[str, Any]]
     zhongshu_state: dict[str, Any]
     anchor_current_ref: dict[str, Any] | None
+    sr_major_pivots: list[dict[str, Any]] = field(default_factory=list)
+    sr_snapshot: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

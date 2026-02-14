@@ -35,8 +35,8 @@ class _SlicePlugin:
 class FactorDefaultComponentsTests(unittest.TestCase):
     def test_default_components_keep_tick_plugin_and_slice_plugin_order_aligned(self) -> None:
         tick_plugins, slice_plugins = build_default_factor_components()
-        self.assertEqual([plugin.spec.factor_name for plugin in tick_plugins], ["pivot", "pen", "zhongshu", "anchor"])
-        self.assertEqual([p.spec.factor_name for p in slice_plugins], ["pivot", "pen", "zhongshu", "anchor"])
+        self.assertEqual([plugin.spec.factor_name for plugin in tick_plugins], ["pivot", "pen", "zhongshu", "anchor", "sr"])
+        self.assertEqual([p.spec.factor_name for p in slice_plugins], ["pivot", "pen", "zhongshu", "anchor", "sr"])
 
     def test_bundle_mismatch_raises_fail_fast_error(self) -> None:
         bundles = (

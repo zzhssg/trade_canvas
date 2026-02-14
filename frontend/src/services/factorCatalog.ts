@@ -55,6 +55,15 @@ const FALLBACK_FACTOR_CATALOG: FactorSpec[] = [
     ]
   },
   {
+    key: "sr",
+    label: "SR",
+    default_visible: true,
+    sub_features: [
+      { key: "sr.active", label: "Active", default_visible: true },
+      { key: "sr.broken", label: "Broken", default_visible: false }
+    ]
+  },
+  {
     key: "sma",
     label: "SMA",
     default_visible: false,

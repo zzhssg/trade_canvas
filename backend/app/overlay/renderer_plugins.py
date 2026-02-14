@@ -9,6 +9,7 @@ from .renderer_contract import (
 )
 from .renderer_marker import MarkerOverlayRenderer
 from .renderer_pen import PenOverlayRenderer
+from .renderer_sr import SrOverlayRenderer
 from .renderer_structure import StructureOverlayRenderer
 
 
@@ -17,6 +18,7 @@ def build_default_overlay_render_plugins() -> tuple[OverlayRendererPlugin, ...]:
         MarkerOverlayRenderer(),
         PenOverlayRenderer(),
         StructureOverlayRenderer(),
+        SrOverlayRenderer(),
     )
 
 
@@ -27,6 +29,7 @@ __all__ = [
     "OverlayRenderOutput",
     "OverlayRendererPlugin",
     "PenOverlayRenderer",
+    "SrOverlayRenderer",
     "StructureOverlayRenderer",
     "build_default_overlay_render_plugins",
     "build_overlay_event_bucket_config",

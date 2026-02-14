@@ -6,7 +6,13 @@ from ..core.config import Settings
 from ..debug.hub import DebugHub
 from ..factor.orchestrator import FactorOrchestrator
 from ..market.history_bootstrapper import backfill_tail_from_freqtrade
-from ..ingest.config import IngestRuntimeConfig
+from ..ingest.config import (
+    IngestDerivedConfig,
+    IngestGuardrailConfig,
+    IngestRoleConfig,
+    IngestRuntimeConfig,
+    IngestWsConfig,
+)
 from ..ingest.supervisor import IngestSupervisor
 from ..ledger.sync_service import LedgerSyncService
 from ..pipelines import IngestPipeline
@@ -148,15 +154,24 @@ def build_ingest_context(request: IngestContextBuildRequest) -> MarketIngestCont
         candle_compensate_on_error=bool(request.runtime_flags.enable_ingest_compensate_new_candles),
     )
     ingest_config = IngestRuntimeConfig(
-        derived_enabled=bool(request.runtime_flags.enable_derived_timeframes),
-        derived_base_timeframe=str(request.runtime_flags.derived_base_timeframe),
-        derived_timeframes=tuple(request.runtime_flags.derived_timeframes),
-        ws_batch_max=int(request.runtime_flags.binance_ws_batch_max),
-        ws_flush_s=float(request.runtime_flags.binance_ws_flush_s),
-        forming_min_interval_ms=int(request.runtime_flags.market_forming_min_interval_ms),
-        loop_guardrail_enabled=bool(request.runtime_flags.enable_ingest_loop_guardrail),
-        role_guard_enabled=bool(request.runtime_flags.enable_ingest_role_guard),
-        ingest_role=str(request.runtime_flags.ingest_role),
+        derived=IngestDerivedConfig(
+            enabled=bool(request.runtime_flags.enable_derived_timeframes),
+            base_timeframe=str(request.runtime_flags.derived_base_timeframe),
+            timeframes=tuple(request.runtime_flags.derived_timeframes),
+            backfill_base_candles=int(request.runtime_flags.derived_backfill_base_candles),
+        ),
+        ws=IngestWsConfig(
+            batch_max=int(request.runtime_flags.binance_ws_batch_max),
+            flush_s=float(request.runtime_flags.binance_ws_flush_s),
+            forming_min_interval_ms=int(request.runtime_flags.market_forming_min_interval_ms),
+        ),
+        guardrail=IngestGuardrailConfig(
+            enabled=bool(request.runtime_flags.enable_ingest_loop_guardrail),
+        ),
+        role=IngestRoleConfig(
+            guard_enabled=bool(request.runtime_flags.enable_ingest_role_guard),
+            ingest_role=str(request.runtime_flags.ingest_role),
+        ),
         ondemand_max_jobs=int(request.runtime_flags.ondemand_max_jobs),
         market_history_source=str(request.runtime_flags.market_history_source),
     )

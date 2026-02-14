@@ -7,7 +7,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.app.ingest.config import IngestRuntimeConfig
+from backend.app.ingest.config import (
+    IngestDerivedConfig,
+    IngestGuardrailConfig,
+    IngestRuntimeConfig,
+)
 from backend.app.ingest.supervisor import IngestSupervisor, _Job
 from backend.app.storage.candle_store import CandleStore
 from backend.app.ws.hub import CandleHub
@@ -97,9 +101,11 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
             hub=hub,
             whitelist_series_ids=(),
             config=IngestRuntimeConfig(
-                derived_enabled=True,
-                derived_base_timeframe="1m",
-                derived_timeframes=("5m",),
+                derived=IngestDerivedConfig(
+                    enabled=True,
+                    base_timeframe="1m",
+                    timeframes=("5m",),
+                ),
             ),
         )
         started: list[str] = []
@@ -233,9 +239,11 @@ class IngestSupervisorCapacityTests(unittest.TestCase):
             hub=hub,
             whitelist_series_ids=(),
             config=IngestRuntimeConfig(
-                loop_guardrail_enabled=True,
-                guardrail_crash_budget=1,
-                guardrail_open_cooldown_s=0.5,
+                guardrail=IngestGuardrailConfig(
+                    enabled=True,
+                    crash_budget=1,
+                    open_cooldown_s=0.5,
+                ),
             ),
         )
         series_id = "binance:spot:BTC/USDT:1m"

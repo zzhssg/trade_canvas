@@ -36,6 +36,12 @@ metadata:
 bash scripts/quality_gate.sh
 ```
 
+若本轮包含新增 factor，先确认脚手架文件齐全且无手写遗漏：
+
+```bash
+python3 scripts/new_factor_scaffold.py --factor <name> --depends-on <dep1,dep2> --dry-run
+```
+
 常用变体：
 
 ```bash

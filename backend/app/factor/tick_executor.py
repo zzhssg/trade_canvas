@@ -13,6 +13,7 @@ from .tick_state_slices import (
     FactorTickAnchorState,
     FactorTickPenState,
     FactorTickPivotState,
+    FactorTickSrState,
     FactorTickZhongshuState,
 )
 
@@ -29,6 +30,7 @@ class FactorTickState:
     pen: FactorTickPenState
     zhongshu: FactorTickZhongshuState
     anchor: FactorTickAnchorState
+    sr: FactorTickSrState
 
     @property
     def effective_pivots(self) -> list[PivotMajorPoint]:
@@ -126,6 +128,22 @@ class FactorTickState:
     def baseline_anchor_strength(self, value: float | None) -> None:
         self.anchor.baseline_strength = value
 
+    @property
+    def sr_major_pivots(self) -> list[dict[str, Any]]:
+        return self.sr.major_pivots
+
+    @sr_major_pivots.setter
+    def sr_major_pivots(self, value: list[dict[str, Any]]) -> None:
+        self.sr.major_pivots = value
+
+    @property
+    def sr_snapshot(self) -> dict[str, Any]:
+        return self.sr.snapshot
+
+    @sr_snapshot.setter
+    def sr_snapshot(self, value: dict[str, Any]) -> None:
+        self.sr.snapshot = value
+
 
 @dataclass(frozen=True)
 class FactorTickExecutionResult:
@@ -136,6 +154,8 @@ class FactorTickExecutionResult:
     anchor_current_ref: dict[str, Any] | None
     anchor_strength: float | None
     last_major_idx: int | None
+    sr_major_pivots: list[dict[str, Any]]
+    sr_snapshot: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -153,6 +173,8 @@ class FactorTickRunRequest:
     anchor_strength: float | None
     last_major_idx: int | None
     events: list[FactorEventWrite] | None = None
+    sr_major_pivots: list[dict[str, Any]] | None = None
+    sr_snapshot: dict[str, Any] | None = None
 
 
 class FactorTickExecutor:
@@ -184,6 +206,8 @@ class FactorTickExecutor:
         cur_anchor_current_ref = request.anchor_current_ref
         cur_anchor_strength = request.anchor_strength
         cur_last_major_idx = request.last_major_idx
+        sr_major_pivots = request.sr_major_pivots if request.sr_major_pivots is not None else []
+        sr_snapshot = request.sr_snapshot if request.sr_snapshot is not None else {}
 
         for visible_time in request.process_times:
             tick_state = FactorTickState(
@@ -213,11 +237,17 @@ class FactorTickExecutor:
                     best_strong_pen_strength=None,
                     baseline_strength=float(cur_anchor_strength) if cur_anchor_strength is not None else None,
                 ),
+                sr=FactorTickSrState(
+                    major_pivots=sr_major_pivots,
+                    snapshot=sr_snapshot,
+                ),
             )
             self.run_tick_steps(series_id=request.series_id, state=tick_state)
             cur_anchor_current_ref = tick_state.anchor_current_ref
             cur_anchor_strength = tick_state.anchor_strength
             cur_last_major_idx = tick_state.last_major_idx
+            sr_major_pivots = tick_state.sr_major_pivots
+            sr_snapshot = tick_state.sr_snapshot
 
         return FactorTickExecutionResult(
             events=out_events,
@@ -227,4 +257,6 @@ class FactorTickExecutor:
             anchor_current_ref=cur_anchor_current_ref,
             anchor_strength=cur_anchor_strength,
             last_major_idx=cur_last_major_idx,
+            sr_major_pivots=sr_major_pivots,
+            sr_snapshot=sr_snapshot,
         )

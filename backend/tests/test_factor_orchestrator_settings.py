@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
+from backend.app.factor.ingest_outputs import HeadBuildState
 from backend.app.factor.orchestrator import FactorOrchestrator, FactorSettings
 from backend.app.factor.store import FactorEventRow, FactorStore
 from backend.app.core.schemas import CandleClosed
@@ -208,12 +209,12 @@ class FactorOrchestratorSettingsTests(unittest.TestCase):
                 _ = runtime
                 calls.append(self._name)
 
-        plugins = {name: _Plugin(name) for name in ("pivot", "pen", "zhongshu", "anchor")}
-        self.orchestrator._graph = cast(Any, SimpleNamespace(topo_order=("pivot", "pen", "zhongshu", "anchor")))
+        plugins = {name: _Plugin(name) for name in ("pivot", "pen", "zhongshu", "anchor", "sr")}
+        self.orchestrator._graph = cast(Any, SimpleNamespace(topo_order=("pivot", "pen", "zhongshu", "anchor", "sr")))
         self.orchestrator._registry = cast(Any, SimpleNamespace(require=lambda name: plugins[name]))
         self.orchestrator._tick_runtime = cast(Any, {})
         self.orchestrator._run_tick_steps(series_id="s", state=SimpleNamespace())  # type: ignore[arg-type]
-        self.assertEqual(calls, ["pivot", "pen", "zhongshu", "anchor"])
+        self.assertEqual(calls, ["pivot", "pen", "zhongshu", "anchor", "sr"])
 
     def test_build_head_snapshots_uses_plugin_head_hooks(self) -> None:
         class _Plugin:
@@ -231,14 +232,19 @@ class FactorOrchestratorSettingsTests(unittest.TestCase):
         self.orchestrator._graph = cast(Any, SimpleNamespace(topo_order=("pivot", "pen")))
         self.orchestrator._registry = cast(Any, SimpleNamespace(require=lambda name: plugins[name]))
         self.orchestrator._tick_runtime = cast(Any, {})
-        out = self.orchestrator._build_head_snapshots(
-            series_id="s",
-            confirmed_pens=[],
+        head_state = HeadBuildState(
+            up_to=120,
+            candles=[],
             effective_pivots=[],
+            confirmed_pens=[],
             zhongshu_state={},
             anchor_current_ref=None,
-            candles=[],
-            up_to=120,
+            sr_major_pivots=[],
+            sr_snapshot={},
+        )
+        out = self.orchestrator._build_head_snapshots(
+            series_id="s",
+            state=head_state,
         )
         self.assertEqual(out, {"pivot": {"name": "pivot"}, "pen": {"name": "pen"}})
 

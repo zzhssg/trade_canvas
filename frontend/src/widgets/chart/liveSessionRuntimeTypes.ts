@@ -11,6 +11,7 @@ import type {
 import type { MarketWsMessage } from "./ws";
 
 export type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
+export type LiveLoadStatus = "idle" | "loading" | "backfilling" | "ready" | "empty" | "error";
 
 export type PenLinePoint = { time: UTCTimestamp; value: number };
 export type PenSegment = { key: string; points: PenLinePoint[]; highlighted: boolean };
@@ -45,6 +46,7 @@ export type StartChartLiveSessionArgs = {
   candleSeriesRef: MutableRefObject<ISeriesApi<"Candlestick"> | null>;
   candlesRef: MutableRefObject<Candle[]>;
   setCandles: Dispatch<SetStateAction<Candle[]>>;
+  setLiveLoadState: (status: LiveLoadStatus, message?: string) => void;
   lastWsCandleTimeRef: MutableRefObject<number | null>;
   setLastWsCandleTime: (value: number | null) => void;
   appliedRef: MutableRefObject<{ len: number; lastTime: number | null }>;

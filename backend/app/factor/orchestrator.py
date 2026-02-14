@@ -32,7 +32,6 @@ from .runtime_config import (
     FactorSettings,
 )
 from .store import FactorEventWrite, FactorStore
-from .pen import PivotMajorPoint
 from ..storage.candle_store import CandleStore
 
 
@@ -164,21 +163,8 @@ class FactorOrchestrator:
         self,
         *,
         series_id: str,
-        confirmed_pens: list[dict[str, Any]],
-        effective_pivots: list[PivotMajorPoint],
-        zhongshu_state: dict[str, Any],
-        anchor_current_ref: dict[str, Any] | None,
-        candles: list[Any],
-        up_to: int,
+        state: HeadBuildState,
     ) -> dict[str, dict[str, Any]]:
-        state = HeadBuildState(
-            up_to=int(up_to),
-            candles=candles,
-            effective_pivots=effective_pivots,
-            confirmed_pens=confirmed_pens,
-            zhongshu_state=zhongshu_state,
-            anchor_current_ref=anchor_current_ref,
-        )
         return build_head_snapshots(
             request=HeadSnapshotBuildRequest(
                 series_id=series_id,

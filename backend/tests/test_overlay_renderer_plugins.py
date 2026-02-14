@@ -10,6 +10,7 @@ from backend.app.overlay.renderer_plugins import (
     OverlayEventBucketSpec,
     OverlayRenderContext,
     PenOverlayRenderer,
+    SrOverlayRenderer,
     StructureOverlayRenderer,
     build_default_overlay_render_plugins,
     build_overlay_event_bucket_config,
@@ -26,6 +27,7 @@ def _ctx(
     pen_confirmed: list[dict] | None = None,
     zhongshu_dead: list[dict] | None = None,
     anchor_switches: list[dict] | None = None,
+    sr_snapshots: list[dict] | None = None,
 ) -> OverlayRenderContext:
     buckets = {
         "pivot_major": list(pivot_major or []),
@@ -33,6 +35,7 @@ def _ctx(
         "pen_confirmed": list(pen_confirmed or []),
         "zhongshu_dead": list(zhongshu_dead or []),
         "anchor_switches": list(anchor_switches or []),
+        "sr_snapshots": list(sr_snapshots or []),
     }
     return OverlayRenderContext(
         series_id="binance:futures:BTC/USDT:1m",
@@ -49,15 +52,17 @@ class OverlayRendererPluginTests(unittest.TestCase):
         plugins = build_default_overlay_render_plugins()
         reg = FactorPluginRegistry(list(plugins))
         graph = FactorGraph([FactorSpec(factor_name=s.factor_name, depends_on=s.depends_on) for s in reg.specs()])
-        self.assertEqual(graph.topo_order, ("overlay.marker", "overlay.pen", "overlay.structure"))
+        self.assertEqual(graph.topo_order, ("overlay.marker", "overlay.pen", "overlay.structure", "overlay.sr"))
 
     def test_overlay_bucket_config_is_built_from_plugin_specs(self) -> None:
         plugins = build_default_overlay_render_plugins()
         by_kind, sort_keys, bucket_names = build_overlay_event_bucket_config(plugins)
         self.assertEqual(by_kind[("pivot", "pivot.major")], "pivot_major")
         self.assertEqual(by_kind[("anchor", "anchor.switch")], "anchor_switches")
+        self.assertEqual(by_kind[("sr", "sr.snapshot")], "sr_snapshots")
         self.assertEqual(sort_keys["pen_confirmed"], ("visible_time", "start_time"))
         self.assertIn("zhongshu_dead", bucket_names)
+        self.assertIn("sr_snapshots", bucket_names)
 
     def test_overlay_bucket_config_rejects_conflicts(self) -> None:
         class _PluginA:
@@ -229,6 +234,41 @@ class OverlayRendererPluginTests(unittest.TestCase):
         self.assertEqual(int(points[0]["time"]), 180)
         self.assertEqual(int(points[1]["time"]), 240)
         self.assertEqual(str(anchor_current[2].get("lineStyle")), "dashed")
+
+    def test_sr_renderer_builds_active_and_broken_lines(self) -> None:
+        renderer = SrOverlayRenderer()
+        rendered = renderer.render(
+            ctx=_ctx(
+                to_time=300,
+                cutoff_time=120,
+                sr_snapshots=[
+                    {
+                        "visible_time": 300,
+                        "levels": [
+                            {
+                                "price": 110.0,
+                                "status": "active",
+                                "level_type": "resistance",
+                                "first_time": 150,
+                                "last_time": 240,
+                            },
+                            {
+                                "price": 90.0,
+                                "status": "broken",
+                                "level_type": "support",
+                                "first_time": 120,
+                                "last_time": 210,
+                                "death_time": 260,
+                            },
+                        ],
+                    }
+                ],
+            )
+        )
+        self.assertEqual(len(rendered.polyline_defs), 2)
+        features = [str(item[2].get("feature")) for item in rendered.polyline_defs]
+        self.assertIn("sr.active", features)
+        self.assertIn("sr.broken", features)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import { MeasureTool } from "./draw_tools/MeasureTool";
 import { PositionTool } from "./draw_tools/PositionTool";
 import type { FibInst, PositionInst } from "./draw_tools/types";
 import type { DrawMeasureState } from "./draw_tools/useDrawToolState";
+import type { LiveLoadStatus } from "./liveSessionRuntimeTypes";
 
 type ChartViewOverlayLayerProps = {
   replayEnabled: boolean;
@@ -30,11 +31,21 @@ type ChartViewOverlayLayerProps = {
   onInteractionLockChange: (locked: boolean) => void;
   error: string | null;
   candlesLength: number;
+  liveLoadStatus: LiveLoadStatus;
+  liveLoadMessage: string;
   toastMessage: string | null;
 };
 
 export function ChartViewOverlayLayer(props: ChartViewOverlayLayerProps) {
   const noop = () => {};
+  const showReplayLoading = props.replayEnabled && props.candlesLength === 0;
+  const showLoadingMask =
+    showReplayLoading ||
+    props.liveLoadStatus === "loading" ||
+    props.liveLoadStatus === "backfilling" ||
+    (props.liveLoadStatus === "idle" && props.candlesLength === 0);
+  const showEmptyHint = props.liveLoadStatus === "empty" && props.candlesLength === 0;
+  const loadingMessage = showReplayLoading ? "正在加载回放K线..." : props.liveLoadMessage;
 
   return (
     <>
@@ -119,12 +130,16 @@ export function ChartViewOverlayLayer(props: ChartViewOverlayLayerProps) {
         <div className="pointer-events-none absolute left-2 top-2 rounded border border-red-500/30 bg-red-950/60 px-2 py-1 text-[11px] text-red-200">
           {props.error}
         </div>
-      ) : props.candlesLength === 0 ? (
+      ) : showLoadingMask ? (
         <div className="pointer-events-none absolute inset-0 z-40 grid place-items-center bg-black/35">
           <div className="flex items-center gap-2 rounded-md border border-white/15 bg-black/60 px-3 py-2 text-[12px] text-white/80 backdrop-blur">
             <span className="inline-block size-2 animate-pulse rounded-full bg-sky-300" />
-            <span>Loading candles...</span>
+            <span>{loadingMessage}</span>
           </div>
+        </div>
+      ) : showEmptyHint ? (
+        <div className="pointer-events-none absolute left-2 top-2 rounded border border-amber-300/30 bg-amber-950/45 px-2 py-1 text-[11px] text-amber-100">
+          {props.liveLoadMessage}
         </div>
       ) : null}
 

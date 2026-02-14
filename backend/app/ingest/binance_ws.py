@@ -138,7 +138,6 @@ async def run_binance_ws_ingest_loop(request: BinanceWsIngestLoopRequest) -> Non
     series = parse_series_id(series_id)
 
     if series.exchange != "binance":
-        # Supervisor should not select WS for non-binance, but be defensive.
         raise ValueError(f"unsupported exchange: {series.exchange!r}")
     if ingest_pipeline is None:
         raise RuntimeError("ingest_pipeline_not_configured")
@@ -293,13 +292,9 @@ async def run_binance_ws_ingest_loop(request: BinanceWsIngestLoopRequest) -> Non
                 await asyncio.wait_for(stop.wait(), timeout=float(sleep_s))
             except asyncio.TimeoutError:
                 pass
-
-
 async def _publish_pipeline_result_from_ws(
     *,
     ingest_pipeline: IngestPipeline,
     pipeline_result: IngestPipelineResult,
 ) -> None:
-    await ingest_pipeline.publish_ws(
-        result=pipeline_result,
-    )
+    await ingest_pipeline.publish_ws(result=pipeline_result)

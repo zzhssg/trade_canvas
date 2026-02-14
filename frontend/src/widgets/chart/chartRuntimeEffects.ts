@@ -1,6 +1,6 @@
 import type { IChartApi, ISeriesApi, SeriesMarker, Time } from "lightweight-charts";
 import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-
+import type { ReplayWindowBundle } from "../../state/replayStore";
 import type { PenLinePoint, PenSegment } from "./penAnchorRuntime";
 import { buildReplayFactorSlices } from "./replayFactorSlices";
 import {
@@ -15,20 +15,17 @@ import type {
   GetFactorSlicesResponseV1,
   OverlayInstructionPatchItemV1,
   OverlayLikeDeltaV1,
-  ReplayFactorHeadSnapshotV1,
-  ReplayHistoryDeltaV1,
+  ReplayHistoryEventV1,
   ReplayKlineBarV1,
-  ReplayWindowV1,
+  ReplayPackageMetadataV1,
   WorldStateV1
 } from "./types";
-import type { OpenMarketWs } from "./liveSessionRuntimeTypes";
-
+import type { LiveLoadStatus, OpenMarketWs } from "./liveSessionRuntimeTypes";
 type ReplayPenPreviewFeature = "pen.extending" | "pen.candidate";
-
-type ReplayPackageBundle = {
-  window: ReplayWindowV1;
-  headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>>;
-  historyDeltaByIdx: Record<number, ReplayHistoryDeltaV1>;
+type ReplayOverlayBundle = {
+  window: ReplayWindowBundle["window"];
+  headByTime: ReplayWindowBundle["headByTime"];
+  historyDeltaByIdx: ReplayWindowBundle["historyDeltaByIdx"];
 };
 
 export type UseChartRuntimeEffectsArgs = {
@@ -39,10 +36,10 @@ export type UseChartRuntimeEffectsArgs = {
   replayPrepareStatus: string;
   replayPackageEnabled: boolean;
   replayPackageStatus: string;
-  replayPackageMeta: unknown;
-  replayPackageHistory: unknown;
-  replayPackageWindows: Record<number, ReplayPackageBundle>;
-  replayEnsureWindowRange: (args: { start: number; end: number }) => Promise<void>;
+  replayPackageMeta: ReplayPackageMetadataV1 | null;
+  replayPackageHistory: ReplayHistoryEventV1[];
+  replayPackageWindows: Record<number, ReplayWindowBundle>;
+  replayEnsureWindowRange: (startIdx: number, endIdx: number) => Promise<void>;
   replayIndex: number;
   replayTotal: number;
   replayFocusTime: number | null;
@@ -87,6 +84,7 @@ export type UseChartRuntimeEffectsArgs = {
   replayPatchRef: MutableRefObject<OverlayInstructionPatchItemV1[]>;
   replayPatchAppliedIdxRef: MutableRefObject<number>;
   replayFrameLatestTimeRef: MutableRefObject<number | null>;
+  lastWsCandleTimeRef: MutableRefObject<number | null>;
   syncMarkers: () => void;
   effectiveVisible: (key: string) => boolean;
   openMarketWs: OpenMarketWs;
@@ -100,7 +98,7 @@ export type UseChartRuntimeEffectsArgs = {
   applyWorldFrame: (frame: WorldStateV1) => void;
   applyPenAndAnchorFromFactorSlices: (slices: GetFactorSlicesResponseV1) => void;
   applyReplayOverlayAtTime: (toTime: number) => void;
-  applyReplayPackageWindow: (bundle: ReplayPackageBundle, targetIdx: number) => string[];
+  applyReplayPackageWindow: (bundle: ReplayOverlayBundle, targetIdx: number) => string[];
   requestReplayFrameAtTime: (atTime: number) => Promise<void>;
   toReplayCandle: (bar: ReplayKlineBarV1) => Candle;
   setCandles: Dispatch<SetStateAction<Candle[]>>;
@@ -115,6 +113,7 @@ export type UseChartRuntimeEffectsArgs = {
   setReplayFrameLoading: (value: boolean) => void;
   setReplayFrameError: (value: string | null) => void;
   setLastWsCandleTime: (value: number | null) => void;
+  setLiveLoadState: (status: LiveLoadStatus, message?: string) => void;
   setError: (value: string | null) => void;
   setZhongshuCount: (value: number) => void;
   setAnchorCount: (value: number) => void;
@@ -176,6 +175,7 @@ export function useChartRuntimeEffects(args: UseChartRuntimeEffectsArgs) {
     setCandles: args.setCandles,
     lastWsCandleTimeRef: args.lastWsCandleTimeRef,
     setLastWsCandleTime: args.setLastWsCandleTime,
+    setLiveLoadState: args.setLiveLoadState,
     appliedRef: args.appliedRef,
     pivotMarkersRef: args.pivotMarkersRef,
     anchorSwitchMarkersRef: args.anchorSwitchMarkersRef,

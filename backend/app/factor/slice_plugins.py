@@ -5,6 +5,7 @@ from __future__ import annotations
 from .bundles.anchor import AnchorSlicePlugin
 from .bundles.pen import PenSlicePlugin
 from .bundles.pivot import PivotSlicePlugin
+from .bundles.sr import SrSlicePlugin
 from .bundles.zhongshu import ZhongshuSlicePlugin
 from .default_components import build_default_factor_components
 from .slice_plugin_contract import FactorSlicePlugin
@@ -19,6 +20,7 @@ __all__ = [
     "AnchorSlicePlugin",
     "PenSlicePlugin",
     "PivotSlicePlugin",
+    "SrSlicePlugin",
     "ZhongshuSlicePlugin",
     "build_default_factor_slice_plugins",
 ]

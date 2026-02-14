@@ -3,9 +3,46 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from .ingest_outputs import HeadBuildState
 from .store import FactorEventWrite
 from .tick_executor import FactorTickRunRequest
 from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
+
+
+def _build_ingest_result(
+    result_cls: type[Any],
+    *,
+    rebuilt: bool,
+    fingerprint: str,
+) -> Any:
+    return result_cls(rebuilt=bool(rebuilt), fingerprint=fingerprint)
+
+
+def _emit_ingest_debug(
+    orchestrator: Any,
+    *,
+    series_id: str,
+    up_to: int,
+    candles: list[Any],
+    events: list[FactorEventWrite],
+    wrote: int,
+    started_at: float,
+) -> None:
+    if orchestrator._debug_hub is None:
+        return
+    orchestrator._debug_hub.emit(
+        pipe="write",
+        event="write.factor.ingest_done",
+        series_id=series_id,
+        message="factor ingest done",
+        data={
+            "up_to_candle_time": int(up_to),
+            "candles_read": int(len(candles)),
+            "events_planned": int(len(events)),
+            "db_changes": int(wrote),
+            "duration_ms": int((time.perf_counter() - started_at) * 1000),
+        },
+    )
 
 
 def ingest_closed(
@@ -38,7 +75,11 @@ def ingest_closed(
 
     head_time = orchestrator._factor_store.head_time(series_id) or 0
     if up_to <= int(head_time):
-        return result_cls(rebuilt=bool(force_rebuild_from_earliest), fingerprint=current_fingerprint)
+        return _build_ingest_result(
+            result_cls,
+            rebuilt=force_rebuild_from_earliest,
+            fingerprint=current_fingerprint,
+        )
 
     window_plan = planner.plan_window(
         series_id=series_id,
@@ -50,7 +91,11 @@ def ingest_closed(
         force_rebuild_from_earliest=bool(force_rebuild_from_earliest),
     )
     if window_plan is None:
-        return result_cls(rebuilt=bool(force_rebuild_from_earliest), fingerprint=current_fingerprint)
+        return _build_ingest_result(
+            result_cls,
+            rebuilt=force_rebuild_from_earliest,
+            fingerprint=current_fingerprint,
+        )
 
     candle_batch = planner.load_candle_batch(
         series_id=series_id,
@@ -59,7 +104,11 @@ def ingest_closed(
         plan=window_plan,
     )
     if candle_batch is None:
-        return result_cls(rebuilt=bool(force_rebuild_from_earliest), fingerprint=current_fingerprint)
+        return _build_ingest_result(
+            result_cls,
+            rebuilt=force_rebuild_from_earliest,
+            fingerprint=current_fingerprint,
+        )
     candles = candle_batch.candles
     time_to_idx = candle_batch.time_to_idx
     process_times = candle_batch.process_times
@@ -79,8 +128,9 @@ def ingest_closed(
     last_major_idx = bootstrap_state.last_major_idx
     anchor_current_ref = bootstrap_state.anchor_current_ref
     anchor_strength = bootstrap_state.anchor_strength
+    sr_major_pivots = list(bootstrap_state.sr_major_pivots)
+    sr_snapshot = dict(bootstrap_state.sr_snapshot)
     events: list[FactorEventWrite] = []
-
     tick_result = orchestrator._run_ticks(
         request=FactorTickRunRequest(
             series_id=series_id,
@@ -96,22 +146,31 @@ def ingest_closed(
             anchor_strength=anchor_strength,
             last_major_idx=last_major_idx,
             events=events,
+            sr_major_pivots=sr_major_pivots,
+            sr_snapshot=sr_snapshot,
         ),
     )
     effective_pivots = tick_result.effective_pivots
     confirmed_pens = tick_result.confirmed_pens
     zhongshu_state = tick_result.zhongshu_state
     anchor_current_ref = tick_result.anchor_current_ref
+    sr_major_pivots = tick_result.sr_major_pivots
+    sr_snapshot = tick_result.sr_snapshot
     events = tick_result.events
 
-    head_snapshots = orchestrator._build_head_snapshots(
-        series_id=series_id,
-        confirmed_pens=confirmed_pens,
+    head_state = HeadBuildState(
+        up_to=int(up_to),
+        candles=candles,
         effective_pivots=effective_pivots,
+        confirmed_pens=confirmed_pens,
         zhongshu_state=zhongshu_state,
         anchor_current_ref=anchor_current_ref,
-        candles=candles,
-        up_to=int(up_to),
+        sr_major_pivots=sr_major_pivots,
+        sr_snapshot=sr_snapshot,
+    )
+    head_snapshots = orchestrator._build_head_snapshots(
+        series_id=series_id,
+        state=head_state,
     )
     wrote = orchestrator._persist_ingest_outputs(
         series_id=series_id,
@@ -121,19 +180,17 @@ def ingest_closed(
         auto_rebuild=auto_rebuild,
         fingerprint=current_fingerprint,
     )
-
-    if orchestrator._debug_hub is not None:
-        orchestrator._debug_hub.emit(
-            pipe="write",
-            event="write.factor.ingest_done",
-            series_id=series_id,
-            message="factor ingest done",
-            data={
-                "up_to_candle_time": int(up_to),
-                "candles_read": int(len(candles)),
-                "events_planned": int(len(events)),
-                "db_changes": int(wrote),
-                "duration_ms": int((time.perf_counter() - t0) * 1000),
-            },
-        )
-    return result_cls(rebuilt=bool(force_rebuild_from_earliest), fingerprint=current_fingerprint)
+    _emit_ingest_debug(
+        orchestrator,
+        series_id=series_id,
+        up_to=int(up_to),
+        candles=candles,
+        events=events,
+        wrote=int(wrote),
+        started_at=float(t0),
+    )
+    return _build_ingest_result(
+        result_cls,
+        rebuilt=force_rebuild_from_earliest,
+        fingerprint=current_fingerprint,
+    )
