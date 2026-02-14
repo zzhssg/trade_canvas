@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ReplayStatus, ReplayWindowBundle } from "../../state/replayStore";
-import { useReplayStore } from "../../state/replayStore";
+import { useReplayActions, useReplayPackageState } from "../../state/replayStoreSelectors";
 import { fetchReplayWindow } from "./api";
 import { buildWindowBundle, runReplayBuildFlow } from "./replayPackageRuntime";
 import type { ReplayCoverageStatusResponseV1, ReplayCoverageV1, ReplayHistoryEventV1, ReplayPackageMetadataV1 } from "./types";
-
 const ENABLE_REPLAY_PACKAGE_V1 = import.meta.env.VITE_ENABLE_REPLAY_PACKAGE_V1 === "1";
 
 export type ReplayPackageParams = {
@@ -107,26 +106,43 @@ function useReplayWindowLoader(args: {
 export function useReplayPackage(params: ReplayPackageParams) {
   const { seriesId, enabled, windowCandles, windowSize, snapshotInterval } = params;
   const effectiveEnabled = ENABLE_REPLAY_PACKAGE_V1 && enabled;
-  const store = useReplayStore();
-  useReplayPackageBuildSync({ effectiveEnabled, seriesId, windowCandles, windowSize, snapshotInterval, store });
+  const replayPackageState = useReplayPackageState();
+  const replayActions = useReplayActions();
+  useReplayPackageBuildSync({
+    effectiveEnabled,
+    seriesId,
+    windowCandles,
+    windowSize,
+    snapshotInterval,
+    store: {
+      resetPackage: replayActions.resetPackage,
+      setStatus: replayActions.setStatus,
+      setError: replayActions.setError,
+      setCoverage: replayActions.setCoverage,
+      setCoverageStatus: replayActions.setCoverageStatus,
+      setMetadata: replayActions.setMetadata,
+      setHistoryEvents: replayActions.setHistoryEvents,
+      setJobInfo: replayActions.setJobInfo
+    }
+  });
   const { ensureWindowByIndex, ensureWindowRange } = useReplayWindowLoader({
     effectiveEnabled,
-    jobId: store.jobId,
+    jobId: replayPackageState.jobId,
     windowSize,
-    windows: store.windows,
-    setWindowBundle: store.setWindowBundle
+    windows: replayPackageState.windows,
+    setWindowBundle: replayActions.setWindowBundle
   });
   return {
     enabled: effectiveEnabled,
-    status: store.status,
-    error: store.error,
-    coverage: store.coverage,
-    coverageStatus: store.coverageStatus,
-    metadata: store.metadata,
-    historyEvents: store.historyEvents,
-    windows: store.windows,
-    jobId: store.jobId,
-    cacheKey: store.cacheKey,
+    status: replayPackageState.status,
+    error: replayPackageState.error,
+    coverage: replayPackageState.coverage,
+    coverageStatus: replayPackageState.coverageStatus,
+    metadata: replayPackageState.metadata,
+    historyEvents: replayPackageState.historyEvents,
+    windows: replayPackageState.windows,
+    jobId: replayPackageState.jobId,
+    cacheKey: replayPackageState.cacheKey,
     windowInfo: useMemo(() => ({ windowCandles, windowSize, snapshotInterval }), [windowCandles, windowSize, snapshotInterval]),
     ensureWindowByIndex,
     ensureWindowRange

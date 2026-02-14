@@ -27,7 +27,7 @@ export type ReplayWindowBundle = {
   historyDeltaByIdx: Record<number, ReplayHistoryDeltaV1>;
 };
 
-type ReplayState = {
+export type ReplayState = {
   /** "live" = 实时行情, "replay" = 回放模式 */
   mode: ReplayMode;
   /** 回放是否正在自动播放 */
@@ -109,7 +109,38 @@ type ReplayState = {
   resetPackage: () => void;
 };
 
-export const useReplayStore = create<ReplayState>((set) => ({
+function areStringArraysEqual(left: string[], right: string[]) {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+function areDrawInstructionsEquivalent(
+  left: OverlayInstructionPatchItemV1[],
+  right: OverlayInstructionPatchItemV1[]
+) {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const current = left[i];
+    const next = right[i];
+    if (!current || !next) return false;
+    if (current.instruction_id !== next.instruction_id) return false;
+    if (current.version_id !== next.version_id) return false;
+    if (current.visible_time !== next.visible_time) return false;
+  }
+  return true;
+}
+
+export const useReplayStore = create<ReplayState>((set) => {
+  const setIfChanged = <K extends keyof ReplayState>(key: K, value: ReplayState[K]) => {
+    set((state) => (Object.is(state[key], value) ? state : ({ [key]: value } as Pick<ReplayState, K>)));
+  };
+
+  return {
   mode: "live",
   playing: false,
   speedMs: 200,
@@ -136,35 +167,54 @@ export const useReplayStore = create<ReplayState>((set) => ({
   currentAtTime: null,
   currentDrawActiveIds: [],
   currentDrawInstructions: [],
-  setMode: (mode) => set({ mode }),
-  setPlaying: (playing) => set({ playing }),
-  setSpeedMs: (speedMs) => set({ speedMs }),
-  setIndex: (index) => set({ index }),
-  setTotal: (total) => set({ total }),
-  setFocusTime: (focusTime) => set({ focusTime }),
-  setFrame: (frame) => set({ frame }),
-  setFrameLoading: (frameLoading) => set({ frameLoading }),
-  setFrameError: (frameError) => set({ frameError }),
-  setPrepareStatus: (prepareStatus) => set({ prepareStatus }),
-  setPrepareError: (prepareError) => set({ prepareError }),
-  setPreparedAlignedTime: (preparedAlignedTime) => set({ preparedAlignedTime }),
-  setStatus: (status) => set({ status }),
-  setError: (error) => set({ error }),
-  setJobInfo: (jobId, cacheKey) => set({ jobId, cacheKey }),
-  setCoverage: (coverage) => set({ coverage }),
-  setCoverageStatus: (coverageStatus) => set({ coverageStatus }),
-  setMetadata: (metadata) => set({ metadata }),
-  setHistoryEvents: (historyEvents) => set({ historyEvents }),
+  setMode: (mode) => setIfChanged("mode", mode),
+  setPlaying: (playing) => setIfChanged("playing", playing),
+  setSpeedMs: (speedMs) => setIfChanged("speedMs", speedMs),
+  setIndex: (index) => setIfChanged("index", index),
+  setTotal: (total) => setIfChanged("total", total),
+  setFocusTime: (focusTime) => setIfChanged("focusTime", focusTime),
+  setFrame: (frame) => setIfChanged("frame", frame),
+  setFrameLoading: (frameLoading) => setIfChanged("frameLoading", frameLoading),
+  setFrameError: (frameError) => setIfChanged("frameError", frameError),
+  setPrepareStatus: (prepareStatus) => setIfChanged("prepareStatus", prepareStatus),
+  setPrepareError: (prepareError) => setIfChanged("prepareError", prepareError),
+  setPreparedAlignedTime: (preparedAlignedTime) => setIfChanged("preparedAlignedTime", preparedAlignedTime),
+  setStatus: (status) => setIfChanged("status", status),
+  setError: (error) => setIfChanged("error", error),
+  setJobInfo: (jobId, cacheKey) =>
+    set((state) => (state.jobId === jobId && state.cacheKey === cacheKey ? state : { jobId, cacheKey })),
+  setCoverage: (coverage) => setIfChanged("coverage", coverage),
+  setCoverageStatus: (coverageStatus) => setIfChanged("coverageStatus", coverageStatus),
+  setMetadata: (metadata) => setIfChanged("metadata", metadata),
+  setHistoryEvents: (historyEvents) =>
+    set((state) => (state.historyEvents === historyEvents ? state : { historyEvents })),
   setWindowBundle: (windowIndex, bundle) =>
-    set((state) => ({ windows: { ...state.windows, [windowIndex]: bundle } })),
-  setCurrentSlices: (currentSlices) => set({ currentSlices }),
+    set((state) =>
+      state.windows[windowIndex] === bundle ? state : { windows: { ...state.windows, [windowIndex]: bundle } }
+    ),
+  setCurrentSlices: (currentSlices) => setIfChanged("currentSlices", currentSlices),
   setCurrentCandle: ({ candleId, atTime, activeIds }) =>
-    set((state) => ({
-      currentCandleId: candleId,
-      currentAtTime: atTime,
-      currentDrawActiveIds: activeIds ?? state.currentDrawActiveIds
-    })),
-  setCurrentDrawInstructions: (currentDrawInstructions) => set({ currentDrawInstructions }),
+    set((state) => {
+      const nextActiveIds = activeIds ?? state.currentDrawActiveIds;
+      if (
+        state.currentCandleId === candleId &&
+        state.currentAtTime === atTime &&
+        areStringArraysEqual(state.currentDrawActiveIds, nextActiveIds)
+      ) {
+        return state;
+      }
+      return {
+        currentCandleId: candleId,
+        currentAtTime: atTime,
+        currentDrawActiveIds: nextActiveIds
+      };
+    }),
+  setCurrentDrawInstructions: (currentDrawInstructions) =>
+    set((state) =>
+      areDrawInstructionsEquivalent(state.currentDrawInstructions, currentDrawInstructions)
+        ? state
+        : { currentDrawInstructions }
+    ),
   resetData: () =>
     set({
       playing: false,
@@ -209,4 +259,5 @@ export const useReplayStore = create<ReplayState>((set) => ({
       currentDrawActiveIds: [],
       currentDrawInstructions: []
     })
-}));
+  };
+});

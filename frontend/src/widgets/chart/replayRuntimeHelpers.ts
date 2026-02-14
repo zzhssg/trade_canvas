@@ -72,6 +72,7 @@ type SyncReplayFocusArgs = {
   replayPackageEnabled: boolean;
   replayIndex: number;
   replayTotal: number;
+  replayFocusTime: number | null;
   replayAllCandlesRef: MutableRefObject<Array<Candle | null>>;
   setReplayIndex: (value: number) => void;
   setReplayFocusTime: (value: number | null) => void;
@@ -93,6 +94,9 @@ export function syncReplayFocusFromIndex(args: SyncReplayFocusArgs) {
   }
 
   const time = all[clamped]!.time as number;
+  if (args.replayFocusTime === time) {
+    return;
+  }
   args.setReplayFocusTime(time);
   args.applyReplayOverlayAtTime(time);
   void args.fetchAndApplyAnchorHighlightAtTime(time);

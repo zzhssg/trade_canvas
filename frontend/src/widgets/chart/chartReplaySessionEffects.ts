@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { startChartLiveSession } from "./liveSessionRuntime";
 import type { StartChartLiveSessionArgs } from "./liveSessionRuntimeTypes";
@@ -63,17 +63,15 @@ export function useReplayPackageResetEffect(args: UseReplayPackageResetEffectArg
 }
 
 export function useReplayFocusSyncEffect(args: Parameters<typeof syncReplayFocusFromIndex>[0]) {
+  const latestArgsRef = useRef(args);
+  latestArgsRef.current = args;
+
   useEffect(() => {
-    syncReplayFocusFromIndex(args);
+    syncReplayFocusFromIndex(latestArgsRef.current);
   }, [
-    args.applyReplayOverlayAtTime,
-    args.fetchAndApplyAnchorHighlightAtTime,
     args.replayEnabled,
     args.replayIndex,
     args.replayPackageEnabled,
-    args.replayTotal,
-    args.requestReplayFrameAtTime,
-    args.setReplayFocusTime,
-    args.setReplayIndex
+    args.replayTotal
   ]);
 }

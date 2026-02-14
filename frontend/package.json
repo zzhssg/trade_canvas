@@ -10,7 +10,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "gen:openapi": "node scripts/gen-openapi-types.mjs",
+    "test:unit": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test",
+    "test:e2e:live-browse": "bash ../scripts/e2e_acceptance.sh --reuse-servers --no-reuse-strict --skip-playwright-install --skip-doc-audit -- e2e/live_browse_click_screenshots.spec.ts --workers=1",
     "test:e2e:headed": "playwright test --headed",
     "e2e:isolated": "E2E_BACKEND_PORT=18080 E2E_FRONTEND_PORT=15180 bash ../scripts/e2e_acceptance.sh"
   },
@@ -38,6 +40,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.17",
     "typescript": "~5.9.3",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "vitest": "^4.0.18"
   }
 }

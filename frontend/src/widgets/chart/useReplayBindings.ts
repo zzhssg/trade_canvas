@@ -1,51 +1,31 @@
-import { useReplayStore } from "../../state/replayStore";
+import { useReplayActions, useReplayControlState } from "../../state/replayStoreSelectors";
 
 export function useReplayBindings() {
-  const replayMode = useReplayStore((s) => s.mode);
-  const replayPlaying = useReplayStore((s) => s.playing);
-  const replaySpeedMs = useReplayStore((s) => s.speedMs);
-  const replayIndex = useReplayStore((s) => s.index);
-  const replayTotal = useReplayStore((s) => s.total);
-  const replayFocusTime = useReplayStore((s) => s.focusTime);
-  const replayPrepareStatus = useReplayStore((s) => s.prepareStatus);
-  const replayPreparedAlignedTime = useReplayStore((s) => s.preparedAlignedTime);
-  const setReplayPlaying = useReplayStore((s) => s.setPlaying);
-  const setReplayIndex = useReplayStore((s) => s.setIndex);
-  const setReplayTotal = useReplayStore((s) => s.setTotal);
-  const setReplayFocusTime = useReplayStore((s) => s.setFocusTime);
-  const setReplayFrame = useReplayStore((s) => s.setFrame);
-  const setReplayFrameLoading = useReplayStore((s) => s.setFrameLoading);
-  const setReplayFrameError = useReplayStore((s) => s.setFrameError);
-  const setReplayPrepareStatus = useReplayStore((s) => s.setPrepareStatus);
-  const setReplayPrepareError = useReplayStore((s) => s.setPrepareError);
-  const setReplayPreparedAlignedTime = useReplayStore((s) => s.setPreparedAlignedTime);
-  const setReplaySlices = useReplayStore((s) => s.setCurrentSlices);
-  const setReplayCandle = useReplayStore((s) => s.setCurrentCandle);
-  const setReplayDrawInstructions = useReplayStore((s) => s.setCurrentDrawInstructions);
-  const resetReplayData = useReplayStore((s) => s.resetData);
+  const replayState = useReplayControlState();
+  const replayActions = useReplayActions();
 
   return {
-    replayMode,
-    replayPlaying,
-    replaySpeedMs,
-    replayIndex,
-    replayTotal,
-    replayFocusTime,
-    replayPrepareStatus,
-    replayPreparedAlignedTime,
-    setReplayPlaying,
-    setReplayIndex,
-    setReplayTotal,
-    setReplayFocusTime,
-    setReplayFrame,
-    setReplayFrameLoading,
-    setReplayFrameError,
-    setReplayPrepareStatus,
-    setReplayPrepareError,
-    setReplayPreparedAlignedTime,
-    setReplaySlices,
-    setReplayCandle,
-    setReplayDrawInstructions,
-    resetReplayData
+    replayMode: replayState.mode,
+    replayPlaying: replayState.playing,
+    replaySpeedMs: replayState.speedMs,
+    replayIndex: replayState.index,
+    replayTotal: replayState.total,
+    replayFocusTime: replayState.focusTime,
+    replayPrepareStatus: replayState.prepareStatus,
+    replayPreparedAlignedTime: replayState.preparedAlignedTime,
+    setReplayPlaying: replayActions.setPlaying,
+    setReplayIndex: replayActions.setIndex,
+    setReplayTotal: replayActions.setTotal,
+    setReplayFocusTime: replayActions.setFocusTime,
+    setReplayFrame: replayActions.setFrame,
+    setReplayFrameLoading: replayActions.setFrameLoading,
+    setReplayFrameError: replayActions.setFrameError,
+    setReplayPrepareStatus: replayActions.setPrepareStatus,
+    setReplayPrepareError: replayActions.setPrepareError,
+    setReplayPreparedAlignedTime: replayActions.setPreparedAlignedTime,
+    setReplaySlices: replayActions.setCurrentSlices,
+    setReplayCandle: replayActions.setCurrentCandle,
+    setReplayDrawInstructions: replayActions.setCurrentDrawInstructions,
+    resetReplayData: replayActions.resetData
   };
 }
