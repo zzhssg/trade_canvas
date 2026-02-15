@@ -1,6 +1,6 @@
 ---
 title: Factor 一次性插件化收敛（Pack + 全链路自动装配）
-status: 待验收
+status: 已上线
 owner: codex
 created: 2026-02-15
 updated: 2026-02-15
