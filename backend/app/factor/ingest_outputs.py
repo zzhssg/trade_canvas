@@ -17,6 +17,17 @@ class HeadBuildState:
     anchor_current_ref: dict[str, Any] | None
     sr_major_pivots: list[dict[str, Any]] = field(default_factory=list)
     sr_snapshot: dict[str, Any] = field(default_factory=dict)
+    factor_states: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def factor_state(self, factor_name: str) -> dict[str, Any]:
+        name = str(factor_name or "").strip()
+        if not name:
+            raise RuntimeError("factor_state_empty_name")
+        state = self.factor_states.get(name)
+        if state is None:
+            state = {}
+            self.factor_states[name] = state
+        return state
 
 
 @dataclass(frozen=True)

@@ -50,3 +50,7 @@ class PenOverlayRenderer:
                 )
             )
         return out
+
+
+def build_renderer_plugin() -> PenOverlayRenderer:
+    return PenOverlayRenderer()

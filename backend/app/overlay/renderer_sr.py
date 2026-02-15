@@ -84,3 +84,7 @@ class SrOverlayRenderer:
             line_width=int(line_width),
             line_style=line_style,
         )
+
+
+def build_renderer_plugin() -> SrOverlayRenderer:
+    return SrOverlayRenderer()

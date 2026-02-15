@@ -97,11 +97,12 @@ def build_domain_core(*, settings: Settings, runtime_flags: RuntimeFlags, postgr
     )
     factor_slices_service = FactorSlicesService(candle_store=store, factor_store=factor_store)
     feature_store = FeatureStore(db_path=settings.db_path)
+    feature_ingest_enabled = bool(runtime_flags.enable_feature_ingest) and bool(runtime_flags.enable_factor_ingest)
     feature_orchestrator = FeatureOrchestrator(
         factor_store=factor_store,
         feature_store=feature_store,
         settings=FeatureSettings(
-            ingest_enabled=bool(runtime_flags.enable_feature_ingest),
+            ingest_enabled=feature_ingest_enabled,
         ),
     )
 

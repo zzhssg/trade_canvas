@@ -275,3 +275,7 @@ class StructureOverlayRenderer:
             )
 
         return out
+
+
+def build_renderer_plugin() -> StructureOverlayRenderer:
+    return StructureOverlayRenderer()

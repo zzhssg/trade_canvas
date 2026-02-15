@@ -94,3 +94,7 @@ class MarkerOverlayRenderer:
                 )
             )
         return out
+
+
+def build_renderer_plugin() -> MarkerOverlayRenderer:
+    return MarkerOverlayRenderer()

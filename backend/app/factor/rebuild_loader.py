@@ -28,6 +28,7 @@ class FactorBootstrapState:
     anchor_strength: float | None
     sr_major_pivots: list[dict[str, Any]]
     sr_snapshot: dict[str, Any]
+    factor_states: dict[str, dict[str, Any]]
 
 
 @dataclass
@@ -44,6 +45,27 @@ class _BootstrapReplayState:
     anchor_strength: float | None
     sr_major_pivots: list[dict[str, Any]]
     sr_snapshot: dict[str, Any]
+    factor_states: dict[str, dict[str, Any]]
+
+    def factor_state(self, factor_name: str) -> dict[str, Any]:
+        name = str(factor_name or "").strip()
+        if not name:
+            raise RuntimeError("factor_state_empty_name")
+        state = self.factor_states.get(name)
+        if state is None:
+            state = {}
+            self.factor_states[name] = state
+        return state
+
+    def sync_legacy_aliases(self) -> None:
+        self.factor_state("pivot")["effective_pivots"] = self.effective_pivots
+        self.factor_state("pivot")["last_major_idx"] = self.last_major_idx
+        self.factor_state("pen")["confirmed_pens"] = self.confirmed_pens
+        self.factor_state("zhongshu")["payload"] = self.zhongshu_state
+        self.factor_state("anchor")["current_ref"] = self.anchor_current_ref
+        self.factor_state("anchor")["strength"] = self.anchor_strength
+        self.factor_state("sr")["major_pivots"] = self.sr_major_pivots
+        self.factor_state("sr")["snapshot"] = self.sr_snapshot
 
 
 class FactorRebuildStateLoader:
@@ -184,6 +206,7 @@ class FactorRebuildStateLoader:
             head_time=int(head_time),
             scan_limit=int(state_scan_limit),
         )
+        factor_states = {str(factor_name): {} for factor_name in self._graph.topo_order}
         state = _BootstrapReplayState(
             head_time=int(head_time),
             candles=candles,
@@ -197,13 +220,16 @@ class FactorRebuildStateLoader:
             anchor_strength=None,
             sr_major_pivots=[],
             sr_snapshot={},
+            factor_states=factor_states,
         )
+        state.sync_legacy_aliases()
         for factor_name in self._graph.topo_order:
             plugin = self._registry.require(str(factor_name))
             bootstrap = getattr(plugin, "bootstrap_from_history", None)
             if not callable(bootstrap):
                 continue
             bootstrap(series_id=series_id, state=state, runtime=self._runtime)
+            state.sync_legacy_aliases()
         return FactorBootstrapState(
             effective_pivots=state.effective_pivots,
             confirmed_pens=state.confirmed_pens,
@@ -213,4 +239,5 @@ class FactorRebuildStateLoader:
             anchor_strength=state.anchor_strength,
             sr_major_pivots=state.sr_major_pivots,
             sr_snapshot=state.sr_snapshot,
+            factor_states=state.factor_states,
         )

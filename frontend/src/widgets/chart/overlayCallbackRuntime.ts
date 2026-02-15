@@ -3,10 +3,9 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
 import { fetchFactorSlices } from "./api";
 import {
-  buildAnchorSwitchMarkersFromOverlay,
+  buildVisibleMarkersFromOverlay,
   buildOverlayPolylinesFromOverlay,
   buildPenPointsFromOverlay,
-  buildPivotMarkersFromOverlay,
   resolveCandleTimeRange
 } from "./overlayRuntimeCore";
 import { derivePenAnchorStateFromSlices, type PenLinePoint, type PenSegment } from "./penAnchorRuntime";
@@ -27,26 +26,18 @@ type OverlayRuntimeBaseArgs = {
   effectiveVisible: (key: string) => boolean;
 };
 
-export function rebuildPivotMarkersFromOverlayRuntime(args: OverlayRuntimeBaseArgs): Array<SeriesMarker<Time>> {
+export function rebuildMarkersFromOverlayRuntime(args: OverlayRuntimeBaseArgs): {
+  markers: Array<SeriesMarker<Time>>;
+  pivotCount: number;
+  anchorSwitchCount: number;
+} {
   const { minTime, maxTime } = resolveCandleTimeRange(args.candlesRef.current);
-  return buildPivotMarkersFromOverlay({
+  return buildVisibleMarkersFromOverlay({
     overlayActiveIds: args.overlayActiveIdsRef.current,
     overlayCatalog: args.overlayCatalogRef.current,
     minTime,
     maxTime,
-    showPivotMajor: args.effectiveVisible("pivot.major"),
-    showPivotMinor: args.effectiveVisible("pivot.minor")
-  });
-}
-
-export function rebuildAnchorSwitchMarkersFromOverlayRuntime(args: OverlayRuntimeBaseArgs): Array<SeriesMarker<Time>> {
-  const { minTime, maxTime } = resolveCandleTimeRange(args.candlesRef.current);
-  return buildAnchorSwitchMarkersFromOverlay({
-    overlayActiveIds: args.overlayActiveIdsRef.current,
-    overlayCatalog: args.overlayCatalogRef.current,
-    minTime,
-    maxTime,
-    showAnchorSwitch: args.effectiveVisible("anchor.switch")
+    effectiveVisible: args.effectiveVisible
   });
 }
 

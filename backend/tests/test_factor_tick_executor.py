@@ -7,13 +7,6 @@ import pytest
 from backend.app.factor.runtime_config import FactorSettings
 from backend.app.factor.runtime_contract import FactorRuntimeContext
 from backend.app.factor.store import FactorEventWrite
-from backend.app.factor.tick_state_slices import (
-    FactorTickAnchorState,
-    FactorTickPenState,
-    FactorTickPivotState,
-    FactorTickSrState,
-    FactorTickZhongshuState,
-)
 from backend.app.factor.tick_executor import FactorTickExecutor, FactorTickRunRequest, FactorTickState
 
 
@@ -120,30 +113,44 @@ def test_tick_executor_run_tick_steps_fail_fast_when_hook_missing() -> None:
         candles=[],
         time_to_idx={},
         events=[],
-        pivot=FactorTickPivotState(
-            effective_pivots=[],
-            last_major_idx=None,
-            major_candidates=[],
-        ),
-        pen=FactorTickPenState(
-            confirmed_pens=[],
-            new_confirmed_pen_payloads=[],
-        ),
-        zhongshu=FactorTickZhongshuState(
-            payload={},
-            formed_entries=[],
-        ),
-        anchor=FactorTickAnchorState(
-            current_ref=None,
-            strength=None,
-            best_strong_pen_ref=None,
-            best_strong_pen_strength=None,
-            baseline_strength=None,
-        ),
-        sr=FactorTickSrState(
-            major_pivots=[],
-            snapshot={},
-        ),
+        factor_states={},
     )
     with pytest.raises(RuntimeError, match="factor_missing_run_tick:pivot"):
         executor.run_tick_steps(series_id="s", state=state)
+
+
+def test_tick_executor_exposes_factor_namespace_state_for_new_plugins() -> None:
+    class _NamespacePlugin:
+        def __init__(self) -> None:
+            self.spec = SimpleNamespace(factor_name="demo_factor", depends_on=())
+
+        def run_tick(self, *, series_id: str, state: FactorTickState, runtime: FactorRuntimeContext) -> None:
+            _ = series_id
+            _ = runtime
+            payload = state.factor_state("demo_factor")
+            payload["ticks"] = int(payload.get("ticks") or 0) + 1
+
+    executor = FactorTickExecutor(
+        graph=_GraphStub(("demo_factor",)),  # type: ignore[arg-type]
+        registry=_RegistryStub({"demo_factor": _NamespacePlugin()}),  # type: ignore[arg-type]
+        runtime=FactorRuntimeContext(anchor_processor=None),
+    )
+
+    out = executor.run_incremental(
+        request=FactorTickRunRequest(
+            series_id="s",
+            process_times=[60, 120, 180],
+            tf_s=60,
+            settings=FactorSettings(),
+            candles=[],
+            time_to_idx={},
+            effective_pivots=[],
+            confirmed_pens=[],
+            zhongshu_state={},
+            anchor_current_ref=None,
+            anchor_strength=None,
+            last_major_idx=None,
+        ),
+    )
+
+    assert out.factor_states["demo_factor"]["ticks"] == 3

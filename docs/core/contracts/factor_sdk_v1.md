@@ -2,7 +2,7 @@
 title: Factor SDK Contract v1（因子开发 SDK）
 status: done
 created: 2026-02-07
-updated: 2026-02-13
+updated: 2026-02-15
 ---
 
 # Factor SDK Contract v1（因子开发 SDK）
@@ -58,6 +58,10 @@ type FactorContextV1 = {
 约束：
 - `deps_snapshot[*].meta.at_time == candle_time`，否则必须 fail-safe。
 - 不允许因子直接访问上游计算接口（禁止回调 slice）。
+
+补充（Python 插件运行时）：
+- `tick/bootstrap/head` 状态通过 `state.factor_state(factor_name)` 命名空间读写。
+- 禁止在 orchestrator 新增 `xxx_state` 顶层字段来支持单一因子。
 
 ### 2.3 FactorApplyResult（写路径输出）
 
@@ -137,8 +141,9 @@ SDK 不绑定具体存储，但必须满足下列语义：
 6. 在 `backend/app/factor/bundles/<name>.py` 填充 slice 插件逻辑并导出 `build_bundle()`。
 7. 在 `XxxSlicePlugin.bucket_specs` 注册 slice 事件桶映射（`event_kind -> bucket_name`，单点维护）。
 8. （按需）若该因子需要直接输出策略列/信号，补 `backend/app/freqtrade/signal_strategies/` 插件而非改 adapter 主流程。
-9. （按需）若该因子引入 overlay 与 factor 快照一致性约束，补 `backend/app/overlay/integrity_plugins.py` 插件而非改 `draw_routes` 主流程。
-10. 补齐测试：
+9. （按需）若该因子需要 overlay 指令，新增 `backend/app/overlay/renderer_<name>.py` 并导出 `build_renderer_plugin()`（自动发现，无中心注册）。
+10. （按需）若该因子引入 overlay 与 factor 快照一致性约束，补 `backend/app/overlay/integrity_plugins.py` 插件而非改 `draw_routes` 主流程。
+11. 补齐测试：
    - `seed ≡ incremental`
    - 重复 ingest 幂等
    - `series_head_time < aligned` 时读路径 fail-safe

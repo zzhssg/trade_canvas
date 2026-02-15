@@ -2,7 +2,7 @@
 title: Factor 模块化架构
 status: done
 created: 2026-02-02
-updated: 2026-02-14
+updated: 2026-02-15
 ---
 
 # Factor 模块化架构
@@ -21,11 +21,11 @@ updated: 2026-02-14
 - `backend/app/factor/orchestrator.py`
   - 负责 ingest 调度、状态推进、事件写入。
 - `backend/app/factor/tick_executor.py`
-  - 负责每个 tick 的插件执行顺序与状态衔接。
+  - 负责每个 tick 的插件执行顺序与状态衔接（`factor_state(<name>)` 命名空间状态容器）。
 - `backend/app/factor/ingest_window.py`
   - 负责窗口规划（读取起点/批次/process_times）。
 - `backend/app/factor/rebuild_loader.py`
-  - 负责历史事件回放与 bootstrap。
+  - 负责历史事件回放与 bootstrap（同样通过命名空间状态容器传递插件状态）。
 - `backend/app/factor/fingerprint.py`
   - 负责逻辑指纹生成。
 - `backend/app/factor/fingerprint_rebuild.py`
@@ -65,6 +65,8 @@ updated: 2026-02-14
   - 统一 pen/zhongshu head 组装，避免读写两套规则漂移。
 - `backend/app/overlay/integrity_plugins.py`
   - draw 首帧可基于 factor slices 做一致性检查。
+- `backend/app/overlay/renderer_plugins.py`
+  - 基于 `renderer_*.py + build_renderer_plugin()` 自动发现 overlay renderer，无中心手工注册。
 - `backend/app/read_models/world_read_service.py`
   - 强制 factor/draw candle_id 对齐。
 
@@ -148,7 +150,7 @@ python3 scripts/new_factor_scaffold.py --factor <factor_name> --depends-on <dep1
 - `backend/app/factor/bundles/<factor_name>.py`
 
 按需改：
-- `backend/app/overlay/renderer_plugins.py`（facade 入口；具体实现见 `renderer_marker.py` / `renderer_pen.py` / `renderer_structure.py`）
+- `backend/app/overlay/renderer_<your_factor>.py`（新增 renderer 模块并导出 `build_renderer_plugin()`；系统自动发现）
 - `backend/app/freqtrade/signal_strategies/<strategy>.py`（需要策略信号列时）
 - `backend/app/overlay/integrity_plugins.py`（需要额外一致性校验时）
 
