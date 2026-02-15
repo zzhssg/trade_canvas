@@ -103,6 +103,44 @@ def test_tick_executor_run_incremental_preserves_order_and_state() -> None:
     assert [e.event_key for e in out.events] == ["pivot:60", "pen:60", "pivot:120", "pen:120"]
 
 
+def test_tick_executor_run_incremental_keeps_plugin_state_namespace() -> None:
+    class _CustomPlugin:
+        spec = SimpleNamespace(factor_name="custom", depends_on=())
+
+        def run_tick(self, *, series_id: str, state: FactorTickState, runtime: FactorRuntimeContext) -> None:
+            _ = series_id
+            _ = runtime
+            payload = state.factor_state("custom")
+            payload["runs"] = int(payload.get("runs") or 0) + 1
+
+    executor = FactorTickExecutor(
+        graph=_GraphStub(("custom",)),  # type: ignore[arg-type]
+        registry=_RegistryStub({"custom": _CustomPlugin()}),  # type: ignore[arg-type]
+        runtime=FactorRuntimeContext(anchor_processor=None),
+    )
+
+    out = executor.run_incremental(
+        request=FactorTickRunRequest(
+            series_id="s",
+            process_times=[60, 120],
+            tf_s=60,
+            settings=FactorSettings(),
+            candles=[],
+            time_to_idx={},
+            effective_pivots=[],
+            confirmed_pens=[],
+            zhongshu_state={},
+            anchor_current_ref=None,
+            anchor_strength=None,
+            last_major_idx=None,
+            plugin_states={"custom": {"seed": 1}},
+        ),
+    )
+
+    assert out.plugin_states["custom"] == {"seed": 1, "runs": 2}
+    assert out.plugin_states["pivot"]["effective_pivots"] == []
+
+
 def test_tick_executor_run_tick_steps_fail_fast_when_hook_missing() -> None:
     class _PluginWithoutRunTick:
         spec = SimpleNamespace(factor_name="pivot", depends_on=())

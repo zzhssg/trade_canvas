@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .graph import FactorGraph
@@ -31,6 +31,7 @@ class FactorTickState:
     zhongshu: FactorTickZhongshuState
     anchor: FactorTickAnchorState
     sr: FactorTickSrState
+    plugin_states: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def effective_pivots(self) -> list[PivotMajorPoint]:
@@ -144,6 +145,36 @@ class FactorTickState:
     def sr_snapshot(self, value: dict[str, Any]) -> None:
         self.sr.snapshot = value
 
+    def factor_state(self, factor_name: str) -> dict[str, Any]:
+        key = str(factor_name or "").strip()
+        if not key:
+            raise ValueError("empty_factor_name")
+        return self.plugin_states.setdefault(key, {})
+
+    def sync_builtin_plugin_states(self) -> None:
+        self.plugin_states.update(
+            {
+                "pivot": {
+                    "effective_pivots": self.effective_pivots,
+                    "last_major_idx": self.last_major_idx,
+                    "major_candidates": self.major_candidates,
+                },
+                "pen": {
+                    "confirmed_pens": self.confirmed_pens,
+                    "new_confirmed_pen_payloads": self.new_confirmed_pen_payloads,
+                },
+                "zhongshu": {"state": self.zhongshu_state, "formed_entries": self.formed_entries},
+                "anchor": {
+                    "current_ref": self.anchor_current_ref,
+                    "strength": self.anchor_strength,
+                    "best_strong_pen_ref": self.best_strong_pen_ref,
+                    "best_strong_pen_strength": self.best_strong_pen_strength,
+                    "baseline_strength": self.baseline_anchor_strength,
+                },
+                "sr": {"major_pivots": self.sr_major_pivots, "snapshot": self.sr_snapshot},
+            }
+        )
+
 
 @dataclass(frozen=True)
 class FactorTickExecutionResult:
@@ -156,6 +187,7 @@ class FactorTickExecutionResult:
     last_major_idx: int | None
     sr_major_pivots: list[dict[str, Any]]
     sr_snapshot: dict[str, Any]
+    plugin_states: dict[str, dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -173,8 +205,8 @@ class FactorTickRunRequest:
     anchor_strength: float | None
     last_major_idx: int | None
     events: list[FactorEventWrite] | None = None
-    sr_major_pivots: list[dict[str, Any]] | None = None
-    sr_snapshot: dict[str, Any] | None = None
+    sr_state: FactorTickSrState | None = None
+    plugin_states: dict[str, dict[str, Any]] | None = None
 
 
 class FactorTickExecutor:
@@ -206,8 +238,10 @@ class FactorTickExecutor:
         cur_anchor_current_ref = request.anchor_current_ref
         cur_anchor_strength = request.anchor_strength
         cur_last_major_idx = request.last_major_idx
-        sr_major_pivots = request.sr_major_pivots if request.sr_major_pivots is not None else []
-        sr_snapshot = request.sr_snapshot if request.sr_snapshot is not None else {}
+        sr_state = request.sr_state if request.sr_state is not None else FactorTickSrState(major_pivots=[], snapshot={})
+        sr_major_pivots = sr_state.major_pivots
+        sr_snapshot = sr_state.snapshot
+        plugin_states = {str(name): dict(value) for name, value in dict(request.plugin_states or {}).items()}
 
         for visible_time in request.process_times:
             tick_state = FactorTickState(
@@ -241,8 +275,11 @@ class FactorTickExecutor:
                     major_pivots=sr_major_pivots,
                     snapshot=sr_snapshot,
                 ),
+                plugin_states=plugin_states,
             )
+            tick_state.sync_builtin_plugin_states()
             self.run_tick_steps(series_id=request.series_id, state=tick_state)
+            tick_state.sync_builtin_plugin_states()
             cur_anchor_current_ref = tick_state.anchor_current_ref
             cur_anchor_strength = tick_state.anchor_strength
             cur_last_major_idx = tick_state.last_major_idx
@@ -259,4 +296,5 @@ class FactorTickExecutor:
             last_major_idx=cur_last_major_idx,
             sr_major_pivots=sr_major_pivots,
             sr_snapshot=sr_snapshot,
+            plugin_states=plugin_states,
         )

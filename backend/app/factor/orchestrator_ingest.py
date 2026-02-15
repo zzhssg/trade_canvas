@@ -7,6 +7,7 @@ from .ingest_outputs import HeadBuildState
 from .orchestrator_ops import build_incremental_bootstrap_state
 from .store import FactorEventWrite
 from .tick_executor import FactorTickRunRequest
+from .tick_state_slices import FactorTickSrState
 from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 
 
@@ -132,6 +133,7 @@ def ingest_closed(
     anchor_strength = bootstrap_state.anchor_strength
     sr_major_pivots = list(bootstrap_state.sr_major_pivots)
     sr_snapshot = dict(bootstrap_state.sr_snapshot)
+    plugin_states = {str(name): dict(payload) for name, payload in bootstrap_state.plugin_states.items()}
     events: list[FactorEventWrite] = []
     tick_result = orchestrator._run_ticks(
         request=FactorTickRunRequest(
@@ -148,8 +150,11 @@ def ingest_closed(
             anchor_strength=anchor_strength,
             last_major_idx=last_major_idx,
             events=events,
-            sr_major_pivots=sr_major_pivots,
-            sr_snapshot=sr_snapshot,
+            sr_state=FactorTickSrState(
+                major_pivots=sr_major_pivots,
+                snapshot=sr_snapshot,
+            ),
+            plugin_states=plugin_states,
         ),
     )
     effective_pivots = tick_result.effective_pivots
@@ -158,6 +163,7 @@ def ingest_closed(
     anchor_current_ref = tick_result.anchor_current_ref
     sr_major_pivots = tick_result.sr_major_pivots
     sr_snapshot = tick_result.sr_snapshot
+    plugin_states = tick_result.plugin_states
     events = tick_result.events
 
     head_state = HeadBuildState(
@@ -169,6 +175,7 @@ def ingest_closed(
         anchor_current_ref=anchor_current_ref,
         sr_major_pivots=sr_major_pivots,
         sr_snapshot=sr_snapshot,
+        plugin_states=plugin_states,
     )
     head_snapshots = orchestrator._build_head_snapshots(
         series_id=series_id,

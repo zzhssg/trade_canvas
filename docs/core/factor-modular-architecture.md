@@ -2,7 +2,7 @@
 title: Factor 模块化架构
 status: done
 created: 2026-02-02
-updated: 2026-02-14
+updated: 2026-02-15
 ---
 
 # Factor 模块化架构
@@ -106,6 +106,7 @@ flowchart LR
 1. 只处理 closed candles。
 2. 同一窗口同一输入得到同一输出。
 3. 指纹变化必须触发重建闸门，禁止静默复用旧产物。
+4. 新增因子状态统一落在 `plugin_states`（`state.factor_state(name)`），不再扩展主流程状态字段。
 
 ---
 
@@ -140,16 +141,19 @@ flowchart LR
 推荐脚手架（避免手工复制漏改）：
 
 ```bash
-python3 scripts/new_factor_scaffold.py --factor <factor_name> --depends-on <dep1,dep2>
+python3 scripts/new_factor_scaffold.py --factor <factor_name> --depends-on <dep1,dep2> [--with-overlay-renderer] [--with-signal-plugin]
 ```
 
 该命令会生成：
 - `backend/app/factor/processor_<factor_name>.py`
 - `backend/app/factor/bundles/<factor_name>.py`
+- （可选）`backend/app/overlay/renderer_<factor_name>.py`
+- （可选）`backend/app/freqtrade/signal_strategies/<factor_name>.py`
 
 按需改：
-- `backend/app/overlay/renderer_plugins.py`（facade 入口；具体实现见 `renderer_marker.py` / `renderer_pen.py` / `renderer_structure.py`）
-- `backend/app/freqtrade/signal_strategies/<strategy>.py`（需要策略信号列时）
+- `backend/app/factor/processor_<factor_name>.py` 与 `backend/app/factor/bundles/<factor_name>.py` 的业务逻辑
+- `backend/app/overlay/renderer_<factor_name>.py`（仅当要绘图；`renderer_plugins.py` 已自动发现）
+- `backend/app/freqtrade/signal_strategies/<factor_name>.py`（仅当要策略列；signal orchestrator 已自动发现）
 - `backend/app/overlay/integrity_plugins.py`（需要额外一致性校验时）
 
 ---

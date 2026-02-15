@@ -15,6 +15,7 @@ from .renderer_contract import (
     OverlayEventBucketSpec,
     OverlayRenderContext,
     OverlayRenderOutput,
+    OverlayRendererPlugin,
 )
 from .renderer_structure_helpers import (
     PolylineRequest,
@@ -275,3 +276,7 @@ class StructureOverlayRenderer:
             )
 
         return out
+
+
+def build_renderer() -> OverlayRendererPlugin:
+    return StructureOverlayRenderer()
