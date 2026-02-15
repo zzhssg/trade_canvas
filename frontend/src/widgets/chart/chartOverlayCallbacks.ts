@@ -6,10 +6,9 @@ import {
   applyPenAndAnchorFromFactorSlicesRuntime,
   applyWorldFrameRuntime,
   fetchAndApplyAnchorHighlightAtTimeRuntime,
-  rebuildAnchorSwitchMarkersFromOverlayRuntime,
+  rebuildMarkersFromOverlayRuntime,
   rebuildOverlayPolylinesFromOverlayRuntime,
   rebuildPenPointsFromOverlayRuntime,
-  rebuildPivotMarkersFromOverlayRuntime
 } from "./overlayCallbackRuntime";
 import { applyOverlayDeltaToCatalog, recomputeActiveIdsFromCatalog } from "./overlayRuntimeCore";
 import type { PenLinePoint, PenSegment } from "./penAnchorRuntime";
@@ -50,7 +49,6 @@ export function useOverlayRenderCallbacks(args: UseOverlayRenderCallbacksArgs) {
   const syncMarkers = useCallback(() => {
     const markers = [...args.pivotMarkersRef.current, ...args.anchorSwitchMarkersRef.current, ...args.entryMarkersRef.current];
     args.markersApiRef.current?.setMarkers(markers);
-    args.setPivotCount(args.pivotMarkersRef.current.length);
   }, []);
 
   const applyOverlayDelta = useCallback((delta: OverlayLikeDeltaV1) => {
@@ -71,15 +69,21 @@ export function useOverlayRenderCallbacks(args: UseOverlayRenderCallbacksArgs) {
     []
   );
 
-  const rebuildPivotMarkersFromOverlay = useCallback(() => {
-    args.pivotMarkersRef.current = rebuildPivotMarkersFromOverlayRuntime(args);
+  const rebuildMarkersFromOverlay = useCallback(() => {
+    const rendered = rebuildMarkersFromOverlayRuntime(args);
+    args.pivotMarkersRef.current = rendered.markers;
+    args.anchorSwitchMarkersRef.current = [];
+    args.setPivotCount(rendered.pivotCount);
+    args.setAnchorSwitchCount(rendered.anchorSwitchCount);
   }, [args.effectiveVisible]);
 
+  const rebuildPivotMarkersFromOverlay = useCallback(() => {
+    rebuildMarkersFromOverlay();
+  }, [rebuildMarkersFromOverlay]);
+
   const rebuildAnchorSwitchMarkersFromOverlay = useCallback(() => {
-    const markers = rebuildAnchorSwitchMarkersFromOverlayRuntime(args);
-    args.anchorSwitchMarkersRef.current = markers;
-    args.setAnchorSwitchCount(markers.length);
-  }, [args.effectiveVisible]);
+    rebuildMarkersFromOverlay();
+  }, [rebuildMarkersFromOverlay]);
 
   const rebuildPenPointsFromOverlay = useCallback(() => {
     args.penPointsRef.current = rebuildPenPointsFromOverlayRuntime(args);

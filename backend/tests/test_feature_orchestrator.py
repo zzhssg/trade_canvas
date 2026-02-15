@@ -67,6 +67,7 @@ def test_feature_orchestrator_uses_capability_manifest_to_filter_factors() -> No
             feature_store=feature_store,
             capability_overrides={
                 "pen": FactorCapabilitySpec(factor_name="pen", enable_feature=True),
+                "pivot": FactorCapabilitySpec(factor_name="pivot", enable_feature=False),
             },
         )
 

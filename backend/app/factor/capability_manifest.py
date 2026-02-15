@@ -13,10 +13,10 @@ class FactorCapabilityManifestError(RuntimeError):
 @dataclass(frozen=True)
 class FactorCapabilitySpec:
     factor_name: str
-    enable_overlay: bool = False
-    enable_feature: bool = False
-    enable_freqtrade_live: bool = False
-    enable_backtest_package: bool = False
+    enable_overlay: bool = True
+    enable_feature: bool = True
+    enable_freqtrade_live: bool = True
+    enable_backtest_package: bool = True
     enable_replay_package: bool = True
 
 
@@ -103,4 +103,3 @@ def capability_map(
             raise FactorCapabilityManifestError(f"capability_duplicate_factor:{name}")
         out[name] = item
     return out
-

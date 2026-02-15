@@ -1,15 +1,20 @@
 import { LineStyle, type LineWidth, type SeriesMarker, type Time, type UTCTimestamp } from "lightweight-charts";
+
 import type { Candle, OverlayInstructionPatchItemV1, OverlayLikeDeltaV1 } from "./types";
+
 type OverlayDef = Record<string, unknown>;
 type MarkerPosition = "aboveBar" | "belowBar";
 type MarkerShape = "circle" | "square" | "arrowUp" | "arrowDown";
+
 export type PenLinePoint = { time: UTCTimestamp; value: number };
+
 export type OverlayPolylineStyle = {
   points: PenLinePoint[];
   color: string;
   lineWidth: LineWidth;
   lineStyle: LineStyle;
 };
+
 export type OverlayPath = {
   id: string;
   feature: string;
@@ -18,6 +23,13 @@ export type OverlayPath = {
   lineWidth: LineWidth;
   lineStyle: LineStyle;
 };
+
+export type OverlayMarkerBuildResult = {
+  markers: Array<SeriesMarker<Time>>;
+  pivotCount: number;
+  anchorSwitchCount: number;
+};
+
 export function applyOverlayDeltaToCatalog(
   delta: OverlayLikeDeltaV1,
   overlayCatalog: Map<string, OverlayInstructionPatchItemV1>
@@ -37,6 +49,7 @@ export function applyOverlayDeltaToCatalog(
     nextCursorVersion
   };
 }
+
 export function resolveCandleTimeRange(candles: Candle[]): { minTime: number | null; maxTime: number | null } {
   if (candles.length === 0) return { minTime: null, maxTime: null };
   return {
@@ -44,96 +57,102 @@ export function resolveCandleTimeRange(candles: Candle[]): { minTime: number | n
     maxTime: candles[candles.length - 1]!.time as number
   };
 }
+
 function normalizeMarkerPosition(value: unknown): MarkerPosition | null {
   if (value === "aboveBar" || value === "belowBar") return value;
   return null;
 }
+
 function normalizeMarkerShape(value: unknown): MarkerShape | null {
   if (value === "circle" || value === "square" || value === "arrowUp" || value === "arrowDown") return value;
   return null;
 }
+
 function toOverlayDef(value: unknown): OverlayDef {
   if (value && typeof value === "object") return value as OverlayDef;
   return {};
 }
+
 function isTimeInRange(time: number, minTime: number | null, maxTime: number | null): boolean {
   if (!Number.isFinite(time)) return false;
   if (minTime == null || maxTime == null) return false;
   return minTime <= time && time <= maxTime;
 }
-export function buildPivotMarkersFromOverlay(params: {
-  overlayActiveIds: Set<string>;
-  overlayCatalog: Map<string, OverlayInstructionPatchItemV1>;
+
+function extractPolylinePoints(params: {
+  item: OverlayInstructionPatchItemV1;
   minTime: number | null;
   maxTime: number | null;
-  showPivotMajor: boolean;
-  showPivotMinor: boolean;
-}): Array<SeriesMarker<Time>> {
-  const { overlayActiveIds, overlayCatalog, minTime, maxTime, showPivotMajor, showPivotMinor } = params;
-  const want = new Set<string>();
-  if (showPivotMajor) want.add("pivot.major");
-  if (showPivotMinor) want.add("pivot.minor");
-  if (want.size === 0 || minTime == null || maxTime == null) return [];
-  const markers: Array<SeriesMarker<Time>> = [];
-  for (const id of overlayActiveIds) {
-    const item = overlayCatalog.get(id);
-    if (!item || item.kind !== "marker") continue;
-    const def = toOverlayDef(item.definition);
-    const feature = String(def["feature"] ?? "");
-    if (!want.has(feature)) continue;
-    const time = Number(def["time"]);
-    if (!isTimeInRange(time, minTime, maxTime)) continue;
-    const position = normalizeMarkerPosition(def["position"]);
-    const rawShape = normalizeMarkerShape(def["shape"]);
-    const color = typeof def["color"] === "string" ? def["color"] : null;
-    const rawText = typeof def["text"] === "string" ? def["text"] : "";
-    const sizeRaw = Number(def["size"]);
-    const isPivotMajor = feature === "pivot.major";
-    const isPivotMinor = feature === "pivot.minor";
-    const text = isPivotMajor || isPivotMinor ? "" : rawText;
-    const shape = isPivotMinor ? "circle" : rawShape;
-    const size =
-      isPivotMinor
-        ? 0.5
-        : Number.isFinite(sizeRaw) && sizeRaw > 0
-          ? sizeRaw
-          : 1.0;
-    if (!position || !shape || !color) continue;
-    markers.push({ time: time as UTCTimestamp, position, color, shape, text, size });
+  allowOutOfRange: boolean;
+}): PenLinePoint[] {
+  const { item, minTime, maxTime, allowOutOfRange } = params;
+  if (item.kind !== "polyline") return [];
+  const def = toOverlayDef(item.definition);
+  const pointsRaw = def["points"];
+  if (!Array.isArray(pointsRaw) || pointsRaw.length === 0) return [];
+
+  const allPoints: PenLinePoint[] = [];
+  for (const point of pointsRaw) {
+    if (!point || typeof point !== "object") continue;
+    const rec = point as OverlayDef;
+    const time = Number(rec["time"]);
+    const value = Number(rec["value"]);
+    if (!Number.isFinite(time) || !Number.isFinite(value)) continue;
+    allPoints.push({ time: time as UTCTimestamp, value });
   }
-  markers.sort((a, b) => Number(a.time) - Number(b.time));
-  return markers;
+  if (allPoints.length < 2) return [];
+  if (allowOutOfRange || minTime == null || maxTime == null) return allPoints;
+
+  const filtered = allPoints.filter((point) => {
+    const time = Number(point.time);
+    return Number.isFinite(time) && time >= minTime && time <= maxTime;
+  });
+  return filtered.length >= 2 ? filtered : [];
 }
-export function buildAnchorSwitchMarkersFromOverlay(params: {
+
+export function buildVisibleMarkersFromOverlay(params: {
   overlayActiveIds: Set<string>;
   overlayCatalog: Map<string, OverlayInstructionPatchItemV1>;
   minTime: number | null;
   maxTime: number | null;
-  showAnchorSwitch: boolean;
-}): Array<SeriesMarker<Time>> {
-  const { overlayActiveIds, overlayCatalog, minTime, maxTime, showAnchorSwitch } = params;
-  if (!showAnchorSwitch || minTime == null || maxTime == null) return [];
+  effectiveVisible: (feature: string) => boolean;
+}): OverlayMarkerBuildResult {
+  const { overlayActiveIds, overlayCatalog, minTime, maxTime, effectiveVisible } = params;
+  if (minTime == null || maxTime == null) {
+    return { markers: [], pivotCount: 0, anchorSwitchCount: 0 };
+  }
+
   const markers: Array<SeriesMarker<Time>> = [];
+  let pivotCount = 0;
+  let anchorSwitchCount = 0;
+
   for (const id of overlayActiveIds) {
     const item = overlayCatalog.get(id);
     if (!item || item.kind !== "marker") continue;
     const def = toOverlayDef(item.definition);
-    const feature = String(def["feature"] ?? "");
-    if (feature !== "anchor.switch") continue;
+    const feature = String(def["feature"] ?? "").trim();
+    if (!feature || !effectiveVisible(feature)) continue;
     const time = Number(def["time"]);
     if (!isTimeInRange(time, minTime, maxTime)) continue;
+
     const position = normalizeMarkerPosition(def["position"]);
     const shape = normalizeMarkerShape(def["shape"]);
-    const color = typeof def["color"] === "string" ? def["color"] : null;
+    const color = typeof def["color"] === "string" && def["color"] ? def["color"] : null;
+    if (!position || !shape || !color) continue;
+
     const text = typeof def["text"] === "string" ? def["text"] : "";
     const sizeRaw = Number(def["size"]);
     const size = Number.isFinite(sizeRaw) && sizeRaw > 0 ? sizeRaw : 1.0;
-    if (!position || !shape || !color) continue;
     markers.push({ time: time as UTCTimestamp, position, color, shape, text, size });
+
+    if (feature.startsWith("pivot.")) pivotCount += 1;
+    if (feature === "anchor.switch") anchorSwitchCount += 1;
   }
+
   markers.sort((a, b) => Number(a.time) - Number(b.time));
-  return markers;
+  return { markers, pivotCount, anchorSwitchCount };
 }
+
 export function buildPenPointsFromOverlay(params: {
   overlayActiveIds: Set<string>;
   overlayCatalog: Map<string, OverlayInstructionPatchItemV1>;
@@ -141,24 +160,29 @@ export function buildPenPointsFromOverlay(params: {
   maxTime: number | null;
 }): PenLinePoint[] {
   const { overlayActiveIds, overlayCatalog, minTime, maxTime } = params;
-  if (!overlayActiveIds.has("pen.confirmed")) return [];
-  const item = overlayCatalog.get("pen.confirmed");
-  if (!item || item.kind !== "polyline") return [];
-  const def = toOverlayDef(item.definition);
-  const pointsRaw = def["points"];
-  if (!Array.isArray(pointsRaw) || pointsRaw.length === 0) return [];
-  const out: PenLinePoint[] = [];
-  for (const point of pointsRaw) {
-    if (!point || typeof point !== "object") continue;
-    const rec = point as OverlayDef;
-    const time = Number(rec["time"]);
-    const value = Number(rec["value"]);
-    if (!Number.isFinite(time) || !Number.isFinite(value)) continue;
-    if (minTime != null && maxTime != null && (time < minTime || time > maxTime)) continue;
-    out.push({ time: time as UTCTimestamp, value });
+  const points: PenLinePoint[] = [];
+  for (const id of overlayActiveIds) {
+    const item = overlayCatalog.get(id);
+    if (!item) continue;
+    const def = toOverlayDef(item.definition);
+    if (String(def["feature"] ?? "") !== "pen.confirmed") continue;
+    const next = extractPolylinePoints({ item, minTime, maxTime, allowOutOfRange: false });
+    if (next.length === 0) continue;
+    if (points.length === 0) {
+      points.push(...next);
+      continue;
+    }
+    const lastTime = Number(points[points.length - 1]!.time);
+    const firstTime = Number(next[0]!.time);
+    if (lastTime === firstTime) {
+      points.push(...next.slice(1));
+    } else {
+      points.push(...next);
+    }
   }
-  return out;
+  return points;
 }
+
 export function buildOverlayPolylinesFromOverlay(params: {
   overlayActiveIds: Set<string>;
   overlayCatalog: Map<string, OverlayInstructionPatchItemV1>;
@@ -177,34 +201,24 @@ export function buildOverlayPolylinesFromOverlay(params: {
   const anchorTopLayerPaths: OverlayPath[] = [];
   let zhongshuCount = 0;
   let anchorCount = 0;
+
   for (const id of overlayActiveIds) {
-    if (id === "pen.confirmed") continue;
     const item = overlayCatalog.get(id);
     if (!item || item.kind !== "polyline") continue;
+
     const def = toOverlayDef(item.definition);
-    const feature = String(def["feature"] ?? "");
-    if (!feature || !effectiveVisible(feature)) continue;
-    const pointsRaw = def["points"];
-    if (!Array.isArray(pointsRaw) || pointsRaw.length === 0) continue;
-    const allPoints: PenLinePoint[] = [];
-    for (const point of pointsRaw) {
-      if (!point || typeof point !== "object") continue;
-      const rec = point as OverlayDef;
-      const time = Number(rec["time"]);
-      const value = Number(rec["value"]);
-      if (!Number.isFinite(time) || !Number.isFinite(value)) continue;
-      allPoints.push({ time: time as UTCTimestamp, value });
-    }
-    if (allPoints.length < 2) continue;
+    const feature = String(def["feature"] ?? "").trim();
+    if (!feature || feature === "pen.confirmed" || !effectiveVisible(feature)) continue;
+
     const isAnchorFeature = feature.startsWith("anchor.");
-    const points =
-      isAnchorFeature || minTime == null || maxTime == null
-        ? allPoints
-        : allPoints.filter((point) => {
-            const time = Number(point.time);
-            return Number.isFinite(time) && time >= minTime && time <= maxTime;
-          });
+    const points = extractPolylinePoints({
+      item,
+      minTime,
+      maxTime,
+      allowOutOfRange: isAnchorFeature
+    });
     if (points.length < 2) continue;
+
     const color = typeof def["color"] === "string" && def["color"] ? (def["color"] as string) : "#f59e0b";
     const lineWidthRaw = Number(def["lineWidth"]);
     const lineWidthBase = Number.isFinite(lineWidthRaw) && lineWidthRaw > 0 ? lineWidthRaw : 2;
@@ -212,16 +226,20 @@ export function buildOverlayPolylinesFromOverlay(params: {
     const lineStyleRaw = String(def["lineStyle"] ?? "");
     const lineStyle = lineStyleRaw === "dashed" ? LineStyle.Dashed : LineStyle.Solid;
     const style = { points, color, lineWidth, lineStyle };
-    if (enableAnchorTopLayer && feature.startsWith("anchor.")) {
+
+    if (enableAnchorTopLayer && isAnchorFeature) {
       anchorTopLayerPaths.push({ id, feature, ...style });
     } else {
       polylineById.set(id, style);
     }
+
     if (feature.startsWith("zhongshu.")) zhongshuCount += 1;
-    if (feature.startsWith("anchor.")) anchorCount += 1;
+    if (isAnchorFeature) anchorCount += 1;
   }
+
   return { polylineById, anchorTopLayerPaths, zhongshuCount, anchorCount };
 }
+
 export function recomputeActiveIdsFromCatalog(params: {
   overlayCatalog: Map<string, OverlayInstructionPatchItemV1>;
   cutoffTime: number;

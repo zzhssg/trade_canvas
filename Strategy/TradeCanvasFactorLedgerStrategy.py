@@ -6,7 +6,7 @@ import pandas as pd
 
 from freqtrade.strategy import IStrategy
 
-from backend.app.freqtrade_adapter_v1 import annotate_factor_ledger, build_series_id
+from backend.app.freqtrade.adapter_v1 import annotate_factor_ledger, build_series_id
 
 
 class TradeCanvasFactorLedgerStrategy(IStrategy):

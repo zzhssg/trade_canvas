@@ -11,7 +11,6 @@ from .renderer_contract import (
     OverlayEventBucketSpec,
     OverlayRenderContext,
     OverlayRenderOutput,
-    OverlayRendererPlugin,
 )
 
 
@@ -97,5 +96,5 @@ class MarkerOverlayRenderer:
         return out
 
 
-def build_renderer() -> OverlayRendererPlugin:
+def build_renderer_plugin() -> MarkerOverlayRenderer:
     return MarkerOverlayRenderer()

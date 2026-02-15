@@ -4,13 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..factor.plugin_contract import FactorPluginSpec
-from .renderer_contract import (
-    PEN_CONFIRMED_BUCKET_SPEC,
-    OverlayEventBucketSpec,
-    OverlayRenderContext,
-    OverlayRenderOutput,
-    OverlayRendererPlugin,
-)
+from .renderer_contract import PEN_CONFIRMED_BUCKET_SPEC, OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput
 
 
 @dataclass(frozen=True)
@@ -58,5 +52,5 @@ class PenOverlayRenderer:
         return out
 
 
-def build_renderer() -> OverlayRendererPlugin:
+def build_renderer_plugin() -> PenOverlayRenderer:
     return PenOverlayRenderer()

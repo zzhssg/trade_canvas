@@ -20,10 +20,10 @@ def test_default_capability_manifest_follows_factor_manifest_order() -> None:
     actual_order = [item.factor_name for item in capabilities]
     assert actual_order == expected_order
     assert all(item.enable_replay_package for item in capabilities)
-    assert all(not item.enable_overlay for item in capabilities)
-    assert all(not item.enable_feature for item in capabilities)
-    assert all(not item.enable_freqtrade_live for item in capabilities)
-    assert all(not item.enable_backtest_package for item in capabilities)
+    assert all(item.enable_overlay for item in capabilities)
+    assert all(item.enable_feature for item in capabilities)
+    assert all(item.enable_freqtrade_live for item in capabilities)
+    assert all(item.enable_backtest_package for item in capabilities)
 
 
 def test_capability_manifest_accepts_known_override() -> None:
@@ -46,7 +46,7 @@ def test_capability_manifest_accepts_known_override() -> None:
     assert by_name["pen"].enable_freqtrade_live is True
     assert by_name["pen"].enable_backtest_package is True
     assert by_name["pen"].enable_replay_package is True
-    assert by_name["pivot"].enable_overlay is False
+    assert by_name["pivot"].enable_overlay is True
 
 
 def test_capability_manifest_rejects_unknown_override() -> None:
@@ -64,4 +64,3 @@ def test_capability_manifest_rejects_duplicate_factor_name() -> None:
             factor_names=("pen", "pen"),
             overrides=None,
         )
-
