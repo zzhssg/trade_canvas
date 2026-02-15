@@ -28,6 +28,7 @@ class FactorBootstrapState:
     anchor_strength: float | None
     sr_major_pivots: list[dict[str, Any]]
     sr_snapshot: dict[str, Any]
+    plugin_states: dict[str, dict[str, Any]]
 
 
 @dataclass
@@ -44,6 +45,33 @@ class _BootstrapReplayState:
     anchor_strength: float | None
     sr_major_pivots: list[dict[str, Any]]
     sr_snapshot: dict[str, Any]
+    plugin_states: dict[str, dict[str, Any]]
+
+    def factor_state(self, factor_name: str) -> dict[str, Any]:
+        key = str(factor_name or "").strip()
+        if not key:
+            raise ValueError("empty_factor_name")
+        return self.plugin_states.setdefault(key, {})
+
+    def sync_builtin_plugin_states(self) -> None:
+        self.plugin_states.update(
+            {
+                "pivot": {
+                    "effective_pivots": self.effective_pivots,
+                    "last_major_idx": self.last_major_idx,
+                },
+                "pen": {"confirmed_pens": self.confirmed_pens},
+                "zhongshu": {"state": self.zhongshu_state},
+                "anchor": {
+                    "current_ref": self.anchor_current_ref,
+                    "strength": self.anchor_strength,
+                },
+                "sr": {
+                    "major_pivots": self.sr_major_pivots,
+                    "snapshot": self.sr_snapshot,
+                },
+            }
+        )
 
 
 class FactorRebuildStateLoader:
@@ -197,13 +225,16 @@ class FactorRebuildStateLoader:
             anchor_strength=None,
             sr_major_pivots=[],
             sr_snapshot={},
+            plugin_states={str(factor_name): {} for factor_name in self._graph.topo_order},
         )
+        state.sync_builtin_plugin_states()
         for factor_name in self._graph.topo_order:
             plugin = self._registry.require(str(factor_name))
             bootstrap = getattr(plugin, "bootstrap_from_history", None)
             if not callable(bootstrap):
                 continue
             bootstrap(series_id=series_id, state=state, runtime=self._runtime)
+            state.sync_builtin_plugin_states()
         return FactorBootstrapState(
             effective_pivots=state.effective_pivots,
             confirmed_pens=state.confirmed_pens,
@@ -213,4 +244,5 @@ class FactorRebuildStateLoader:
             anchor_strength=state.anchor_strength,
             sr_major_pivots=state.sr_major_pivots,
             sr_snapshot=state.sr_snapshot,
+            plugin_states=state.plugin_states,
         )

@@ -2,7 +2,7 @@
 title: Factor Plugin Contract v1（因子插件契约）
 status: done
 created: 2026-02-10
-updated: 2026-02-14
+updated: 2026-02-15
 ---
 
 # Factor Plugin Contract v1（因子插件契约）
@@ -59,13 +59,15 @@ class FactorPluginRegistry:
 
 ```python
 class FactorTickPlugin(FactorPlugin, Protocol):
-    def run_tick(self, *, series_id: str, state: Any, runtime: dict[str, Any]) -> None: ...
+    def run_tick(self, *, series_id: str, state: Any, runtime: FactorRuntimeContext) -> None: ...
 ```
 
 约束：
 - 所有写路径插件必须实现 `run_tick`，缺失时运行时 fail-fast（`factor_missing_run_tick:<factor>`）；
 - `state` 只允许就地更新当前 tick 的增量状态，不得读取未来 candle；
-- `runtime` 用于跨插件共享只读能力（例如 anchor 评估器），避免在 orchestrator 手写因子分支。
+- `state.factor_state("<factor_name>")` 是插件私有命名空间（`plugin_states`），新增因子不得再向主流程 dataclass 增字段；
+- `runtime` 通过 `FactorRuntimeContext.services` 提供只读能力（`get_service`），避免在 orchestrator 手写因子分支；
+- 内置因子（pivot/pen/zhongshu/anchor/sr）状态会同步到 `plugin_states`，用于 bootstrap/tick 全链路一致恢复。
 
 ## 4. 写路径恢复与 Head 钩子（Bootstrap + Head Snapshot）
 
@@ -149,6 +151,10 @@ def build_default_factor_manifest() -> FactorManifest: ...
   - `spec: FactorPluginSpec`
   - `bucket_specs: tuple[OverlayEventBucketSpec, ...]`
   - `render(ctx) -> OverlayRenderOutput`
+- 发现规则：
+  - `backend/app/overlay/renderer_*.py` 自动扫描；
+  - 每个模块必须导出 `build_renderer()` 工厂；
+  - 插件顺序由 `spec.depends_on` 拓扑排序，禁止回退到静态列表。
 - `OverlayOrchestrator` 只负责：
   - 聚合所有 renderer 的 `bucket_specs`；
   - 统一归桶并按拓扑调度；
@@ -163,6 +169,11 @@ def build_default_factor_manifest() -> FactorManifest: ...
   - 因子账本对齐与 freshness 校验；
   - 统一归桶并按拓扑调度 signal plugin；
   - 避免在 adapter 主流程里写死某个因子（如 `pen.confirmed`）。
+
+新增因子脚手架可选项（`scripts/new_factor_scaffold.py`）：
+- 默认生成 `processor + bundle`；
+- `--with-overlay-renderer` 额外生成 `backend/app/overlay/renderer_<factor>.py`；
+- `--with-signal-plugin` 额外生成 `backend/app/freqtrade/signal_strategies/<factor>.py`。
 
 3) Draw Delta integrity 插件（`backend/app/overlay/integrity_plugins.py`）
 - 插件声明：

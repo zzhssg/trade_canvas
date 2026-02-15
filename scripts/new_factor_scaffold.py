@@ -25,6 +25,8 @@ class FactorScaffoldSpec:
 class FactorScaffoldPaths:
     processor_path: Path
     bundle_path: Path
+    overlay_renderer_path: Path | None = None
+    signal_plugin_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +155,95 @@ def _render_bundle(spec: FactorScaffoldSpec) -> str:
     )
 
 
+def _render_overlay_renderer(spec: FactorScaffoldSpec) -> str:
+    class_name = _to_pascal_case(spec.factor_name)
+    event_kind = f"{spec.factor_name}.event"
+    bucket_name = f"{spec.factor_name}_events"
+    return (
+        "from __future__ import annotations\n\n"
+        "from dataclasses import dataclass\n\n"
+        "from ..factor.plugin_contract import FactorPluginSpec\n"
+        "from .renderer_contract import OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput, OverlayRendererPlugin\n\n"
+        "@dataclass(frozen=True)\n"
+        f"class {class_name}OverlayRenderer:\n"
+        f"    spec: FactorPluginSpec = FactorPluginSpec(factor_name=\"overlay.{spec.factor_name}\", depends_on=())\n"
+        "    bucket_specs: tuple[OverlayEventBucketSpec, ...] = (\n"
+        "        OverlayEventBucketSpec(\n"
+        f"            factor_name=\"{spec.factor_name}\",\n"
+        f"            event_kind=\"{event_kind}\",\n"
+        f"            bucket_name=\"{bucket_name}\",\n"
+        "            sort_keys=(\"visible_time\", \"visible_time\"),\n"
+        "        ),\n"
+        "    )\n\n"
+        "    def render(self, *, ctx: OverlayRenderContext) -> OverlayRenderOutput:\n"
+        "        out = OverlayRenderOutput()\n"
+        f"        for item in list(ctx.bucket(\"{bucket_name}\")):\n"
+        "            visible_time = int(item.get(\"visible_time\") or item.get(\"candle_time\") or 0)\n"
+        "            event_time = int(item.get(\"event_time\") or visible_time)\n"
+        "            if event_time <= 0 or event_time < int(ctx.cutoff_time) or event_time > int(ctx.to_time):\n"
+        "                continue\n"
+        "            out.marker_defs.append(\n"
+        "                (\n"
+        f"                    \"{spec.factor_name}.event:{'{'}event_time{'}'}\",\n"
+        "                    \"marker\",\n"
+        "                    visible_time,\n"
+        "                    {\n"
+        "                        \"type\": \"marker\",\n"
+        f"                        \"feature\": \"{event_kind}\",\n"
+        "                        \"time\": event_time,\n"
+        "                        \"position\": \"aboveBar\",\n"
+        "                        \"color\": \"#0ea5e9\",\n"
+        "                        \"shape\": \"circle\",\n"
+        "                        \"text\": \"F\",\n"
+        "                        \"size\": 0.7,\n"
+        "                    },\n"
+        "                )\n"
+        "            )\n"
+        "        return out\n\n"
+        "def build_renderer() -> OverlayRendererPlugin:\n"
+        f"    return {class_name}OverlayRenderer()\n"
+    )
+
+
+def _render_signal_plugin(spec: FactorScaffoldSpec) -> str:
+    class_name = _to_pascal_case(spec.factor_name)
+    event_kind = f"{spec.factor_name}.event"
+    bucket_name = f"{spec.factor_name}_events"
+    col = f"tc_{spec.factor_name}_event"
+    return (
+        "from __future__ import annotations\n\n"
+        "from dataclasses import dataclass\n"
+        "from typing import Any\n\n"
+        "from ...factor.plugin_contract import FactorPluginSpec\n"
+        "from ..signal_plugin_contract import FreqtradeSignalBucketSpec, FreqtradeSignalContext, FreqtradeSignalPlugin\n\n"
+        "@dataclass(frozen=True)\n"
+        f"class {class_name}SignalPlugin:\n"
+        f"    spec: FactorPluginSpec = FactorPluginSpec(factor_name=\"signal.{spec.factor_name}\", depends_on=())\n"
+        "    bucket_specs: tuple[FreqtradeSignalBucketSpec, ...] = (\n"
+        "        FreqtradeSignalBucketSpec(\n"
+        f"            factor_name=\"{spec.factor_name}\",\n"
+        f"            event_kind=\"{event_kind}\",\n"
+        f"            bucket_name=\"{bucket_name}\",\n"
+        "            sort_keys=(\"visible_time\", \"visible_time\"),\n"
+        "        ),\n"
+        "    )\n\n"
+        "    def prepare_dataframe(self, *, dataframe: Any) -> None:\n"
+        f"        dataframe[\"{col}\"] = 0\n\n"
+        "    def apply(self, *, ctx: FreqtradeSignalContext) -> None:\n"
+        "        marks: dict[int, int] = {}\n"
+        f"        for item in list(ctx.buckets.get(\"{bucket_name}\") or []):\n"
+        "            visible_time = int(item.get(\"visible_time\") or item.get(\"candle_time\") or 0)\n"
+        "            if visible_time > 0:\n"
+        "                marks[visible_time] = 1\n"
+        "        for idx in ctx.order:\n"
+        "            row_time = int(ctx.times_by_index.get(idx) or 0)\n"
+        "            if marks.get(row_time):\n"
+        f"                ctx.dataframe.at[idx, \"{col}\"] = 1\n\n"
+        "def build_signal_plugin() -> FreqtradeSignalPlugin:\n"
+        f"    return {class_name}SignalPlugin()\n"
+    )
+
+
 def _write_file(*, path: Path, content: str, force: bool, dry_run: bool) -> None:
     if path.exists() and not force:
         raise FactorScaffoldError(f"scaffold_target_exists:{path}")
@@ -168,6 +259,8 @@ def build_factor_scaffold(
     factor_name: str,
     depends_on: tuple[str, ...],
     label: str | None,
+    with_overlay_renderer: bool,
+    with_signal_plugin: bool,
     force: bool,
     dry_run: bool,
 ) -> FactorScaffoldResult:
@@ -183,10 +276,30 @@ def build_factor_scaffold(
     paths = FactorScaffoldPaths(
         processor_path=repo_root / "backend/app/factor" / f"processor_{name}.py",
         bundle_path=repo_root / "backend/app/factor/bundles" / f"{name}.py",
+        overlay_renderer_path=(repo_root / "backend/app/overlay" / f"renderer_{name}.py")
+        if bool(with_overlay_renderer)
+        else None,
+        signal_plugin_path=(repo_root / "backend/app/freqtrade/signal_strategies" / f"{name}.py")
+        if bool(with_signal_plugin)
+        else None,
     )
 
     _write_file(path=paths.processor_path, content=_render_processor(spec), force=force, dry_run=dry_run)
     _write_file(path=paths.bundle_path, content=_render_bundle(spec), force=force, dry_run=dry_run)
+    if paths.overlay_renderer_path is not None:
+        _write_file(
+            path=paths.overlay_renderer_path,
+            content=_render_overlay_renderer(spec),
+            force=force,
+            dry_run=dry_run,
+        )
+    if paths.signal_plugin_path is not None:
+        _write_file(
+            path=paths.signal_plugin_path,
+            content=_render_signal_plugin(spec),
+            force=force,
+            dry_run=dry_run,
+        )
 
     return FactorScaffoldResult(spec=spec, paths=paths, dry_run=bool(dry_run))
 
@@ -197,6 +310,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--depends-on", default="", help="依赖因子，逗号分隔，例如 pivot,pen")
     parser.add_argument("--label", default="", help="catalog label，默认由 factor_name 自动生成")
     parser.add_argument("--repo-root", default=str(_repo_root_default()), help="仓库根目录")
+    parser.add_argument("--with-overlay-renderer", action="store_true", help="额外生成 overlay renderer 模板")
+    parser.add_argument("--with-signal-plugin", action="store_true", help="额外生成 freqtrade signal plugin 模板")
     parser.add_argument("--force", action="store_true", help="覆盖已存在文件")
     parser.add_argument("--dry-run", action="store_true", help="仅预览，不落盘")
     return parser.parse_args(argv)
@@ -211,6 +326,8 @@ def main(argv: list[str]) -> int:
             factor_name=str(args.factor),
             depends_on=depends_on,
             label=str(args.label),
+            with_overlay_renderer=bool(args.with_overlay_renderer),
+            with_signal_plugin=bool(args.with_signal_plugin),
             force=bool(args.force),
             dry_run=bool(args.dry_run),
         )
@@ -222,6 +339,10 @@ def main(argv: list[str]) -> int:
     print(f"{mode}factor scaffold ready: {result.spec.factor_name}")
     print(f"- processor: {result.paths.processor_path}")
     print(f"- bundle:    {result.paths.bundle_path}")
+    if result.paths.overlay_renderer_path is not None:
+        print(f"- overlay:   {result.paths.overlay_renderer_path}")
+    if result.paths.signal_plugin_path is not None:
+        print(f"- signal:    {result.paths.signal_plugin_path}")
     return 0
 
 

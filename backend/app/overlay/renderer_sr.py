@@ -4,7 +4,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..factor.plugin_contract import FactorPluginSpec
-from .renderer_contract import SR_SNAPSHOT_BUCKET_SPEC, OverlayEventBucketSpec, OverlayRenderContext, OverlayRenderOutput
+from .renderer_contract import (
+    SR_SNAPSHOT_BUCKET_SPEC,
+    OverlayEventBucketSpec,
+    OverlayRenderContext,
+    OverlayRenderOutput,
+    OverlayRendererPlugin,
+)
 from .renderer_structure_helpers import PolylineRequest, append_polyline
 
 
@@ -84,3 +90,7 @@ class SrOverlayRenderer:
             line_width=int(line_width),
             line_style=line_style,
         )
+
+
+def build_renderer() -> OverlayRendererPlugin:
+    return SrOverlayRenderer()

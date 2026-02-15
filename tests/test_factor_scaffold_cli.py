@@ -49,6 +49,33 @@ class FactorScaffoldCliTests(unittest.TestCase):
         self.assertIn("class TrendBreakSlicePlugin", bundle_text)
         self.assertIn('event_kind="trend_break.event"', bundle_text)
 
+    def test_cli_generates_optional_overlay_and_signal_templates(self) -> None:
+        proc = self._run(
+            "--repo-root",
+            str(self.repo_root),
+            "--factor",
+            "breakout",
+            "--with-overlay-renderer",
+            "--with-signal-plugin",
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+        overlay_file = self.repo_root / "backend/app/overlay/renderer_breakout.py"
+        signal_file = self.repo_root / "backend/app/freqtrade/signal_strategies/breakout.py"
+        self.assertTrue(overlay_file.exists())
+        self.assertTrue(signal_file.exists())
+        self.assertIn("- overlay:", proc.stdout)
+        self.assertIn("- signal:", proc.stdout)
+
+        overlay_text = overlay_file.read_text(encoding="utf-8")
+        signal_text = signal_file.read_text(encoding="utf-8")
+        self.assertIn("class BreakoutOverlayRenderer", overlay_text)
+        self.assertIn("def build_renderer()", overlay_text)
+        self.assertIn("class BreakoutSignalPlugin", signal_text)
+        self.assertIn("def build_signal_plugin()", signal_text)
+        compile(overlay_text, str(overlay_file), "exec")
+        compile(signal_text, str(signal_file), "exec")
+
     def test_cli_rejects_invalid_factor_name(self) -> None:
         proc = self._run(
             "--repo-root",

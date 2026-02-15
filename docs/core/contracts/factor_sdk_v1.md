@@ -2,7 +2,7 @@
 title: Factor SDK Contract v1（因子开发 SDK）
 status: done
 created: 2026-02-07
-updated: 2026-02-13
+updated: 2026-02-15
 ---
 
 # Factor SDK Contract v1（因子开发 SDK）
@@ -132,7 +132,7 @@ SDK 不绑定具体存储，但必须满足下列语义：
 1. 声明 `FactorSpec`（name/depends_on/logic_hash）。
 2. 实现 `apply_closed(ctx)`，产出 history/head。
 3. 保证 `event_key` 幂等（重复 ingest 不产生重复语义）。
-4. 推荐先跑脚手架命令：`python3 scripts/new_factor_scaffold.py --factor <name> --depends-on <deps>`。
+4. 推荐先跑脚手架命令：`python3 scripts/new_factor_scaffold.py --factor <name> --depends-on <deps> [--with-overlay-renderer] [--with-signal-plugin]`。
 5. 在 `backend/app/factor/processor_<name>.py` 填充写路径插件逻辑（至少 `run_tick`；按需实现 `bootstrap_from_history`/`build_head_snapshot`）。
 6. 在 `backend/app/factor/bundles/<name>.py` 填充 slice 插件逻辑并导出 `build_bundle()`。
 7. 在 `XxxSlicePlugin.bucket_specs` 注册 slice 事件桶映射（`event_kind -> bucket_name`，单点维护）。
@@ -142,6 +142,7 @@ SDK 不绑定具体存储，但必须满足下列语义：
    - `seed ≡ incremental`
    - 重复 ingest 幂等
    - `series_head_time < aligned` 时读路径 fail-safe
+11. 新增跨 tick 状态时，写入 `state.factor_state("<factor_name>")`，禁止向 orchestrator/tick 主状态对象新增字段。
 
 ---
 

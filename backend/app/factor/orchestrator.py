@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from ..debug.hub import DebugHub
 from .fingerprint import build_series_fingerprint
@@ -17,7 +17,6 @@ from .orchestrator_ops import (
 )
 from .ingest_window import FactorIngestWindowPlanner
 from .manifest import build_default_factor_manifest
-from .processor_anchor import AnchorProcessor
 from .registry import FactorRegistry
 from .rebuild_loader import FactorRebuildStateLoader, RebuildEventBuckets
 from .tick_executor import (
@@ -73,9 +72,24 @@ class FactorOrchestrator:
         self._debug_hub: DebugHub | None = None
         manifest = build_default_factor_manifest()
         self._registry = FactorRegistry(list(manifest.tick_plugins))
-        self._anchor_processor = cast(AnchorProcessor, self._registry.require("anchor"))
         self._graph = FactorGraph([FactorSpec(factor_name=s.factor_name, depends_on=s.depends_on) for s in self._registry.specs()])
-        self._tick_runtime = FactorRuntimeContext(anchor_processor=self._anchor_processor)
+        anchor_selector = self._resolve_anchor_strength_selector()
+        services: dict[str, Any] = {}
+        if anchor_selector is not None:
+            services["anchor_strength_selector"] = anchor_selector
+        self._tick_runtime = FactorRuntimeContext(
+            anchor_processor=anchor_selector,
+            services=services,
+        )
+
+    def _resolve_anchor_strength_selector(self) -> Any | None:
+        anchor_plugin = self._registry.get("anchor")
+        if anchor_plugin is None:
+            return None
+        maybe_pick = getattr(anchor_plugin, "maybe_pick_stronger_pen", None)
+        if not callable(maybe_pick):
+            return None
+        return anchor_plugin
 
     def set_debug_hub(self, hub: DebugHub | None) -> None:
         self._debug_hub = hub
