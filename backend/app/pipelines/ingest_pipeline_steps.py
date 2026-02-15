@@ -4,12 +4,13 @@ import time
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol, Sequence
 
-from ..core.ports import FactorOrchestratorPort, OverlayOrchestratorPort
+from ..core.ports import FactorOrchestratorPort, FeatureOrchestratorPort, OverlayOrchestratorPort
 from ..core.schemas import CandleClosed
 from ..storage.contracts import CandleRepository
 
 
 FactorOrchestratorLike = FactorOrchestratorPort
+FeatureOrchestratorLike = FeatureOrchestratorPort
 OverlayOrchestratorLike = OverlayOrchestratorPort
 IngestStoreLike = CandleRepository[Any]
 
@@ -201,6 +202,44 @@ def run_factor_step(
     rebuilt = bool(getattr(result, "rebuilt", False))
     return rebuilt, IngestStepResult(
         name=f"factor.ingest_closed:{series_id}",
+        ok=True,
+        duration_ms=int((time.perf_counter() - t_step) * 1000),
+    )
+
+
+def run_feature_step(
+    *,
+    feature_orchestrator: FeatureOrchestratorLike,
+    rollback_new_candles: RollbackNewCandlesFn,
+    series_id: str,
+    up_to_time: int,
+    rebuilt: bool,
+    new_candle_times: list[int],
+) -> IngestStepResult:
+    t_step = time.perf_counter()
+    try:
+        if rebuilt:
+            feature_orchestrator.reset_series(series_id=series_id)
+        feature_orchestrator.ingest_closed(
+            series_id=series_id,
+            up_to_candle_time=int(up_to_time),
+        )
+    except Exception as exc:
+        candle_rows, candle_error = rollback_new_candles(
+            series_id=series_id,
+            new_candle_times=new_candle_times,
+        )
+        raise IngestPipelineError(
+            step="feature.ingest_closed",
+            series_id=series_id,
+            cause=exc,
+            compensated=bool(candle_rows > 0),
+            compensation_error=candle_error,
+            candle_compensated_rows=int(candle_rows),
+        ) from exc
+
+    return IngestStepResult(
+        name=f"feature.ingest_closed:{series_id}",
         ok=True,
         duration_ms=int((time.perf_counter() - t_step) * 1000),
     )

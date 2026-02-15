@@ -72,10 +72,8 @@ from .read import (
     get_world_read_service,
 )
 from .replay import (
-    OverlayPackageServiceDep,
     ReplayPrepareServiceDep,
     ReplayServiceDep,
-    get_overlay_package_service,
     get_replay_prepare_service,
     get_replay_service,
 )
@@ -106,7 +104,6 @@ __all__ = [
     "MarketWsCatchupLimitDep",
     "MarketWsMessagesDep",
     "MarketWsSubscriptionsDep",
-    "OverlayPackageServiceDep",
     "OverlayStoreDep",
     "ReadRepairServiceDep",
     "ReplayPrepareServiceDep",
@@ -140,7 +137,6 @@ __all__ = [
     "get_market_ws_catchup_limit",
     "get_market_ws_messages",
     "get_market_ws_subscriptions",
-    "get_overlay_package_service",
     "get_overlay_store",
     "get_read_repair_service",
     "get_replay_prepare_service",

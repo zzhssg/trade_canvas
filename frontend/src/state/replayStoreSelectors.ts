@@ -8,7 +8,7 @@ export type ReplayControlStateSnapshot = Pick<
 
 export type ReplayPackageStateSnapshot = Pick<
   ReplayState,
-  "status" | "error" | "coverage" | "coverageStatus" | "metadata" | "historyEvents" | "windows" | "jobId" | "cacheKey"
+  "status" | "error" | "coverage" | "coverageStatus" | "metadata" | "windows" | "jobId" | "cacheKey"
 >;
 
 export type ReplayActionsSnapshot = Pick<
@@ -19,9 +19,6 @@ export type ReplayActionsSnapshot = Pick<
   | "setIndex"
   | "setTotal"
   | "setFocusTime"
-  | "setFrame"
-  | "setFrameLoading"
-  | "setFrameError"
   | "setPrepareStatus"
   | "setPrepareError"
   | "setPreparedAlignedTime"
@@ -31,7 +28,6 @@ export type ReplayActionsSnapshot = Pick<
   | "setCoverage"
   | "setCoverageStatus"
   | "setMetadata"
-  | "setHistoryEvents"
   | "setWindowBundle"
   | "setCurrentSlices"
   | "setCurrentCandle"
@@ -57,7 +53,6 @@ const replayPackageSelector = (state: ReplayState): ReplayPackageStateSnapshot =
   coverage: state.coverage,
   coverageStatus: state.coverageStatus,
   metadata: state.metadata,
-  historyEvents: state.historyEvents,
   windows: state.windows,
   jobId: state.jobId,
   cacheKey: state.cacheKey
@@ -70,9 +65,6 @@ const replayActionsSelector = (state: ReplayState): ReplayActionsSnapshot => ({
   setIndex: state.setIndex,
   setTotal: state.setTotal,
   setFocusTime: state.setFocusTime,
-  setFrame: state.setFrame,
-  setFrameLoading: state.setFrameLoading,
-  setFrameError: state.setFrameError,
   setPrepareStatus: state.setPrepareStatus,
   setPrepareError: state.setPrepareError,
   setPreparedAlignedTime: state.setPreparedAlignedTime,
@@ -82,7 +74,6 @@ const replayActionsSelector = (state: ReplayState): ReplayActionsSnapshot => ({
   setCoverage: state.setCoverage,
   setCoverageStatus: state.setCoverageStatus,
   setMetadata: state.setMetadata,
-  setHistoryEvents: state.setHistoryEvents,
   setWindowBundle: state.setWindowBundle,
   setCurrentSlices: state.setCurrentSlices,
   setCurrentCandle: state.setCurrentCandle,

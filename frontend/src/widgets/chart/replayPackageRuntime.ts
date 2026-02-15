@@ -8,9 +8,7 @@ import type { ReplayStatus } from "../../state/replayStore";
 import type {
   ReplayCoverageStatusResponseV1,
   ReplayCoverageV1,
-  ReplayFactorHeadSnapshotV1,
-  ReplayHistoryDeltaV1,
-  ReplayHistoryEventV1,
+  ReplayFactorSnapshotV1,
   ReplayPackageMetadataV1,
   ReplayWindowResponseV1
 } from "./types";
@@ -19,7 +17,6 @@ const POLL_INTERVAL_MS = 300;
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 const hasFlag = (value: string, flag: string) => value.includes(flag);
-
 function extractHttpDetail(err: unknown): string {
   if (!(err instanceof Error)) return "unknown_error";
   const message = String(err.message || "").trim();
@@ -27,37 +24,28 @@ function extractHttpDetail(err: unknown): string {
   return (parts.length > 1 ? parts.slice(1).join(":") : message).trim() || "unknown_error";
 }
 
-function sortHistoryEvents(events: ReplayHistoryEventV1[]): ReplayHistoryEventV1[] {
-  return events.slice().sort((a, b) => a.event_id - b.event_id);
-}
-
 export type ReplayWindowBundleRuntime = {
   window: ReplayWindowResponseV1["window"];
-  headSnapshots: ReplayFactorHeadSnapshotV1[];
-  historyDeltas: ReplayHistoryDeltaV1[];
-  headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>>;
-  historyDeltaByIdx: Record<number, ReplayHistoryDeltaV1>;
+  factorSnapshots: ReplayFactorSnapshotV1[];
+  factorSnapshotByTime: Record<number, Record<string, ReplayFactorSnapshotV1>>;
 };
 
 export function buildWindowBundle(resp: ReplayWindowResponseV1): ReplayWindowBundleRuntime {
-  const headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>> = {};
-  const historyDeltaByIdx: Record<number, ReplayHistoryDeltaV1> = {};
+  const factorSnapshotByTime: Record<number, Record<string, ReplayFactorSnapshotV1>> = {};
 
-  for (const snap of resp.factor_head_snapshots ?? []) {
-    const t = Number(snap.candle_time);
+  for (const row of resp.factor_snapshots ?? []) {
+    const t = Number(row.candle_time);
     if (!Number.isFinite(t)) continue;
-    const byFactor = (headByTime[t] ??= {});
-    const cur = byFactor[snap.factor_name];
-    if (!cur || (snap.seq ?? 0) >= (cur.seq ?? 0)) byFactor[snap.factor_name] = snap as ReplayFactorHeadSnapshotV1;
+    const byFactor = (factorSnapshotByTime[t] ??= {});
+    const factorName = String(row.factor_name || "").trim();
+    if (!factorName) continue;
+    byFactor[factorName] = row as ReplayFactorSnapshotV1;
   }
-  for (const delta of resp.history_deltas ?? []) historyDeltaByIdx[delta.idx] = delta;
 
   return {
     window: resp.window,
-    headSnapshots: resp.factor_head_snapshots ?? [],
-    historyDeltas: resp.history_deltas ?? [],
-    headByTime,
-    historyDeltaByIdx
+    factorSnapshots: resp.factor_snapshots ?? [],
+    factorSnapshotByTime
   };
 }
 
@@ -73,7 +61,6 @@ type ReplayBuildContext = {
   setCoverage: (coverage: ReplayCoverageV1 | null) => void;
   setCoverageStatus: (status: ReplayCoverageStatusResponseV1 | null) => void;
   setMetadata: (metadata: ReplayPackageMetadataV1 | null) => void;
-  setHistoryEvents: (events: ReplayHistoryEventV1[]) => void;
   setJobInfo: (jobId: string | null, cacheKey: string | null) => void;
 };
 
@@ -81,14 +68,13 @@ async function pollReplayBuildStatus(ctx: ReplayBuildContext, targetJobId: strin
   while (!ctx.isCancelled()) {
     let payload;
     try {
-      payload = await fetchReplayStatus({ jobId: targetJobId, includePreload: true, includeHistory: true });
+      payload = await fetchReplayStatus({ jobId: targetJobId, includePreload: true });
     } catch (err) {
       ctx.fail(extractHttpDetail(err));
       return;
     }
     if (payload.status === "done") {
       ctx.setMetadata(payload.metadata ?? null);
-      ctx.setHistoryEvents(sortHistoryEvents(payload.history_events ?? []));
       ctx.setStatus("ready");
       ctx.setError(null);
       return;
@@ -130,20 +116,19 @@ async function ensureReplayCoverage(
 }
 
 export async function runReplayBuildFlow(ctx: ReplayBuildContext): Promise<void> {
-  const buildPayload = {
-    series_id: ctx.seriesId,
-    window_candles: ctx.windowCandles,
-    window_size: ctx.windowSize,
-    snapshot_interval: ctx.snapshotInterval
-  };
-  const buildNow = async () => {
+  const buildNow = async (windowCandles: number) => {
     ctx.setStatus("building");
-    return fetchReplayBuild(buildPayload);
+    return fetchReplayBuild({
+      series_id: ctx.seriesId,
+      window_candles: windowCandles,
+      window_size: ctx.windowSize,
+      snapshot_interval: ctx.snapshotInterval
+    });
   };
 
   let build: Awaited<ReturnType<typeof fetchReplayBuild>> | null = null;
   try {
-    build = await buildNow();
+    build = await buildNow(ctx.windowCandles);
   } catch (err) {
     const detail = extractHttpDetail(err);
     if (hasFlag(detail, "ledger_out_of_sync")) {
@@ -157,7 +142,11 @@ export async function runReplayBuildFlow(ctx: ReplayBuildContext): Promise<void>
     ctx.setStatus("coverage");
     const coverage = await ensureReplayCoverage(ctx);
     if (ctx.isCancelled()) return;
-    if (!coverage || coverage.status === "error") {
+    const canUsePartialCoverage =
+      coverage?.status === "error" &&
+      hasFlag(String(coverage.error ?? ""), "coverage_missing") &&
+      Number(coverage.candles_ready || 0) > 0;
+    if (!coverage || (coverage.status === "error" && !canUsePartialCoverage)) {
       ctx.fail(coverage?.error ?? "coverage_failed");
       return;
     }
@@ -167,8 +156,12 @@ export async function runReplayBuildFlow(ctx: ReplayBuildContext): Promise<void>
       from_time: null,
       to_time: coverage.head_time ?? null
     });
+    const fallbackWindowCandles = Math.min(
+      Math.max(1, Number(coverage.candles_ready || 0)),
+      Math.max(1, ctx.windowCandles)
+    );
     try {
-      build = await buildNow();
+      build = await buildNow(fallbackWindowCandles);
     } catch (retryErr) {
       const retryDetail = extractHttpDetail(retryErr);
       ctx.fail(retryDetail, hasFlag(retryDetail, "ledger_out_of_sync") ? "out_of_sync" : "error");

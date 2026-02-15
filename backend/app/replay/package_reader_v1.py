@@ -11,9 +11,7 @@ from ..storage.candle_store import CandleStore
 from ..core.timeframe import series_id_timeframe, timeframe_to_seconds
 from .package_protocol_v1 import (
     ReplayCoverageV1,
-    ReplayFactorHeadSnapshotV1,
-    ReplayHistoryDeltaV1,
-    ReplayHistoryEventV1,
+    ReplayFactorSnapshotV1,
     ReplayKlineBarV1,
     ReplayPackageMetadataV1,
     ReplayWindowV1,
@@ -73,17 +71,6 @@ class ReplayPackageReaderV1:
         if not isinstance(meta, dict):
             raise RuntimeError("missing_replay_metadata")
         return ReplayPackageMetadataV1.model_validate(meta)
-
-    def read_history_events(self, cache_key: str) -> list[ReplayHistoryEventV1]:
-        payload = self._read_package(cache_key)
-        events = payload.get("history_events")
-        if not isinstance(events, list):
-            return []
-        out: list[ReplayHistoryEventV1] = []
-        for raw in events:
-            if isinstance(raw, dict):
-                out.append(ReplayHistoryEventV1.model_validate(raw))
-        return out
 
     def read_window(self, cache_key: str, *, target_idx: int) -> ReplayWindowV1:
         payload = self._read_package(cache_key)
@@ -147,36 +134,44 @@ class ReplayPackageReaderV1:
         *,
         cache_key: str,
         window: ReplayWindowV1,
-    ) -> tuple[list[ReplayFactorHeadSnapshotV1], list[ReplayHistoryDeltaV1]]:
+    ) -> list[ReplayFactorSnapshotV1]:
         payload = self._read_package(cache_key)
-        head_rows_raw = payload.get("factor_head_snapshots")
-        delta_rows_raw = payload.get("history_deltas")
+        factor_snapshot_rows_raw = payload.get("factor_snapshots")
 
         times = [int(bar.time) for bar in window.kline]
         min_time = int(times[0]) if times else None
         max_time = int(times[-1]) if times else None
 
-        head_rows: list[ReplayFactorHeadSnapshotV1] = []
-        if isinstance(head_rows_raw, list) and min_time is not None and max_time is not None:
-            for raw in head_rows_raw:
+        factor_snapshots: list[ReplayFactorSnapshotV1] = []
+        if isinstance(factor_snapshot_rows_raw, list):
+            parsed_rows: list[ReplayFactorSnapshotV1] = []
+            for raw in factor_snapshot_rows_raw:
                 if not isinstance(raw, dict):
                     continue
-                candle_time = int(raw.get("candle_time", -1))
-                if candle_time < min_time or candle_time > max_time:
-                    continue
-                head_rows.append(ReplayFactorHeadSnapshotV1.model_validate(raw))
+                parsed_rows.append(ReplayFactorSnapshotV1.model_validate(raw))
 
-        deltas: list[ReplayHistoryDeltaV1] = []
-        if isinstance(delta_rows_raw, list):
-            start_idx = int(window.start_idx)
-            end_idx = int(window.end_idx)
-            for raw in delta_rows_raw:
-                if not isinstance(raw, dict):
-                    continue
-                idx = int(raw.get("idx", -1))
-                if start_idx <= idx < end_idx:
-                    deltas.append(ReplayHistoryDeltaV1.model_validate(raw))
-        return (head_rows, deltas)
+            if min_time is not None and max_time is not None:
+                baseline_by_factor: dict[str, ReplayFactorSnapshotV1] = {}
+                in_window_rows: dict[tuple[str, int], ReplayFactorSnapshotV1] = {}
+                for row in parsed_rows:
+                    factor_name = str(row.factor_name)
+                    candle_time = int(row.candle_time)
+                    if min_time <= candle_time <= max_time:
+                        in_window_rows[(factor_name, candle_time)] = row
+                        continue
+                    if candle_time >= min_time:
+                        continue
+                    current = baseline_by_factor.get(factor_name)
+                    if current is None or int(row.candle_time) >= int(current.candle_time):
+                        baseline_by_factor[factor_name] = row
+
+                merged = list(in_window_rows.values()) + list(baseline_by_factor.values())
+                factor_snapshots = sorted(
+                    merged,
+                    key=lambda row: (int(row.candle_time), str(row.factor_name)),
+                )
+
+        return factor_snapshots
 
     def read_preload_window(self, cache_key: str, meta: ReplayPackageMetadataV1) -> ReplayWindowV1 | None:
         if int(meta.total_candles) <= 0:

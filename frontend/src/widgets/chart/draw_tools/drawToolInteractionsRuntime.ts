@@ -152,10 +152,23 @@ export function bindDrawToolChartClick(args: BindDrawToolChartClickArgs): () => 
     const tool = args.activeChartToolRef.current;
 
     if (args.replayEnabled && tool === "cursor") {
-      const timeSec = normalizeTimeToSec(param.time) ?? (typeof param.time === "number" ? Number(param.time) : null);
+      const timeFromCoord = chart.timeScale().coordinateToTime(x);
+      const timeSec =
+        normalizeTimeToSec(param.time) ??
+        (typeof param.time === "number" ? Number(param.time) : null) ??
+        normalizeTimeToSec(timeFromCoord);
       if (timeSec != null && Number.isFinite(timeSec)) {
         const index = args.findReplayIndexByTime(Math.floor(Number(timeSec)));
         if (index != null) {
+          args.setReplayIndexAndFocus(index, { pause: true });
+          return;
+        }
+      }
+      const logical = chart.timeScale().coordinateToLogical(x);
+      if (logical != null && Number.isFinite(logical)) {
+        const total = args.candleTimesSecRef.current.length;
+        if (total > 0) {
+          const index = Math.max(0, Math.min(total - 1, Math.round(Number(logical))));
           args.setReplayIndexAndFocus(index, { pause: true });
           return;
         }

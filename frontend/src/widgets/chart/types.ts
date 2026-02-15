@@ -16,9 +16,8 @@ import type {
   ReplayCoverageV1 as ApiReplayCoverageV1,
   ReplayEnsureCoverageRequestV1 as ApiReplayEnsureCoverageRequestV1,
   ReplayEnsureCoverageResponseV1 as ApiReplayEnsureCoverageResponseV1,
-  ReplayFactorHeadSnapshotV1 as ApiReplayFactorHeadSnapshotV1,
-  ReplayHistoryDeltaV1 as ApiReplayHistoryDeltaV1,
-  ReplayHistoryEventV1 as ApiReplayHistoryEventV1,
+  ReplayFactorSchemaV1 as ApiReplayFactorSchemaV1,
+  ReplayFactorSnapshotV1 as ApiReplayFactorSnapshotV1,
   ReplayKlineBarV1 as ApiReplayKlineBarV1,
   ReplayPackageMetadataV1 as ApiReplayPackageMetadataV1,
   ReplayStatusResponseV1 as ApiReplayStatusResponseV1,
@@ -69,13 +68,14 @@ export type ReplayCoverageStatusResponseV1 = ApiReplayCoverageStatusResponseV1;
 export type ReplayCoverageV1 = ApiReplayCoverageV1;
 export type ReplayEnsureCoverageRequestV1 = ApiReplayEnsureCoverageRequestV1;
 export type ReplayEnsureCoverageResponseV1 = ApiReplayEnsureCoverageResponseV1;
-export type ReplayFactorHeadSnapshotV1 = ApiReplayFactorHeadSnapshotV1;
-export type ReplayHistoryDeltaV1 = ApiReplayHistoryDeltaV1;
-export type ReplayHistoryEventV1 = ApiReplayHistoryEventV1;
+export type ReplayFactorSchemaV1 = ApiReplayFactorSchemaV1;
+export type ReplayFactorSnapshotV1 = ApiReplayFactorSnapshotV1;
 export type ReplayKlineBarV1 = ApiReplayKlineBarV1;
 export type ReplayPackageMetadataV1 = ApiReplayPackageMetadataV1;
 export type ReplayStatusResponseV1 = ApiReplayStatusResponseV1;
-export type ReplayWindowResponseV1 = ApiReplayWindowResponseV1;
+export type ReplayWindowResponseV1 = ApiReplayWindowResponseV1 & {
+  factor_snapshots?: ReplayFactorSnapshotV1[];
+};
 export type ReplayWindowV1 = ApiReplayWindowV1;
 
 // Shared shape ChartView can apply regardless of endpoint (overlay/draw).

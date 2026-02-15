@@ -26,7 +26,6 @@ from .factor.routes import register_factor_routes
 from .market.http_routes import register_market_http_routes
 from .market.meta_routes import register_market_meta_routes
 from .market.ws_routes import handle_market_ws
-from .overlay.package_routes import register_overlay_package_routes
 from .routes.repair import register_repair_routes
 from .replay.routes import register_replay_routes
 from .lifecycle.shutdown_cancellation_middleware import ShutdownCancellationMiddleware, ShutdownState
@@ -104,7 +103,6 @@ def create_app() -> FastAPI:
     register_backtest_routes(app)
     register_replay_routes(app)
     register_world_routes(app)
-    register_overlay_package_routes(app)
     register_market_meta_routes(app)
     register_market_http_routes(app)
 

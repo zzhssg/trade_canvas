@@ -8,11 +8,11 @@ from ..debug.hub import DebugHub
 from ..factor.orchestrator import FactorOrchestrator
 from ..factor.slices_service import FactorSlicesService
 from ..factor.store import FactorStore
+from ..feature import FeatureOrchestrator, FeatureReadService, FeatureStore
 from ..ledger.sync_service import LedgerSyncService
 from ..lifecycle.service import AppLifecycleService
 from ..market.runtime import MarketRuntime
 from ..overlay.orchestrator import OverlayOrchestrator
-from ..overlay.package_service_v1 import OverlayReplayPackageServiceV1
 from ..overlay.store import OverlayStore
 from ..read_models import DrawReadService, FactorReadService, ReadRepairService, WorldReadService
 from ..replay.package_service_v1 import ReplayPackageServiceV1
@@ -38,6 +38,7 @@ class CoreContainerContext:
 class StoreContainerContext:
     store: CandleStore
     factor_store: FactorStore
+    feature_store: FeatureStore
     overlay_store: OverlayStore
 
 
@@ -46,6 +47,8 @@ class FactorContainerContext:
     factor_orchestrator: FactorOrchestrator
     factor_slices_service: FactorSlicesService
     factor_read_service: FactorReadService
+    feature_orchestrator: FeatureOrchestrator
+    feature_read_service: FeatureReadService
     ledger_sync_service: LedgerSyncService
     overlay_orchestrator: OverlayOrchestrator
 
@@ -61,7 +64,6 @@ class ReadContainerContext:
 class ReplayContainerContext:
     replay_prepare_service: ReplayPrepareService
     replay_service: ReplayPackageServiceV1
-    overlay_pkg_service: OverlayReplayPackageServiceV1
 
 
 @dataclass(frozen=True)

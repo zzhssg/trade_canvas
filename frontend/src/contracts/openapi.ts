@@ -47,6 +47,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/factor/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Factor Draw Health */
+        get: operations["get_factor_draw_health_api_factor_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/draw/delta": {
         parameters: {
             query?: never;
@@ -415,57 +432,6 @@ export interface paths {
          *     - Emits at most 1 record per poll (if cursor advances); otherwise returns empty records.
          */
         get: operations["poll_world_delta_api_delta_poll_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/replay/overlay_package/build": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Replay Overlay Package Build */
-        post: operations["replay_overlay_package_build_api_replay_overlay_package_build_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/replay/overlay_package/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Replay Overlay Package Status */
-        get: operations["replay_overlay_package_status_api_replay_overlay_package_status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/replay/overlay_package/window": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Replay Overlay Package Window */
-        get: operations["replay_overlay_package_window_api_replay_overlay_package_window_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -902,6 +868,38 @@ export interface components {
              */
             default_visible: boolean;
         };
+        /** FactorDrawHealthResponseV1 */
+        FactorDrawHealthResponseV1: {
+            /** Series Id */
+            series_id: string;
+            /** Timeframe Seconds */
+            timeframe_seconds: number;
+            /** Store Head Time */
+            store_head_time: number | null;
+            /** Factor Head Time */
+            factor_head_time: number | null;
+            /** Overlay Head Time */
+            overlay_head_time: number | null;
+            /** Factor Delay Seconds */
+            factor_delay_seconds: number | null;
+            /** Factor Delay Candles */
+            factor_delay_candles: number | null;
+            /** Overlay Delay Seconds */
+            overlay_delay_seconds: number | null;
+            /** Overlay Delay Candles */
+            overlay_delay_candles: number | null;
+            /** Max Delay Seconds */
+            max_delay_seconds: number | null;
+            /** Max Delay Candles */
+            max_delay_candles: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "green" | "yellow" | "red" | "gray";
+            /** Status Reason */
+            status_reason: string;
+        };
         /** FactorMetaV1 */
         FactorMetaV1: {
             /** Series Id */
@@ -1142,33 +1140,6 @@ export interface components {
             /** Active Ids */
             active_ids?: string[];
         };
-        /** OverlayReplayDeltaMetaV1 */
-        OverlayReplayDeltaMetaV1: {
-            /**
-             * Schema Version
-             * @default 1
-             */
-            schema_version: number;
-            /** Series Id */
-            series_id: string;
-            /** To Candle Time */
-            to_candle_time: number;
-            /** From Candle Time */
-            from_candle_time: number;
-            /** Total Candles */
-            total_candles: number;
-            /** Window Size */
-            window_size: number;
-            /** Snapshot Interval */
-            snapshot_interval: number;
-            /** Windows */
-            windows?: components["schemas"]["OverlayReplayWindowMetaV1"][];
-            /**
-             * Overlay Store Last Version Id
-             * @default 0
-             */
-            overlay_store_last_version_id: number;
-        };
         /** OverlayReplayDiffV1 */
         OverlayReplayDiffV1: {
             /** At Idx */
@@ -1177,73 +1148,6 @@ export interface components {
             add_ids?: string[];
             /** Remove Ids */
             remove_ids?: string[];
-        };
-        /**
-         * OverlayReplayKlineBarV1
-         * @description Replay K-line bar used by the frontend chart.
-         *
-         *     NOTE:
-         *     - Use `time` (not candle_time) to match lightweight-charts conventions.
-         *     - `time` is unix seconds (candle open time), always aligned to closed candles.
-         */
-        OverlayReplayKlineBarV1: {
-            /**
-             * Time
-             * @description Unix seconds (candle open time)
-             */
-            time: number;
-            /** Open */
-            open: number;
-            /** High */
-            high: number;
-            /** Low */
-            low: number;
-            /** Close */
-            close: number;
-            /** Volume */
-            volume: number;
-        };
-        /** OverlayReplayWindowMetaV1 */
-        OverlayReplayWindowMetaV1: {
-            /** Window Index */
-            window_index: number;
-            /** Start Idx */
-            start_idx: number;
-            /**
-             * End Idx
-             * @description Exclusive end index
-             */
-            end_idx: number;
-            /** Start Time */
-            start_time: number;
-            /** End Time */
-            end_time: number;
-        };
-        /** OverlayReplayWindowV1 */
-        OverlayReplayWindowV1: {
-            /** Window Index */
-            window_index: number;
-            /** Start Idx */
-            start_idx: number;
-            /**
-             * End Idx
-             * @description Exclusive end index
-             */
-            end_idx: number;
-            /** Kline */
-            kline?: components["schemas"]["OverlayReplayKlineBarV1"][];
-            /** Catalog Base */
-            catalog_base?: components["schemas"]["OverlayInstructionPatchItemV1"][];
-            /** Catalog Patch */
-            catalog_patch?: components["schemas"]["OverlayInstructionPatchItemV1"][];
-            /** Checkpoints */
-            checkpoints?: components["schemas"]["OverlayReplayCheckpointV1"][];
-            /** Diffs */
-            diffs?: components["schemas"]["OverlayReplayDiffV1"][];
-            /** Event Catalog */
-            event_catalog?: {
-                [key: string]: unknown;
-            } | null;
         };
         /** PlotLinePointV1 */
         PlotLinePointV1: {
@@ -1348,44 +1252,30 @@ export interface components {
             /** Error */
             error?: string | null;
         };
-        /** ReplayFactorHeadSnapshotV1 */
-        ReplayFactorHeadSnapshotV1: {
+        /** ReplayFactorSchemaV1 */
+        ReplayFactorSchemaV1: {
+            /** Factor Name */
+            factor_name: string;
+            /** History Keys */
+            history_keys?: string[];
+            /** Head Keys */
+            head_keys?: string[];
+        };
+        /** ReplayFactorSnapshotV1 */
+        "ReplayFactorSnapshotV1-Input": {
             /** Factor Name */
             factor_name: string;
             /** Candle Time */
             candle_time: number;
-            /** Seq */
-            seq: number;
-            /** Head */
-            head?: {
-                [key: string]: unknown;
-            };
+            snapshot: components["schemas"]["FactorSliceV1"];
         };
-        /** ReplayHistoryDeltaV1 */
-        ReplayHistoryDeltaV1: {
-            /** Idx */
-            idx: number;
-            /** From Event Id */
-            from_event_id: number;
-            /** To Event Id */
-            to_event_id: number;
-        };
-        /** ReplayHistoryEventV1 */
-        ReplayHistoryEventV1: {
-            /** Event Id */
-            event_id: number;
+        /** ReplayFactorSnapshotV1 */
+        "ReplayFactorSnapshotV1-Output": {
             /** Factor Name */
             factor_name: string;
             /** Candle Time */
             candle_time: number;
-            /** Kind */
-            kind: string;
-            /** Event Key */
-            event_key: string;
-            /** Payload */
-            payload?: {
-                [key: string]: unknown;
-            };
+            snapshot: components["schemas"]["FactorSliceV1"];
         };
         /** ReplayKlineBarV1 */
         ReplayKlineBarV1: {
@@ -1405,69 +1295,10 @@ export interface components {
             /** Volume */
             volume: number;
         };
-        /** ReplayOverlayPackageBuildRequestV1 */
-        ReplayOverlayPackageBuildRequestV1: {
-            /** Series Id */
-            series_id: string;
-            /**
-             * To Time
-             * @description Optional upper-bound time (unix seconds)
-             */
-            to_time?: number | null;
-            /** Window Candles */
-            window_candles?: number | null;
-            /** Window Size */
-            window_size?: number | null;
-            /** Snapshot Interval */
-            snapshot_interval?: number | null;
-        };
-        /** ReplayOverlayPackageBuildResponseV1 */
-        ReplayOverlayPackageBuildResponseV1: {
-            /**
-             * Status
-             * @description building | done
-             */
-            status: string;
-            /** Job Id */
-            job_id: string;
-            /** Cache Key */
-            cache_key: string;
-        };
-        /** ReplayOverlayPackageStatusResponseV1 */
-        ReplayOverlayPackageStatusResponseV1: {
-            /**
-             * Status
-             * @description building | done | error
-             */
-            status: string;
-            /** Job Id */
-            job_id: string;
-            /** Cache Key */
-            cache_key: string;
-            /** Error */
-            error?: string | null;
-            delta_meta?: components["schemas"]["OverlayReplayDeltaMetaV1"] | null;
-            /** Kline */
-            kline?: components["schemas"]["OverlayReplayKlineBarV1"][] | null;
-            preload_window?: components["schemas"]["OverlayReplayWindowV1"] | null;
-        };
-        /** ReplayOverlayPackageWindowResponseV1 */
-        ReplayOverlayPackageWindowResponseV1: {
-            /** Job Id */
-            job_id: string;
-            window: components["schemas"]["OverlayReplayWindowV1"];
-        };
         /** ReplayPackageMetadataV1 */
         ReplayPackageMetadataV1: {
-            /**
-             * Schema Version
-             * @default 1
-             */
-            schema_version: number;
             /** Series Id */
             series_id: string;
-            /** Timeframe S */
-            timeframe_s: number;
             /** Total Candles */
             total_candles: number;
             /** From Candle Time */
@@ -1479,6 +1310,13 @@ export interface components {
             /** Snapshot Interval */
             snapshot_interval: number;
             /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            /** Timeframe S */
+            timeframe_s: number;
+            /**
              * Preload Offset
              * @default 0
              */
@@ -1488,6 +1326,8 @@ export interface components {
              * @default windows[*].kline[idx].time
              */
             idx_to_time: string;
+            /** Factor Schema */
+            factor_schema?: components["schemas"]["ReplayFactorSchemaV1"][];
         };
         /** ReplayPrepareRequestV1 */
         ReplayPrepareRequestV1: {
@@ -1532,18 +1372,14 @@ export interface components {
             error?: string | null;
             metadata?: components["schemas"]["ReplayPackageMetadataV1"] | null;
             preload_window?: components["schemas"]["ReplayWindowV1"] | null;
-            /** History Events */
-            history_events?: components["schemas"]["ReplayHistoryEventV1"][] | null;
         };
         /** ReplayWindowResponseV1 */
         ReplayWindowResponseV1: {
             /** Job Id */
             job_id: string;
             window: components["schemas"]["ReplayWindowV1"];
-            /** Factor Head Snapshots */
-            factor_head_snapshots?: components["schemas"]["ReplayFactorHeadSnapshotV1"][];
-            /** History Deltas */
-            history_deltas?: components["schemas"]["ReplayHistoryDeltaV1"][];
+            /** Factor Snapshots */
+            factor_snapshots?: components["schemas"]["ReplayFactorSnapshotV1-Output"][];
         };
         /** ReplayWindowV1 */
         ReplayWindowV1: {
@@ -1740,6 +1576,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetFactorSlicesResponseV1-Output"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_factor_draw_health_api_factor_health_get: {
+        parameters: {
+            query: {
+                series_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactorDrawHealthResponseV1"];
                 };
             };
             /** @description Validation Error */
@@ -2260,7 +2127,6 @@ export interface operations {
             query: {
                 job_id: string;
                 include_preload?: number;
-                include_history?: number;
             };
             header?: never;
             path?: never;
@@ -2470,103 +2336,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorldDeltaPollResponseV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    replay_overlay_package_build_api_replay_overlay_package_build_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReplayOverlayPackageBuildRequestV1"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReplayOverlayPackageBuildResponseV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    replay_overlay_package_status_api_replay_overlay_package_status_get: {
-        parameters: {
-            query: {
-                job_id: string;
-                include_delta_package?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReplayOverlayPackageStatusResponseV1"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    replay_overlay_package_window_api_replay_overlay_package_window_get: {
-        parameters: {
-            query: {
-                job_id: string;
-                target_idx: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReplayOverlayPackageWindowResponseV1"];
                 };
             };
             /** @description Validation Error */

@@ -5,16 +5,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from ..core.event_buckets import build_event_bucket_config, collect_event_buckets
+from ..core.event_buckets import build_event_bucket_config
+from ..core.service_errors import ServiceError
+from ..factor.capability_manifest import FactorCapabilitySpec
 from ..factor.graph import FactorGraph, FactorSpec
 from ..factor.orchestrator import FactorOrchestrator
 from ..factor.plugin_registry import FactorPluginRegistry
 from ..factor.runtime_config import build_factor_orchestrator_runtime_config
 from ..factor.store import FactorStore
+from ..feature import FeatureOrchestrator, FeatureReadService, FeatureSettings, FeatureStore
+from ..pipelines import IngestPipeline
 from ..runtime.flags import load_runtime_flags
 from ..core.schemas import CandleClosed
 from ..storage.candle_store import CandleStore
-from .signal_plugin_contract import FreqtradeSignalContext, FreqtradeSignalPlugin
+from .feature_bridge import build_signal_buckets_from_features, required_feature_factors
+from .signal_plugin_contract import FreqtradeSignalBucketSpec, FreqtradeSignalContext, FreqtradeSignalPlugin
 from .signal_plugins import build_default_freqtrade_signal_plugins
 
 
@@ -63,9 +68,7 @@ class LedgerAnnotateResult:
 @dataclass(frozen=True)
 class _FreqtradeSignalRuntime:
     plugins: tuple[FreqtradeSignalPlugin, ...]
-    event_bucket_by_kind: dict[tuple[str, str], str]
-    event_bucket_sort_keys: dict[str, tuple[str, str]]
-    event_bucket_names: tuple[str, ...]
+    bucket_specs: tuple[FreqtradeSignalBucketSpec, ...]
 
 
 def _build_signal_runtime(signal_plugins: tuple[FreqtradeSignalPlugin, ...] | None) -> _FreqtradeSignalRuntime:
@@ -74,15 +77,14 @@ def _build_signal_runtime(signal_plugins: tuple[FreqtradeSignalPlugin, ...] | No
     graph = FactorGraph([FactorSpec(factor_name=s.factor_name, depends_on=s.depends_on) for s in registry.specs()])
     topo_plugins = tuple(cast(FreqtradeSignalPlugin, registry.require(name)) for name in graph.topo_order)
 
-    by_kind, sort_keys, bucket_names = build_event_bucket_config(
-        bucket_specs=(spec for plugin in topo_plugins for spec in plugin.bucket_specs),
+    bucket_specs = tuple(spec for plugin in topo_plugins for spec in plugin.bucket_specs)
+    build_event_bucket_config(
+        bucket_specs=bucket_specs,
         conflict_prefix="signal",
     )
     return _FreqtradeSignalRuntime(
         plugins=topo_plugins,
-        event_bucket_by_kind=by_kind,
-        event_bucket_sort_keys=sort_keys,
-        event_bucket_names=bucket_names,
+        bucket_specs=bucket_specs,
     )
 
 
@@ -122,6 +124,7 @@ def annotate_factor_ledger(
     factor_runtime_config = build_factor_orchestrator_runtime_config(runtime_flags=runtime_flags)
     store = CandleStore(db_path=db)
     factor_store = FactorStore(db_path=db)
+    feature_store = FeatureStore(db_path=db)
     orchestrator = FactorOrchestrator(
         candle_store=store,
         factor_store=factor_store,
@@ -130,6 +133,35 @@ def annotate_factor_ledger(
         fingerprint_rebuild_enabled=factor_runtime_config.fingerprint_rebuild_enabled,
         factor_rebuild_keep_candles=factor_runtime_config.rebuild_keep_candles,
         logic_version_override=factor_runtime_config.logic_version_override,
+    )
+    required_feature_factor_names = required_feature_factors(bucket_specs=signal_runtime.bucket_specs)
+    feature_required = bool(required_feature_factor_names)
+    feature_orchestrator = FeatureOrchestrator(
+        factor_store=factor_store,
+        feature_store=feature_store,
+        capability_overrides={
+            factor_name: FactorCapabilitySpec(
+                factor_name=factor_name,
+                enable_feature=True,
+            )
+            for factor_name in required_feature_factor_names
+        },
+        settings=FeatureSettings(
+            ingest_enabled=bool(runtime_flags.enable_feature_ingest),
+        ),
+    )
+    feature_read_service = FeatureReadService(
+        store=store,
+        feature_store=feature_store,
+        strict_mode=bool(runtime_flags.enable_feature_strict_read),
+    )
+    ingest_pipeline = IngestPipeline(
+        store=store,
+        factor_orchestrator=orchestrator,
+        feature_orchestrator=feature_orchestrator if feature_required else None,
+        overlay_orchestrator=None,
+        hub=None,
+        candle_compensate_on_error=True,
     )
 
     times = df["date"].map(_to_unix_seconds)
@@ -167,33 +199,48 @@ def annotate_factor_ledger(
         last_time = open_time
 
     if to_write:
-        with store.connect() as conn:
-            store.upsert_many_closed_in_conn(conn, series_id, to_write)
-            conn.commit()
-        orchestrator.ingest_closed(series_id=series_id, up_to_candle_time=int(to_write[-1].candle_time))
+        try:
+            ingest_pipeline.run_sync(batches={series_id: to_write})
+        except Exception:
+            df["tc_ok"] = 0
+            return LedgerAnnotateResult(ok=False, reason="ledger_out_of_sync", dataframe=df)
 
     candle_head = store.head_time(series_id)
     factor_head = factor_store.head_time(series_id)
+    feature_head = feature_store.head_time(series_id)
     if candle_head is not None and (factor_head is None or int(factor_head) < int(candle_head)):
+        df["tc_ok"] = 0
+        return LedgerAnnotateResult(ok=False, reason="ledger_out_of_sync", dataframe=df)
+    if feature_required and not feature_orchestrator.enabled():
+        df["tc_ok"] = 0
+        return LedgerAnnotateResult(ok=False, reason="ledger_out_of_sync", dataframe=df)
+    if feature_required and candle_head is not None and (feature_head is None or int(feature_head) < int(candle_head)):
         df["tc_ok"] = 0
         return LedgerAnnotateResult(ok=False, reason="ledger_out_of_sync", dataframe=df)
 
     if candle_head is None:
         return LedgerAnnotateResult(ok=True, reason=None, dataframe=df)
 
-    start_time = int(times.min())
-    end_time = int(times.max())
-    factor_events = factor_store.get_events_between_times(
-        series_id=series_id,
-        factor_name=None,
-        start_candle_time=start_time,
-        end_candle_time=end_time,
-    )
-    buckets = collect_event_buckets(
-        rows=factor_events,
-        event_bucket_by_kind=signal_runtime.event_bucket_by_kind,
-        event_bucket_sort_keys=signal_runtime.event_bucket_sort_keys,
-        event_bucket_names=signal_runtime.event_bucket_names,
+    feature_rows_by_time: dict[int, dict[str, Any]] = {}
+    if feature_required:
+        try:
+            feature_batch = feature_read_service.read_batch(
+                series_id=series_id,
+                at_time=int(times.max()),
+                window_candles=max(1, int(len(order))),
+                ensure_fresh=True,
+                limit=max(1, int(len(order)) + 10),
+            )
+        except ServiceError:
+            df["tc_ok"] = 0
+            return LedgerAnnotateResult(ok=False, reason="ledger_out_of_sync", dataframe=df)
+        for row in feature_batch.rows:
+            feature_rows_by_time[int(row.candle_time)] = dict(row.values or {})
+
+    buckets = build_signal_buckets_from_features(
+        bucket_specs=signal_runtime.bucket_specs,
+        feature_rows_by_time=feature_rows_by_time,
+        times=[int(times_by_idx[idx]) for idx in order],
     )
     signal_ctx = FreqtradeSignalContext(
         series_id=series_id,
@@ -202,6 +249,7 @@ def annotate_factor_ledger(
         order=list(order),
         times_by_index=times_by_idx,
         buckets=buckets,
+        feature_rows_by_time=feature_rows_by_time,
     )
     for plugin in signal_runtime.plugins:
         plugin.apply(ctx=signal_ctx)

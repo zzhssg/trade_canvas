@@ -1,148 +1,97 @@
 /**
- * 回放因子切片构建 — 纯函数，从 history events + head snapshots 重建 GetFactorSlicesResponseV1。
+ * 回放因子切片构建 — 纯函数。
  *
- * 无组件状态依赖，可在任意上下文调用。
+ * 输入 replay package 的 factor snapshot 增量，输出当前帧的 GetFactorSlicesResponseV1。
  */
 import type {
+  FactorSliceV1,
   GetFactorSlicesResponseV1,
-  ReplayFactorHeadSnapshotV1,
-  ReplayHistoryEventV1
+  ReplayFactorSchemaV1,
+  ReplayFactorSnapshotV1
 } from "./types";
 
-/** 二分查找 historyEvents 中 event_id <= toEventId 的子集 */
-export function sliceHistoryEventsById(events: ReplayHistoryEventV1[], toEventId: number): ReplayHistoryEventV1[] {
-  if (!events.length || toEventId <= 0) return [];
-  let lo = 0;
-  let hi = events.length - 1;
-  let idx = -1;
-  while (lo <= hi) {
-    const mid = Math.floor((lo + hi) / 2);
-    const v = events[mid]!.event_id;
-    if (v <= toEventId) {
-      idx = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
+function sortedSnapshotTimes(
+  snapshotByTime: Record<number, Record<string, ReplayFactorSnapshotV1>>
+): number[] {
+  const out: number[] = [];
+  for (const key of Object.keys(snapshotByTime)) {
+    const parsed = Number(key);
+    if (!Number.isFinite(parsed)) continue;
+    out.push(Math.floor(parsed));
   }
-  if (idx < 0) return [];
-  return events.slice(0, idx + 1);
+  out.sort((a, b) => a - b);
+  return out;
 }
 
-/** 从 replay history events + head snapshots 构建完整的 factor slices 响应 */
+function resolveLatestSnapshots(
+  atTime: number,
+  snapshotByTime: Record<number, Record<string, ReplayFactorSnapshotV1>>
+): Record<string, ReplayFactorSnapshotV1> {
+  const latestByFactor: Record<string, ReplayFactorSnapshotV1> = {};
+  const times = sortedSnapshotTimes(snapshotByTime);
+  for (const t of times) {
+    if (t > atTime) break;
+    const rows = snapshotByTime[t] ?? {};
+    for (const [factorName, row] of Object.entries(rows)) {
+      latestByFactor[factorName] = row;
+    }
+  }
+  return latestByFactor;
+}
+
+function normalizeSnapshotForTime(
+  seriesId: string,
+  aligned: number,
+  candleId: string,
+  factorName: string,
+  source: FactorSliceV1
+): FactorSliceV1 {
+  return {
+    schema_version: source.schema_version ?? 1,
+    history: source.history ?? {},
+    head: source.head ?? {},
+    meta: {
+      series_id: seriesId,
+      epoch: source.meta?.epoch ?? 0,
+      at_time: aligned,
+      candle_id: candleId,
+      factor_name: factorName
+    }
+  };
+}
+
+/** 从 replay factor snapshots 构建完整的 factor slices 响应 */
 export function buildReplayFactorSlices(params: {
   seriesId: string;
   atTime: number;
-  toEventId: number;
-  historyEvents: ReplayHistoryEventV1[];
-  headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>>;
+  factorSchema: ReplayFactorSchemaV1[];
+  factorSnapshotByTime: Record<number, Record<string, ReplayFactorSnapshotV1>>;
 }): GetFactorSlicesResponseV1 {
   const { seriesId } = params;
   const aligned = Math.max(0, Math.floor(params.atTime));
   const candleId = `${seriesId}:${aligned}`;
-  const historySlice = sliceHistoryEventsById(params.historyEvents, params.toEventId);
-  const headForTime = params.headByTime[aligned] ?? {};
-  const pivotMajor: Record<string, unknown>[] = [];
-  const pivotMinor: Record<string, unknown>[] = [];
-  const penConfirmed: Record<string, unknown>[] = [];
-  const zhongshuDead: Record<string, unknown>[] = [];
-  const anchorSwitches: Record<string, unknown>[] = [];
-  const srSnapshots: Record<string, unknown>[] = [];
+  const latestByFactor = resolveLatestSnapshots(aligned, params.factorSnapshotByTime);
 
-  for (const ev of historySlice) {
-    const payload = ev.payload && typeof ev.payload === "object" ? (ev.payload as Record<string, unknown>) : {};
-    if (ev.factor_name === "pivot" && ev.kind === "pivot.major") {
-      pivotMajor.push(payload);
-    } else if (ev.factor_name === "pivot" && ev.kind === "pivot.minor") {
-      pivotMinor.push(payload);
-    } else if (ev.factor_name === "pen" && ev.kind === "pen.confirmed") {
-      penConfirmed.push(payload);
-    } else if (ev.factor_name === "zhongshu" && ev.kind === "zhongshu.dead") {
-      zhongshuDead.push(payload);
-    } else if (ev.factor_name === "anchor" && ev.kind === "anchor.switch") {
-      anchorSwitches.push(payload);
-    } else if (ev.factor_name === "sr" && ev.kind === "sr.snapshot") {
-      srSnapshots.push(payload);
-    }
+  const orderedFactors: string[] = [];
+  const seen = new Set<string>();
+  for (const item of params.factorSchema ?? []) {
+    const factorName = String(item.factor_name || "").trim();
+    if (!factorName || seen.has(factorName)) continue;
+    if (!latestByFactor[factorName]) continue;
+    seen.add(factorName);
+    orderedFactors.push(factorName);
+  }
+  for (const factorName of Object.keys(latestByFactor).sort()) {
+    if (seen.has(factorName)) continue;
+    seen.add(factorName);
+    orderedFactors.push(factorName);
   }
 
-  const makeMeta = (factorName: string) => ({
-    series_id: seriesId,
-    epoch: 0,
-    at_time: aligned,
-    candle_id: candleId,
-    factor_name: factorName
-  });
-
-  const snapshots: Record<string, { schema_version: number; history: Record<string, unknown>; head: Record<string, unknown>; meta: any }> =
-    {};
-  const factors: string[] = [];
-
-  const pivotHead = headForTime["pivot"]?.head ?? {};
-  if (pivotMajor.length || pivotMinor.length || (pivotHead && Object.keys(pivotHead).length)) {
-    snapshots["pivot"] = {
-      schema_version: 1,
-      history: { major: pivotMajor, minor: pivotMinor },
-      head: pivotHead,
-      meta: makeMeta("pivot")
-    };
-    factors.push("pivot");
-  }
-
-  const penHead = headForTime["pen"]?.head ?? {};
-  if (penConfirmed.length || (penHead && Object.keys(penHead).length)) {
-    snapshots["pen"] = {
-      schema_version: 1,
-      history: { confirmed: penConfirmed },
-      head: penHead,
-      meta: makeMeta("pen")
-    };
-    factors.push("pen");
-  }
-
-  const zhongshuHead = headForTime["zhongshu"]?.head ?? {};
-  if (zhongshuDead.length || (zhongshuHead && Object.keys(zhongshuHead).length)) {
-    snapshots["zhongshu"] = {
-      schema_version: 1,
-      history: { dead: zhongshuDead },
-      head: zhongshuHead,
-      meta: makeMeta("zhongshu")
-    };
-    factors.push("zhongshu");
-  }
-
-  const anchorHead = headForTime["anchor"]?.head ?? {};
-  if (anchorSwitches.length || (anchorHead && Object.keys(anchorHead).length)) {
-    snapshots["anchor"] = {
-      schema_version: 1,
-      history: { switches: anchorSwitches },
-      head: anchorHead,
-      meta: makeMeta("anchor")
-    };
-    factors.push("anchor");
-  }
-
-  const srHead = headForTime["sr"]?.head ?? {};
-  const latestSrSnapshot =
-    srSnapshots.length > 0
-      ? ((srSnapshots[srSnapshots.length - 1] ?? {}) as Record<string, unknown>)
-      : ({} as Record<string, unknown>);
-  const srHeadPayload =
-    srHead && Object.keys(srHead).length
-      ? srHead
-      : {
-          algorithm: latestSrSnapshot["algorithm"] ?? "",
-          levels: Array.isArray(latestSrSnapshot["levels"]) ? latestSrSnapshot["levels"] : [],
-          pivots: Array.isArray(latestSrSnapshot["pivots"]) ? latestSrSnapshot["pivots"] : []
-        };
-  if (srSnapshots.length || (srHeadPayload && Object.keys(srHeadPayload).length)) {
-    snapshots["sr"] = {
-      schema_version: 1,
-      history: { snapshots: srSnapshots },
-      head: srHeadPayload,
-      meta: makeMeta("sr")
-    };
-    factors.push("sr");
+  const snapshots: Record<string, FactorSliceV1> = {};
+  for (const factorName of orderedFactors) {
+    const row = latestByFactor[factorName];
+    if (!row?.snapshot) continue;
+    snapshots[factorName] = normalizeSnapshotForTime(seriesId, aligned, candleId, factorName, row.snapshot);
   }
 
   return {
@@ -150,7 +99,7 @@ export function buildReplayFactorSlices(params: {
     series_id: seriesId,
     at_time: aligned,
     candle_id: candleId,
-    factors,
-    snapshots: snapshots as GetFactorSlicesResponseV1["snapshots"]
+    factors: orderedFactors,
+    snapshots
   };
 }

@@ -21,9 +21,6 @@ export function ReplayPanel() {
   const index = useReplayStore((s) => s.index);
   const total = useReplayStore((s) => s.total);
   const focusTime = useReplayStore((s) => s.focusTime);
-  const frame = useReplayStore((s) => s.frame);
-  const frameLoading = useReplayStore((s) => s.frameLoading);
-  const frameError = useReplayStore((s) => s.frameError);
   const prepareStatus = useReplayStore((s) => s.prepareStatus);
   const prepareError = useReplayStore((s) => s.prepareError);
   const status = useReplayStore((s) => s.status);
@@ -40,15 +37,15 @@ export function ReplayPanel() {
   const setIndex = useReplayStore((s) => s.setIndex);
 
   const seriesId = useMemo(() => `${exchange}:${market}:${symbol}:${timeframe}`, [exchange, market, symbol, timeframe]);
-  const drawPayload = currentDrawInstructions.length > 0 ? currentDrawInstructions : frame?.draw_state ?? null;
-  const factorPayload = currentSlices?.snapshots ?? frame?.factor_slices?.snapshots ?? null;
+  const drawPayload = currentDrawInstructions.length > 0 ? currentDrawInstructions : null;
+  const factorPayload = currentSlices?.snapshots ?? null;
   const drawJson = useMemo(() => (drawPayload ? formatJson(drawPayload) : ""), [drawPayload]);
   const factorJson = useMemo(() => (factorPayload ? formatJson(factorPayload) : ""), [factorPayload]);
 
   const disabled = mode !== "replay" || total === 0 || prepareStatus === "loading" || prepareStatus === "error";
   const sliderMax = Math.max(0, total - 1);
-  const candleId = currentCandleId ?? frame?.time?.candle_id ?? "—";
-  const atTime = currentAtTime ?? focusTime ?? frame?.time?.aligned_time ?? null;
+  const candleId = currentCandleId ?? "—";
+  const atTime = currentAtTime ?? focusTime ?? null;
 
   return (
     <div className="flex flex-col gap-3 text-[11px] text-white/70">
@@ -87,11 +84,6 @@ export function ReplayPanel() {
             window={metadata.window_size} · snapshot={metadata.snapshot_interval}
           </div>
         ) : null}
-        <div className="mt-2 flex items-center justify-between">
-          <span>frame</span>
-          <span className="font-mono">{frameLoading ? "loading" : frame ? "ready" : "idle"}</span>
-        </div>
-        {frameError ? <div className="mt-1 text-rose-200">{frameError}</div> : null}
         <div className="mt-2 flex items-center justify-between">
           <span>focus_time</span>
           <span className="font-mono">{atTime ?? "—"}</span>

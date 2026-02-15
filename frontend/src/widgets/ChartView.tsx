@@ -65,7 +65,6 @@ export function ChartView() {
   const replayPackageEnabled = replayEnabled && replay.replayPrepareStatus === "ready" && replayPackage.enabled;
   const replayPackageStatus = replayPackage.status;
   const replayPackageMeta = replayPackage.metadata;
-  const replayPackageHistory = replayPackage.historyEvents;
   const replayPackageWindows = replayPackage.windows;
   const replayEnsureWindowRange = replayPackage.ensureWindowRange;
 
@@ -181,9 +180,8 @@ export function ChartView() {
   const runtimeCallbacks = useChartRuntimeCallbacks({
     ...runtimeRefs,
     seriesId,
-    timeframe,
-    replayEnabled,
     windowCandles: INITIAL_TAIL_LIMIT,
+    replayEnabled,
     enablePenSegmentColor: ENABLE_PEN_SEGMENT_COLOR,
     enableAnchorTopLayer: ENABLE_ANCHOR_TOP_LAYER,
     segmentRenderLimit: PEN_SEGMENT_RENDER_LIMIT,
@@ -193,9 +191,6 @@ export function ChartView() {
     effectiveVisible,
     setReplaySlices: replay.setReplaySlices,
     setReplayDrawInstructions: replay.setReplayDrawInstructions,
-    setReplayFrameLoading: replay.setReplayFrameLoading,
-    setReplayFrameError: replay.setReplayFrameError,
-    setReplayFrame: replay.setReplayFrame,
     setReplayCandle: replay.setReplayCandle
   });
   useChartRuntimeEffects({
@@ -207,7 +202,6 @@ export function ChartView() {
     replayPackageEnabled,
     replayPackageStatus,
     replayPackageMeta,
-    replayPackageHistory,
     replayPackageWindows,
     replayEnsureWindowRange,
     replayIndex: replay.replayIndex,
@@ -231,12 +225,9 @@ export function ChartView() {
     setReplayPlaying: replay.setReplayPlaying,
     setReplayIndex: replay.setReplayIndex,
     setReplayFocusTime: replay.setReplayFocusTime,
-    setReplayFrame: replay.setReplayFrame,
     setReplaySlices: replay.setReplaySlices,
     setReplayCandle: replay.setReplayCandle,
     setReplayDrawInstructions: replay.setReplayDrawInstructions,
-    setReplayFrameLoading: replay.setReplayFrameLoading,
-    setReplayFrameError: replay.setReplayFrameError,
     setLastWsCandleTime: chartState.setLastWsCandleTime,
     setLiveLoadState: chartState.updateLiveLoadState,
     setError: chartState.setError,

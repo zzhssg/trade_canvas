@@ -2,12 +2,12 @@
 title: Replay Package Contract v1（复盘包：JSON 存储协议）
 status: done
 created: 2026-02-06
-updated: 2026-02-13
+updated: 2026-02-15
 ---
 
 # Replay Package Contract v1（复盘包：JSON 存储协议）
 
-目标：定义 replay 包的落盘协议，保证同输入同输出、窗口化读取与 history/head/draw 一致性。
+目标：定义 replay 包的落盘协议，保证同输入同输出、窗口化读取与 factor snapshot/draw 一致性。
 
 ## 1) 存储介质与路径
 
@@ -31,12 +31,11 @@ updated: 2026-02-13
     "window_size": 50,
     "snapshot_interval": 5,
     "preload_offset": 0,
-    "idx_to_time": "windows[*].kline[idx].time"
+    "idx_to_time": "windows[*].kline[idx].time",
+    "factor_schema": []
   },
   "windows": [],
-  "history_events": [],
-  "history_deltas": [],
-  "factor_head_snapshots": [],
+  "factor_snapshots": [],
   "candle_store_head_time": 1700005940,
   "factor_store_last_event_id": 1234,
   "overlay_store_last_version_id": 5678,
@@ -51,22 +50,18 @@ updated: 2026-02-13
   - `kline`
   - `catalog_base/catalog_patch`
   - `checkpoints/diffs`
-- `history_events` 是 append-only 事件序列。
-- `history_deltas[idx]` 描述从上一个 idx 到当前 idx 的事件 id 区间。
-- `factor_head_snapshots` 存储每根 K 的 head 快照（按 `factor_name/candle_time/seq`）。
+- `metadata.factor_schema` 描述每个因子的 `history_keys/head_keys`。
+- `factor_snapshots` 存储每个因子在每个 candle 的快照增量（仅内容变化时写入）。
+- `window` 读取时对 `factor_snapshots` 自动合并“窗口内快照 + 窗口前最近基线快照”。
 
 ## 4) 重建规则
 
 - 全量帧 `t`：
-  1. `history_events` 过滤到 `candle_time <= t`
-  2. `factor_head_snapshots` 过滤到窗口时间范围并按 `seq` 选最新
-  3. 从对应 `window` 的 `catalog_* + checkpoints + diffs` 重建 draw active 集
-- 差值帧：
-  - 以 `history_deltas` + window 内 `catalog_patch/diffs` 增量应用。
+  1. `factor_snapshots` 过滤到 `candle_time <= t` 并按因子取最新快照
+  2. 从对应 `window` 的 `catalog_* + checkpoints + diffs` 重建 draw active 集
 
 ## 5) 门禁
 
-1. 对齐：`candle_id` 与 history/head/draw 必须对齐同一 `candle_time`。
+1. 对齐：`candle_id` 与 factor snapshot/draw 必须对齐同一 `candle_time`。
 2. 可复现：同一输入多次 build，`cache_key` 与读取结果稳定一致。
 3. 幂等：已有包时 `status=done`，不重复重建。
-

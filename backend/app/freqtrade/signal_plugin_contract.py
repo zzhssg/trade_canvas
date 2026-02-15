@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 
 from ..factor.plugin_contract import FactorPluginSpec
@@ -22,6 +22,7 @@ class FreqtradeSignalContext:
     order: list[Any]
     times_by_index: Mapping[Any, int]
     buckets: Mapping[str, list[dict[str, Any]]]
+    feature_rows_by_time: Mapping[int, Mapping[str, Any]] = field(default_factory=dict)
 
 
 class FreqtradeSignalPlugin(Protocol):

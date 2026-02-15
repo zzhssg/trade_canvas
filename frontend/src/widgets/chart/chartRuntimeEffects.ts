@@ -13,24 +13,19 @@ import type {
   Candle,
   GetFactorSlicesResponseV1,
   OverlayInstructionPatchItemV1,
-  ReplayHistoryEventV1,
   ReplayKlineBarV1,
-  ReplayPackageMetadataV1,
-  WorldStateV1
+  ReplayPackageMetadataV1
 } from "./types";
 import type { StartChartLiveSessionArgs } from "./liveSessionRuntimeTypes";
 
 type ReplayOverlayBundle = {
   window: ReplayWindowBundle["window"];
-  headByTime: ReplayWindowBundle["headByTime"];
-  historyDeltaByIdx: ReplayWindowBundle["historyDeltaByIdx"];
 };
 export type UseChartRuntimeEffectsArgs = StartChartLiveSessionArgs & {
   replayPrepareStatus: string;
   replayPackageEnabled: boolean;
   replayPackageStatus: string;
   replayPackageMeta: ReplayPackageMetadataV1 | null;
-  replayPackageHistory: ReplayHistoryEventV1[];
   replayPackageWindows: Record<number, ReplayWindowBundle>;
   replayEnsureWindowRange: (startIdx: number, endIdx: number) => Promise<void>;
   replayIndex: number;
@@ -48,17 +43,12 @@ export type UseChartRuntimeEffectsArgs = StartChartLiveSessionArgs & {
   anchorPenSeriesRef: MutableRefObject<ISeriesApi<"Line"> | null>;
   anchorPenIsDashedRef: MutableRefObject<boolean>;
   replayWindowIndexRef: MutableRefObject<number | null>;
-  applyReplayOverlayAtTime: (toTime: number) => void;
   applyReplayPackageWindow: (bundle: ReplayOverlayBundle, targetIdx: number) => string[];
-  requestReplayFrameAtTime: (atTime: number) => Promise<void>;
   toReplayCandle: (bar: ReplayKlineBarV1) => Candle;
   setReplayFocusTime: (value: number | null) => void;
-  setReplayFrame: (frame: WorldStateV1 | null) => void;
   setReplaySlices: (slices: GetFactorSlicesResponseV1 | null) => void;
   setReplayCandle: (payload: { candleId: string | null; atTime: number | null; activeIds?: string[] }) => void;
   setReplayDrawInstructions: (items: OverlayInstructionPatchItemV1[]) => void;
-  setReplayFrameLoading: (value: boolean) => void;
-  setReplayFrameError: (value: string | null) => void;
 };
 
 export function useChartRuntimeEffects(args: UseChartRuntimeEffectsArgs) {
@@ -71,7 +61,6 @@ export function useChartRuntimeEffects(args: UseChartRuntimeEffectsArgs) {
     status: args.replayPackageStatus,
     metadata: args.replayPackageMeta,
     windows: args.replayPackageWindows,
-    historyEvents: args.replayPackageHistory,
     ensureWindowRange: args.replayEnsureWindowRange,
     replayIndex: args.replayIndex,
     replayFocusTime: args.replayFocusTime,

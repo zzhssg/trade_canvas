@@ -9,6 +9,7 @@ from ..core.schemas import CandleClosed
 from ..storage.candle_store import CandleStore
 from .ingest_pipeline_steps import (
     FactorOrchestratorLike,
+    FeatureOrchestratorLike,
     IngestPipelineError,
     IngestPipelineResult,
     IngestSeriesBatch,
@@ -19,6 +20,7 @@ from .ingest_pipeline_steps import (
     persist_closed_batch,
     rollback_new_candles,
     run_factor_step,
+    run_feature_step,
     run_overlay_step,
 )
 
@@ -29,13 +31,15 @@ class IngestPipeline:
         *,
         store: CandleStore,
         factor_orchestrator: FactorOrchestratorLike | None,
-        overlay_orchestrator: OverlayOrchestratorLike | None,
-        hub: CandleHubPort | None,
+        feature_orchestrator: FeatureOrchestratorLike | None = None,
+        overlay_orchestrator: OverlayOrchestratorLike | None = None,
+        hub: CandleHubPort | None = None,
         overlay_compensate_on_error: bool = False,
         candle_compensate_on_error: bool = False,
     ) -> None:
         self._store = store
         self._factor_orchestrator = factor_orchestrator
+        self._feature_orchestrator = feature_orchestrator
         self._overlay_orchestrator = overlay_orchestrator
         self._hub = hub
         self._overlay_compensate_on_error = bool(overlay_compensate_on_error)
@@ -117,6 +121,17 @@ class IngestPipeline:
                 if rebuilt:
                     rebuilt_series.add(series_id)
                 steps.append(factor_step)
+
+            if self._feature_orchestrator is not None:
+                feature_step = run_feature_step(
+                    feature_orchestrator=self._feature_orchestrator,
+                    rollback_new_candles=self._rollback_new_candles,
+                    series_id=series_id,
+                    up_to_time=int(up_to_time),
+                    rebuilt=bool(series_id in rebuilt_series),
+                    new_candle_times=new_candle_times,
+                )
+                steps.append(feature_step)
 
             if self._overlay_orchestrator is not None:
                 overlay_step = run_overlay_step(

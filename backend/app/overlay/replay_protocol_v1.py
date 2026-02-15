@@ -6,10 +6,8 @@ from pydantic import BaseModel, Field
 
 from ..core.schemas import OverlayInstructionPatchItemV1
 from ..replay.protocol_shared_v1 import (
-    ReplayBuildResponseBaseV1,
     ReplayKlineBarBaseV1,
     ReplayPackageMetadataBaseV1,
-    ReplayStatusResponseBaseV1,
     ReplayWindowBoundsV1,
     ReplayWindowRangeV1,
 )
@@ -82,27 +80,3 @@ class OverlayReplayDeltaPackageV1(BaseModel):
 
     # Full windows (used for disk cache; API serves slices via /window).
     windows: list[OverlayReplayWindowV1] = Field(default_factory=list)
-
-
-class ReplayOverlayPackageBuildRequestV1(BaseModel):
-    series_id: str = Field(..., min_length=1)
-    to_time: int | None = Field(default=None, ge=0, description="Optional upper-bound time (unix seconds)")
-    window_candles: int | None = Field(default=None, ge=1, le=2000)
-    window_size: int | None = Field(default=None, ge=1, le=2000)
-    snapshot_interval: int | None = Field(default=None, ge=1, le=200)
-
-
-class ReplayOverlayPackageBuildResponseV1(ReplayBuildResponseBaseV1):
-    pass
-
-
-class ReplayOverlayPackageStatusResponseV1(ReplayStatusResponseBaseV1):
-    delta_meta: OverlayReplayDeltaMetaV1 | None = None
-    # Included only when include_delta_package=1 (first load optimization).
-    kline: list[OverlayReplayKlineBarV1] | None = None
-    preload_window: OverlayReplayWindowV1 | None = None
-
-
-class ReplayOverlayPackageWindowResponseV1(BaseModel):
-    job_id: str
-    window: OverlayReplayWindowV1

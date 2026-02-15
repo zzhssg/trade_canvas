@@ -68,9 +68,6 @@ export type StartChartLiveSessionArgs = {
   lastFactorAtTimeRef: MutableRefObject<number | null>;
   worldFrameHealthyRef: MutableRefObject<boolean>;
   replayAllCandlesRef: MutableRefObject<Array<Candle | null>>;
-  replayPatchRef: MutableRefObject<OverlayInstructionPatchItemV1[]>;
-  replayPatchAppliedIdxRef: MutableRefObject<number>;
-  replayFrameLatestTimeRef: MutableRefObject<number | null>;
   penSeriesRef: MutableRefObject<ISeriesApi<"Line"> | null>;
   penPointsRef: MutableRefObject<PenLinePoint[]>;
   effectiveVisible: (key: string) => boolean;

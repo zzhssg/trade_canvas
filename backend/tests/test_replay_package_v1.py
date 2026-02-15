@@ -65,7 +65,7 @@ class ReplayPackageApiTests(unittest.TestCase):
         while time.time() < deadline:
             res = self.client.get(
                 "/api/replay/status",
-                params={"job_id": job_id, "include_preload": 1, "include_history": 1},
+                params={"job_id": job_id, "include_preload": 1},
             )
             self.assertEqual(res.status_code, 200, res.text)
             payload = res.json()
@@ -120,8 +120,9 @@ class ReplayPackageApiTests(unittest.TestCase):
         self.assertEqual(meta["total_candles"], 100)
         self.assertEqual(meta["from_candle_time"], times[10])
         self.assertEqual(meta["to_candle_time"], times[-1])
+        self.assertIsInstance(meta.get("factor_schema"), list)
+        self.assertGreaterEqual(len(meta.get("factor_schema") or []), 1)
         self.assertIsNotNone(status_payload.get("preload_window"))
-        self.assertIsInstance(status_payload.get("history_events"), list)
 
         res_window = self.client.get("/api/replay/window", params={"job_id": job_id, "target_idx": 0})
         self.assertEqual(res_window.status_code, 200, res_window.text)
@@ -129,7 +130,7 @@ class ReplayPackageApiTests(unittest.TestCase):
         window = payload_window["window"]
         self.assertEqual(window["window_index"], 0)
         self.assertGreater(len(window["kline"]), 0)
-        self.assertGreater(len(payload_window["history_deltas"]), 0)
+        self.assertIsInstance(payload_window.get("factor_snapshots"), list)
 
     def test_replay_ensure_coverage_flow(self) -> None:
         base = 60
@@ -161,6 +162,35 @@ class ReplayPackageApiTests(unittest.TestCase):
         assert last is not None
         self.assertEqual(last["status"], "done")
         self.assertEqual(last["candles_ready"], 5)
+
+    def test_replay_window_includes_factor_snapshots_when_factor_history_exists(self) -> None:
+        pattern = [1, 2, 5, 2, 1, 2, 5, 2, 1, 2, 5]
+        prices = pattern * 10
+        times = [60 * (i + 1) for i in range(len(prices))]
+        for t, p in zip(times, prices, strict=True):
+            self._ingest(t, float(p))
+
+        res_build = self.client.post(
+            "/api/replay/build",
+            json={
+                "series_id": self.series_id,
+                "to_time": times[-1],
+                "window_candles": 100,
+                "window_size": 50,
+                "snapshot_interval": 5,
+            },
+        )
+        self.assertEqual(res_build.status_code, 200, res_build.text)
+        job_id = res_build.json()["job_id"]
+        self._wait_for_done(job_id)
+
+        res_window = self.client.get("/api/replay/window", params={"job_id": job_id, "target_idx": 0})
+        self.assertEqual(res_window.status_code, 200, res_window.text)
+        payload = res_window.json()
+        snapshots = payload.get("factor_snapshots") or []
+        self.assertGreaterEqual(len(snapshots), 1)
+        self.assertIn("snapshot", snapshots[0])
+        self.assertIn("history", snapshots[0]["snapshot"])
 
 
 if __name__ == "__main__":

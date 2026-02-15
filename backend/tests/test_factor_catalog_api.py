@@ -49,7 +49,7 @@ class FactorCatalogApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(create_app())
 
-    def test_factor_catalog_contains_default_factor_and_virtual_groups(self) -> None:
+    def test_factor_catalog_contains_default_factor_items(self) -> None:
         res = self.client.get("/api/factor/catalog")
         self.assertEqual(res.status_code, 200, res.text)
         payload = res.json()
@@ -59,8 +59,6 @@ class FactorCatalogApiTests(unittest.TestCase):
         keys = [str(item.get("key") or "") for item in factors]
         self.assertEqual(keys[:4], ["pivot", "pen", "zhongshu", "anchor"])
         self.assertIn("sr", keys)
-        self.assertIn("sma", keys)
-        self.assertIn("signal", keys)
 
         by_key = {str(item.get("key") or ""): item for item in factors}
         self.assertEqual(
@@ -71,8 +69,6 @@ class FactorCatalogApiTests(unittest.TestCase):
             [str(item.get("key") or "") for item in by_key["pen"].get("sub_features") or []],
             ["pen.confirmed", "pen.extending", "pen.candidate"],
         )
-        self.assertFalse(bool(by_key["sma"].get("default_visible")))
-        self.assertFalse(bool(by_key["signal"].get("default_visible")))
         self.assertEqual(
             [str(item.get("key") or "") for item in by_key["sr"].get("sub_features") or []],
             ["sr.active", "sr.broken"],

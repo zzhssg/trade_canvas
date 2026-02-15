@@ -132,7 +132,6 @@ def test_runtime_services_do_not_read_env_flags_directly() -> None:
         app_root / "market" / "history_bootstrapper.py",
         app_root / "overlay" / "orchestrator.py",
         app_root / "replay" / "package_service_v1.py",
-        app_root / "overlay" / "package_service_v1.py",
         app_root / "debug" / "routes.py",
     ]
     pattern = re.compile(r"\bresolve_env_bool\b|\bresolve_env_int\b|\bos\.environ\b")
@@ -159,7 +158,6 @@ def test_services_do_not_raise_http_exception_directly() -> None:
         app_root / "backtest" / "service.py",
         app_root / "market/ingest_service.py",
         app_root / "replay" / "package_service_v1.py",
-        app_root / "overlay" / "package_service_v1.py",
         app_root / "replay" / "prepare_service.py",
     ]
     offenders: list[str] = []
@@ -174,7 +172,6 @@ def test_replay_overlay_services_delegate_package_reads_to_reader_layer() -> Non
     app_root = _backend_app_root()
     target_files = [
         app_root / "replay" / "package_service_v1.py",
-        app_root / "overlay" / "package_service_v1.py",
     ]
     offenders: list[str] = []
     for path in target_files:

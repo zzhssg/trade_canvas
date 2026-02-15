@@ -1,5 +1,5 @@
 import { logDebugEvent } from "../../debug/debug";
-import { fetchCandles, fetchDrawDelta } from "./api";
+import { fetchCandles } from "./api";
 import {
   applyOverlayBaseline,
   loadWorldFrameLiveWithRetry,
@@ -192,28 +192,9 @@ async function runLiveSession(args: StartChartLiveSessionOptions): Promise<WebSo
         data: { count: initial.candles.length }
       });
       args.replayAllCandlesRef.current = initial.candles;
-      args.replayPatchRef.current = [];
-      args.replayPatchAppliedIdxRef.current = 0;
       args.overlayCatalogRef.current.clear();
       args.overlayActiveIdsRef.current.clear();
       args.overlayCursorVersionRef.current = 0;
-      args.replayFrameLatestTimeRef.current = null;
-      const endTime = args.replayPreparedAlignedTime ?? (initial.candles[initial.candles.length - 1]!.time as number);
-      try {
-        const draw = await fetchDrawDelta({
-          seriesId: args.seriesId,
-          cursorVersionId: 0,
-          windowCandles: args.windowCandles,
-          atTime: endTime
-        });
-        if (!args.isActive()) return null;
-        const raw = Array.isArray(draw.instruction_catalog_patch) ? draw.instruction_catalog_patch : [];
-        args.replayPatchRef.current = raw
-          .slice()
-          .sort((a, b) => (a.visible_time - b.visible_time !== 0 ? a.visible_time - b.visible_time : a.version_id - b.version_id));
-      } catch {
-        args.replayPatchRef.current = [];
-      }
       args.candlesRef.current = initial.candles;
       args.setCandles(initial.candles);
       args.setReplayTotal(initial.candles.length);

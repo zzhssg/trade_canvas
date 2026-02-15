@@ -25,6 +25,21 @@ class _Factor:
         return SimpleNamespace(rebuilt=str(series_id) in self._rebuilt_series)
 
 
+class _Feature:
+    def __init__(self, *, fail_series: set[str] | None = None) -> None:
+        self._fail_series = set(fail_series or set())
+        self.reset_calls: list[str] = []
+        self.ingest_calls: list[tuple[str, int]] = []
+
+    def reset_series(self, *, series_id: str) -> None:
+        self.reset_calls.append(str(series_id))
+
+    def ingest_closed(self, *, series_id: str, up_to_candle_time: int) -> None:
+        if str(series_id) in self._fail_series:
+            raise RuntimeError(f"feature_failed:{series_id}:{up_to_candle_time}")
+        self.ingest_calls.append((str(series_id), int(up_to_candle_time)))
+
+
 class _Overlay:
     def __init__(self) -> None:
         self.reset_calls: list[str] = []
@@ -101,10 +116,12 @@ def test_ingest_pipeline_run_sync_persists_and_drives_sidecars() -> None:
     with tempfile.TemporaryDirectory() as td:
         store = CandleStore(db_path=Path(td) / "market.db")
         factor = _Factor(rebuilt_series={"s1"})
+        feature = _Feature()
         overlay = _Overlay()
         pipeline = IngestPipeline(
             store=store,
             factor_orchestrator=factor,
+            feature_orchestrator=feature,
             overlay_orchestrator=overlay,
             hub=None,
         )
@@ -121,20 +138,28 @@ def test_ingest_pipeline_run_sync_persists_and_drives_sidecars() -> None:
         assert [float(c.close) for c in s1] == [2.0, 3.0]
 
         assert factor.calls == [("s1", 160), ("s2", 200)]
+        assert feature.reset_calls == ["s1"]
+        assert feature.ingest_calls == [("s1", 160), ("s2", 200)]
         assert overlay.reset_calls == ["s1"]
         assert overlay.ingest_calls == [("s1", 160), ("s2", 200)]
         assert result.rebuilt_series == ("s1",)
         assert any(step.name.startswith("store.upsert_many_closed:") for step in result.steps)
+        assert [step.name for step in result.steps if step.name.startswith("feature.")] == [
+            "feature.ingest_closed:s1",
+            "feature.ingest_closed:s2",
+        ]
 
 
 def test_ingest_pipeline_refresh_series_sync_only_runs_sidecars() -> None:
     with tempfile.TemporaryDirectory() as td:
         store = CandleStore(db_path=Path(td) / "market.db")
         factor = _Factor(rebuilt_series=set())
+        feature = _Feature()
         overlay = _Overlay()
         pipeline = IngestPipeline(
             store=store,
             factor_orchestrator=factor,
+            feature_orchestrator=feature,
             overlay_orchestrator=overlay,
             hub=None,
         )
@@ -143,6 +168,7 @@ def test_ingest_pipeline_refresh_series_sync_only_runs_sidecars() -> None:
 
         assert store.head_time("s1") is None
         assert factor.calls == [("s1", 300)]
+        assert feature.ingest_calls == [("s1", 300)]
         assert overlay.ingest_calls == [("s1", 300)]
         assert result.rebuilt_series == ()
 
@@ -335,6 +361,38 @@ def test_ingest_pipeline_overlay_failure_can_compensate_by_resetting_series() ->
         assert overlay.reset_calls == ["s1"]
 
 
+def test_ingest_pipeline_feature_failure_can_compensate_new_candles() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        store = CandleStore(db_path=Path(td) / "market.db")
+        factor = _Factor(rebuilt_series=set())
+        feature = _Feature(fail_series={"s1"})
+        overlay = _Overlay()
+        pipeline = IngestPipeline(
+            store=store,
+            factor_orchestrator=factor,
+            feature_orchestrator=feature,
+            overlay_orchestrator=overlay,
+            hub=None,
+            candle_compensate_on_error=True,
+        )
+
+        with pytest.raises(IngestPipelineError) as exc:
+            pipeline.run_sync(
+                batches={
+                    "s1": [_candle(100, 1.0)],
+                }
+            )
+
+        assert exc.value.step == "feature.ingest_closed"
+        assert exc.value.series_id == "s1"
+        assert exc.value.compensated is True
+        assert exc.value.overlay_compensated is False
+        assert exc.value.candle_compensated_rows == 1
+        assert exc.value.compensation_error is None
+        assert store.head_time("s1") is None
+        assert overlay.ingest_calls == []
+
+
 def test_ingest_pipeline_factor_failure_can_compensate_new_candles() -> None:
     with tempfile.TemporaryDirectory() as td:
         store = CandleStore(db_path=Path(td) / "market.db")
@@ -362,4 +420,3 @@ def test_ingest_pipeline_factor_failure_can_compensate_new_candles() -> None:
         assert exc.value.candle_compensated_rows == 1
         assert exc.value.compensation_error is None
         assert store.head_time("s1") is None
-

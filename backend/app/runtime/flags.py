@@ -9,6 +9,7 @@ from .flags_models import (
     RuntimeDerivedFlags,
     RuntimeExecutionFlags,
     RuntimeFactorFlags,
+    RuntimeFeatureFlags,
     RuntimeFlags,
     RuntimeIngestFlags,
     RuntimeMarketFlags,
@@ -108,6 +109,11 @@ def load_runtime_flags() -> RuntimeFlags:
         ),
     )
 
+    feature = RuntimeFeatureFlags(
+        enable_feature_ingest=env_bool("TRADE_CANVAS_ENABLE_FEATURE_INGEST", default=True),
+        enable_feature_strict_read=env_bool("TRADE_CANVAS_ENABLE_FEATURE_STRICT_READ", default=True),
+    )
+
     ingest = RuntimeIngestFlags(
         enable_ingest_role_guard=env_bool("TRADE_CANVAS_ENABLE_INGEST_ROLE_GUARD", default=False),
         ingest_role=_normalize_ingest_role(resolve_env_str("TRADE_CANVAS_INGEST_ROLE", fallback="hybrid")),
@@ -183,9 +189,8 @@ def load_runtime_flags() -> RuntimeFlags:
     )
 
     replay = RuntimeReplayFlags(
-        enable_replay_v1=env_bool("TRADE_CANVAS_ENABLE_REPLAY_V1"),
-        enable_replay_ensure_coverage=env_bool("TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE"),
-        enable_replay_package=env_bool("TRADE_CANVAS_ENABLE_REPLAY_PACKAGE"),
+        enable_replay_v1=env_bool("TRADE_CANVAS_ENABLE_REPLAY_V1", default=True),
+        enable_replay_ensure_coverage=env_bool("TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE", default=True),
     )
 
     execution = RuntimeExecutionFlags(
@@ -203,6 +208,7 @@ def load_runtime_flags() -> RuntimeFlags:
         scaleout=scaleout,
         factor=factor,
         overlay=overlay,
+        feature=feature,
         ingest=ingest,
         market=market,
         derived=derived,
@@ -216,6 +222,7 @@ __all__ = [
     "RuntimeDerivedFlags",
     "RuntimeExecutionFlags",
     "RuntimeFactorFlags",
+    "RuntimeFeatureFlags",
     "RuntimeFlags",
     "RuntimeIngestFlags",
     "RuntimeMarketFlags",

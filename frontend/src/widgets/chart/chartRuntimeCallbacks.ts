@@ -3,16 +3,15 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
 import type { PenLinePoint, PenSegment } from "./penAnchorRuntime";
 import { useOverlayRenderCallbacks, usePenWorldCallbacks } from "./chartOverlayCallbacks";
-import { useReplayFrameRequest, useReplayOverlayRuntime } from "./useReplayRuntimeCallbacks";
+import { useReplayOverlayRuntime } from "./useReplayRuntimeCallbacks";
 import type { Candle, GetFactorSlicesResponseV1, OverlayInstructionPatchItemV1 } from "./types";
 import type { ReplayPenPreviewFeature } from "./liveSessionRuntimeTypes";
 import type { OverlayCanvasPath } from "./useOverlayCanvas";
 
 type UseChartRuntimeCallbacksArgs = {
   seriesId: string;
-  timeframe: string;
-  replayEnabled: boolean;
   windowCandles: number;
+  replayEnabled: boolean;
   enablePenSegmentColor: boolean;
   enableAnchorTopLayer: boolean;
   segmentRenderLimit: number;
@@ -45,20 +44,12 @@ type UseChartRuntimeCallbacksArgs = {
   factorPullPendingTimeRef: MutableRefObject<number | null>;
   factorPullInFlightRef: MutableRefObject<boolean>;
   lastFactorAtTimeRef: MutableRefObject<number | null>;
-  replayPatchRef: MutableRefObject<OverlayInstructionPatchItemV1[]>;
-  replayPatchAppliedIdxRef: MutableRefObject<number>;
   replayWindowIndexRef: MutableRefObject<number | null>;
-  replayFrameLatestTimeRef: MutableRefObject<number | null>;
-  replayFramePendingTimeRef: MutableRefObject<number | null>;
-  replayFramePullInFlightRef: MutableRefObject<boolean>;
   effectiveVisible: (key: string) => boolean;
   setPenPointCount: (value: number) => void;
   setAnchorHighlightEpoch: Dispatch<SetStateAction<number>>;
   setReplaySlices: (slices: GetFactorSlicesResponseV1) => void;
   setReplayDrawInstructions: (items: OverlayInstructionPatchItemV1[]) => void;
-  setReplayFrameLoading: (loading: boolean) => void;
-  setReplayFrameError: (error: string | null) => void;
-  setReplayFrame: Parameters<typeof useReplayFrameRequest>[0]["setReplayFrame"];
   setReplayCandle: (value: { candleId: string | null; atTime: number | null; activeIds?: string[] }) => void;
 };
 
@@ -80,19 +71,12 @@ export function useChartRuntimeCallbacks(args: UseChartRuntimeCallbacksArgs) {
 
   const replayOverlay = useReplayOverlayRuntime({
     ...args,
-    recomputeActiveIdsFromCatalog: overlay.recomputeActiveIdsFromCatalog,
     ...overlayCallbacks
-  });
-
-  const requestReplayFrameAtTime = useReplayFrameRequest({
-    ...args,
-    applyPenAndAnchorFromFactorSlices: penWorld.applyPenAndAnchorFromFactorSlices,
   });
 
   return {
     ...overlay,
     ...penWorld,
-    ...replayOverlay,
-    requestReplayFrameAtTime
+    ...replayOverlay
   };
 }

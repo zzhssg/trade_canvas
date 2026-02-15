@@ -23,7 +23,7 @@ from .container_contexts import (
     ReplayContainerContext,
     StoreContainerContext,
 )
-from ..market.runtime_builder import build_market_runtime
+from ..market.runtime_builder import MarketRuntimeBuildOptions, build_market_runtime
 from ..runtime.api_gates import ApiGateConfig
 from ..runtime.flags import RuntimeFlags, load_runtime_flags
 from ..runtime.metrics import RuntimeMetrics
@@ -97,7 +97,10 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
         overlay_orchestrator=core.overlay_orchestrator,
         debug_hub=core.debug_hub,
         runtime_metrics=runtime_metrics,
-        runtime_flags=runtime_flags,
+        options=MarketRuntimeBuildOptions(
+            runtime_flags=runtime_flags,
+            feature_orchestrator=core.feature_orchestrator,
+        ),
     )
     lifecycle = AppLifecycleService(market_runtime=runtime_build.runtime)
     ingest_pipeline = runtime_build.runtime.ingest_ctx.ingest_pipeline
@@ -130,12 +133,15 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
     store_ctx = StoreContainerContext(
         store=core.store,
         factor_store=core.factor_store,
+        feature_store=core.feature_store,
         overlay_store=core.overlay_store,
     )
     factor_ctx = FactorContainerContext(
         factor_orchestrator=core.factor_orchestrator,
         factor_slices_service=core.factor_slices_service,
         factor_read_service=read_core_services.factor_read_service,
+        feature_orchestrator=core.feature_orchestrator,
+        feature_read_service=read_core_services.feature_read_service,
         ledger_sync_service=ledger_sync_service,
         overlay_orchestrator=core.overlay_orchestrator,
     )
@@ -147,7 +153,6 @@ def build_app_container(*, settings: Settings, project_root: Path) -> AppContain
     replay_ctx = ReplayContainerContext(
         replay_prepare_service=replay_services.replay_prepare_service,
         replay_service=replay_services.replay_service,
-        overlay_pkg_service=replay_services.overlay_pkg_service,
     )
     market_ctx = MarketContainerContext(
         market_runtime=runtime_build.runtime,

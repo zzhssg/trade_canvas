@@ -140,20 +140,6 @@ export async function fetchWorldFrameLive(params: {
   return (await res.json()) as WorldStateV1;
 }
 
-export async function fetchWorldFrameAtTime(params: {
-  seriesId: string;
-  atTime: number;
-  windowCandles: number;
-}): Promise<WorldStateV1> {
-  const url = new URL(apiUrl("/api/frame/at_time"), window.location.origin);
-  url.searchParams.set("series_id", params.seriesId);
-  url.searchParams.set("at_time", String(params.atTime));
-  url.searchParams.set("window_candles", String(params.windowCandles));
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as WorldStateV1;
-}
-
 export async function pollWorldDelta(params: {
   seriesId: string;
   afterId: number;
@@ -205,12 +191,10 @@ export async function fetchReplayBuild(payload: ReplayBuildRequestV1): Promise<R
 export async function fetchReplayStatus(params: {
   jobId: string;
   includePreload?: boolean;
-  includeHistory?: boolean;
 }): Promise<ReplayStatusResponseV1> {
   const url = new URL(apiUrl("/api/replay/status"), window.location.origin);
   url.searchParams.set("job_id", params.jobId);
   if (params.includePreload) url.searchParams.set("include_preload", "1");
-  if (params.includeHistory) url.searchParams.set("include_history", "1");
   const res = await fetch(url.toString());
   if (!res.ok) await throwHttpError(res);
   return (await res.json()) as ReplayStatusResponseV1;

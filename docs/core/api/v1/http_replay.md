@@ -2,7 +2,7 @@
 title: API v1 · Replay（HTTP）
 status: done
 created: 2026-02-06
-updated: 2026-02-13
+updated: 2026-02-15
 ---
 
 # API v1 · Replay（HTTP）
@@ -12,7 +12,7 @@ updated: 2026-02-13
 约束（硬门禁）：
 - 复盘只对齐 closed candles（`aligned_time`）。
 - 读路径只读：不提供 read-only 探测兼容接口，不做隐式构建或隐式重算。
-- replay package 与 overlay package 都是显式 build，status/window 只消费已存在 job/cache。
+- replay package 走显式 build，status/window 只消费已存在 job/cache。
 
 ---
 
@@ -109,7 +109,7 @@ curl --noproxy '*' -sS \
 
 ```bash
 curl --noproxy '*' -sS \
-  "http://127.0.0.1:8000/api/replay/status?job_id=2d2f9e0fbd1c4a98b0e8c9ab&include_preload=1&include_history=1"
+  "http://127.0.0.1:8000/api/replay/status?job_id=2d2f9e0fbd1c4a98b0e8c9ab&include_preload=1"
 ```
 
 ### 示例响应（json，done）
@@ -155,20 +155,20 @@ curl --noproxy '*' -sS \
 
 ```json
 {
+  "job_id": "2d2f9e0fbd1c4a98b0e8c9ab",
   "window": {
-    "target_idx": 0,
-    "from_idx": 0,
-    "to_idx": 499,
-    "candles": []
+    "window_index": 0,
+    "start_idx": 0,
+    "end_idx": 500,
+    "kline": []
   },
-  "factor_head_snapshots": [],
-  "history_deltas": []
+  "factor_snapshots": []
 }
 ```
 
 ### 语义
 
-- 返回 `window + factor_head_snapshots + history_deltas`。
+- 返回 `window + factor_snapshots`。
 - `job_id` 不存在或缓存缺失返回 `404 not_found`。
 
 ---
@@ -236,102 +236,3 @@ curl --noproxy '*' -sS \
 ### 语义
 
 - `status` 可能为 `building | done | error`，用于串联 `ensure_coverage -> build` 流程。
-
----
-
-## POST /api/replay/overlay_package/build
-
-显式构建 overlay-only replay package。
-
-### 示例请求（curl）
-
-```bash
-curl --noproxy '*' -sS \
-  -X POST "http://127.0.0.1:8000/api/replay/overlay_package/build" \
-  -H "content-type: application/json" \
-  -d '{"series_id":"binance:futures:BTC/USDT:1m","window_candles":2000,"window_size":500,"snapshot_interval":25}'
-```
-
-### 示例请求体（json）
-
-```json
-{
-  "series_id": "binance:futures:BTC/USDT:1m",
-  "window_candles": 2000,
-  "window_size": 500,
-  "snapshot_interval": 25
-}
-```
-
-### 示例响应（json）
-
-```json
-{
-  "status": "building",
-  "job_id": "f0b2c3d4e5a6b7c8d9e0a1b2",
-  "cache_key": "f0b2c3d4e5a6b7c8d9e0a1b2"
-}
-```
-
-### 语义
-
-- 只构建 overlay 视图数据（不回传 factor history），用于轻量回放或图表联调。
-
----
-
-## GET /api/replay/overlay_package/status
-
-查询 overlay package 构建状态（`building | done | error`）。
-
-### 示例请求（curl）
-
-```bash
-curl --noproxy '*' -sS \
-  "http://127.0.0.1:8000/api/replay/overlay_package/status?job_id=f0b2c3d4e5a6b7c8d9e0a1b2"
-```
-
-### 示例响应（json）
-
-```json
-{
-  "status": "done",
-  "job_id": "f0b2c3d4e5a6b7c8d9e0a1b2",
-  "cache_key": "f0b2c3d4e5a6b7c8d9e0a1b2"
-}
-```
-
-### 语义
-
-- `job_id` 不存在且缓存不存在时返回 `404 not_found`。
-
----
-
-## GET /api/replay/overlay_package/window
-
-### 示例请求（curl）
-
-```bash
-curl --noproxy '*' -sS \
-  "http://127.0.0.1:8000/api/replay/overlay_package/window?job_id=f0b2c3d4e5a6b7c8d9e0a1b2&target_idx=0"
-```
-
-### 示例响应（json）
-
-```json
-{
-  "window": {
-    "target_idx": 0,
-    "from_idx": 0,
-    "to_idx": 499
-  },
-  "kline": [],
-  "catalog_base": [],
-  "catalog_patch": [],
-  "checkpoints": [],
-  "diffs": []
-}
-```
-
-### 语义
-
-- 返回 overlay replay window（kline/catalog_base/catalog_patch/checkpoints/diffs）。

@@ -56,6 +56,10 @@ class AppContainerAccessors:
         return self.stores.factor_store
 
     @property
+    def feature_store(self):
+        return self.stores.feature_store
+
+    @property
     def overlay_store(self):
         return self.stores.overlay_store
 
@@ -70,6 +74,14 @@ class AppContainerAccessors:
     @property
     def factor_read_service(self):
         return self.factor.factor_read_service
+
+    @property
+    def feature_orchestrator(self):
+        return self.factor.feature_orchestrator
+
+    @property
+    def feature_read_service(self):
+        return self.factor.feature_read_service
 
     @property
     def ledger_sync_service(self):
@@ -98,10 +110,6 @@ class AppContainerAccessors:
     @property
     def replay_service(self):
         return self.replay.replay_service
-
-    @property
-    def overlay_pkg_service(self):
-        return self.replay.overlay_pkg_service
 
     @property
     def market_runtime(self):

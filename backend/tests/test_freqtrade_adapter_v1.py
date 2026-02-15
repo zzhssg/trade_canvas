@@ -9,6 +9,7 @@ from typing import Sequence
 import pandas as pd  # type: ignore[import-untyped]
 
 from backend.app.factor.plugin_contract import FactorPluginSpec
+from backend.app.feature.store import FeatureStore
 from backend.app.freqtrade.adapter_v1 import annotate_factor_ledger
 from backend.app.freqtrade.signal_plugin_contract import (
     FreqtradeSignalBucketSpec,
@@ -22,6 +23,7 @@ class FreqtradeAdapterV1Tests(unittest.TestCase):
         self.db_path = Path(self.tmpdir.name) / "market.db"
         os.environ["TRADE_CANVAS_DB_PATH"] = str(self.db_path)
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "1"
+        os.environ["TRADE_CANVAS_ENABLE_FEATURE_INGEST"] = "1"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MAJOR"] = "2"
         os.environ["TRADE_CANVAS_PIVOT_WINDOW_MINOR"] = "1"
         os.environ["TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES"] = "5000"
@@ -32,6 +34,7 @@ class FreqtradeAdapterV1Tests(unittest.TestCase):
         for k in (
             "TRADE_CANVAS_DB_PATH",
             "TRADE_CANVAS_ENABLE_FACTOR_INGEST",
+            "TRADE_CANVAS_ENABLE_FEATURE_INGEST",
             "TRADE_CANVAS_PIVOT_WINDOW_MAJOR",
             "TRADE_CANVAS_PIVOT_WINDOW_MINOR",
             "TRADE_CANVAS_FACTOR_LOOKBACK_CANDLES",
@@ -71,6 +74,15 @@ class FreqtradeAdapterV1Tests(unittest.TestCase):
             self.assertEqual(int(out.at[idx, "tc_pen_confirmed"]), 1)
             self.assertEqual(int(out.at[idx, "tc_pen_dir"]), 1)
 
+        feature_store = FeatureStore(db_path=self.db_path)
+        rows = feature_store.get_rows_between_times(
+            series_id=self.series_id,
+            start_candle_time=60,
+            end_candle_time=60 * len(prices),
+        )
+        self.assertGreaterEqual(len(rows), 1)
+        self.assertIn("pen_confirmed_count", rows[-1].values)
+
     def test_adapter_fails_when_ledger_out_of_sync(self) -> None:
         os.environ["TRADE_CANVAS_ENABLE_FACTOR_INGEST"] = "0"
         prices = [1, 2, 5, 2, 1]
@@ -82,6 +94,17 @@ class FreqtradeAdapterV1Tests(unittest.TestCase):
         out = res.dataframe
         self.assertTrue((out["tc_ok"] == 0).all())
         self.assertTrue((out["tc_enter_long"] == 0).all())
+
+    def test_adapter_fails_when_feature_ingest_disabled(self) -> None:
+        os.environ["TRADE_CANVAS_ENABLE_FEATURE_INGEST"] = "0"
+        prices = [1, 2, 5, 2, 1, 2, 5, 2, 1]
+        df = self._build_df(prices)
+
+        res = annotate_factor_ledger(df, series_id=self.series_id, timeframe="1m", db_path=self.db_path)
+        self.assertFalse(res.ok)
+        self.assertEqual(res.reason, "ledger_out_of_sync")
+        out = res.dataframe
+        self.assertTrue((out["tc_ok"] == 0).all())
 
     def test_adapter_supports_custom_signal_plugin(self) -> None:
         class _PivotSignalPlugin:

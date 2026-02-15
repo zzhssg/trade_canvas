@@ -42,6 +42,12 @@ class RuntimeOverlayFlags:
 
 
 @dataclass(frozen=True)
+class RuntimeFeatureFlags:
+    enable_feature_ingest: bool
+    enable_feature_strict_read: bool
+
+
+@dataclass(frozen=True)
 class RuntimeIngestFlags:
     enable_ingest_role_guard: bool
     ingest_role: str
@@ -85,7 +91,6 @@ class RuntimeDerivedFlags:
 class RuntimeReplayFlags:
     enable_replay_v1: bool
     enable_replay_ensure_coverage: bool
-    enable_replay_package: bool
 
 
 @dataclass(frozen=True)
@@ -101,6 +106,7 @@ class RuntimeFlags:
     scaleout: RuntimeScaleoutFlags
     factor: RuntimeFactorFlags
     overlay: RuntimeOverlayFlags
+    feature: RuntimeFeatureFlags
     ingest: RuntimeIngestFlags
     market: RuntimeMarketFlags
     derived: RuntimeDerivedFlags
@@ -129,6 +135,8 @@ class RuntimeFlags:
         "factor_logic_version_override": ("factor", "logic_version_override"),
         "enable_overlay_ingest": ("overlay", "enable_overlay_ingest"),
         "overlay_window_candles": ("overlay", "window_candles"),
+        "enable_feature_ingest": ("feature", "enable_feature_ingest"),
+        "enable_feature_strict_read": ("feature", "enable_feature_strict_read"),
         "enable_ingest_role_guard": ("ingest", "enable_ingest_role_guard"),
         "ingest_role": ("ingest", "ingest_role"),
         "enable_ingest_compensate_overlay_error": ("ingest", "enable_ingest_compensate_overlay_error"),
@@ -159,7 +167,6 @@ class RuntimeFlags:
         "derived_backfill_base_candles": ("derived", "derived_backfill_base_candles"),
         "enable_replay_v1": ("replay", "enable_replay_v1"),
         "enable_replay_ensure_coverage": ("replay", "enable_replay_ensure_coverage"),
-        "enable_replay_package": ("replay", "enable_replay_package"),
         "blocking_workers": ("execution", "blocking_workers"),
         "backtest_require_trades": ("execution", "backtest_require_trades"),
         "freqtrade_mock_enabled": ("execution", "freqtrade_mock_enabled"),

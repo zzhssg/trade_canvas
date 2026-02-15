@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from ..core.config import Settings
 from ..debug.hub import DebugHub
 from ..factor.orchestrator import FactorOrchestrator
+from ..feature.orchestrator import FeatureOrchestrator
 from ..market.history_bootstrapper import backfill_tail_from_freqtrade
 from ..ingest.config import (
     IngestDerivedConfig,
@@ -145,6 +146,7 @@ class IngestContextBuildRequest:
     runtime_metrics: RuntimeMetrics
     whitelist_series_ids: tuple[str, ...]
     whitelist_ingest_on: bool
+    feature_orchestrator: FeatureOrchestrator | None = None
     ingest_pipeline: IngestPipeline | None = None
 
 
@@ -152,6 +154,7 @@ def build_ingest_context(request: IngestContextBuildRequest) -> MarketIngestCont
     pipeline = request.ingest_pipeline or IngestPipeline(
         store=request.store,
         factor_orchestrator=request.factor_orchestrator,
+        feature_orchestrator=request.feature_orchestrator,
         overlay_orchestrator=request.overlay_orchestrator,
         hub=request.hub,
         overlay_compensate_on_error=bool(request.runtime_flags.enable_ingest_compensate_overlay_error),

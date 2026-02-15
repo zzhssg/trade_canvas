@@ -8,26 +8,6 @@ from ..core.schemas import (
     GetFactorCatalogResponseV1,
 )
 
-_EXTRA_NON_FACTOR_ITEMS: tuple[FactorCatalogItemV1, ...] = (
-    FactorCatalogItemV1(
-        key="sma",
-        label="SMA",
-        default_visible=False,
-        sub_features=[
-            FactorCatalogSubFeatureV1(key="sma_5", label="SMA 5", default_visible=False),
-            FactorCatalogSubFeatureV1(key="sma_20", label="SMA 20", default_visible=False),
-        ],
-    ),
-    FactorCatalogItemV1(
-        key="signal",
-        label="Signals",
-        default_visible=False,
-        sub_features=[
-            FactorCatalogSubFeatureV1(key="signal.entry", label="Entry", default_visible=False),
-        ],
-    ),
-)
-
 
 def _title_from_factor_name(name: str) -> str:
     raw = str(name).replace("_", " ").replace("-", " ").strip()
@@ -97,9 +77,4 @@ def _build_factor_items_from_manifest(manifest: FactorManifest) -> list[FactorCa
 def build_factor_catalog_response() -> GetFactorCatalogResponseV1:
     manifest = build_default_factor_manifest()
     factor_items = _build_factor_items_from_manifest(manifest)
-    return GetFactorCatalogResponseV1(
-        factors=[
-            *factor_items,
-            *list(_EXTRA_NON_FACTOR_ITEMS),
-        ]
-    )
+    return GetFactorCatalogResponseV1(factors=factor_items)

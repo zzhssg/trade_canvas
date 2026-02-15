@@ -11,9 +11,6 @@ describe("syncReplayFocusFromIndex", () => {
   test("no-op when focus time is already aligned", () => {
     const setReplayIndex = vi.fn();
     const setReplayFocusTime = vi.fn();
-    const applyReplayOverlayAtTime = vi.fn();
-    const fetchAndApplyAnchorHighlightAtTime = vi.fn().mockResolvedValue(undefined);
-    const requestReplayFrameAtTime = vi.fn().mockResolvedValue(undefined);
 
     syncReplayFocusFromIndex({
       replayEnabled: true,
@@ -23,17 +20,11 @@ describe("syncReplayFocusFromIndex", () => {
       replayFocusTime: 600,
       replayAllCandlesRef: { current: [buildCandle(300), buildCandle(600), buildCandle(900)] },
       setReplayIndex,
-      setReplayFocusTime,
-      applyReplayOverlayAtTime,
-      fetchAndApplyAnchorHighlightAtTime,
-      requestReplayFrameAtTime
+      setReplayFocusTime
     });
 
     expect(setReplayIndex).not.toHaveBeenCalled();
     expect(setReplayFocusTime).not.toHaveBeenCalled();
-    expect(applyReplayOverlayAtTime).not.toHaveBeenCalled();
-    expect(fetchAndApplyAnchorHighlightAtTime).not.toHaveBeenCalled();
-    expect(requestReplayFrameAtTime).not.toHaveBeenCalled();
   });
 
   test("clamps out-of-range index before side effects", () => {
@@ -47,10 +38,7 @@ describe("syncReplayFocusFromIndex", () => {
       replayFocusTime: null,
       replayAllCandlesRef: { current: [buildCandle(300), buildCandle(600)] },
       setReplayIndex,
-      setReplayFocusTime: vi.fn(),
-      applyReplayOverlayAtTime: vi.fn(),
-      fetchAndApplyAnchorHighlightAtTime: vi.fn().mockResolvedValue(undefined),
-      requestReplayFrameAtTime: vi.fn().mockResolvedValue(undefined)
+      setReplayFocusTime: vi.fn()
     });
 
     expect(setReplayIndex).toHaveBeenCalledTimes(1);

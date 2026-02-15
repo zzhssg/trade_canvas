@@ -160,6 +160,26 @@ def test_runtime_flags_strict_closed_only_defaults_off_and_can_override(monkeypa
     assert override_off.enable_strict_closed_only is False
 
 
+def test_runtime_flags_feature_controls_default_on_and_can_override(monkeypatch) -> None:
+    monkeypatch.delenv("TRADE_CANVAS_ENABLE_FEATURE_INGEST", raising=False)
+    monkeypatch.delenv("TRADE_CANVAS_ENABLE_FEATURE_STRICT_READ", raising=False)
+    defaults = load_runtime_flags()
+    assert defaults.enable_feature_ingest is True
+    assert defaults.enable_feature_strict_read is True
+
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_FEATURE_INGEST", "0")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_FEATURE_STRICT_READ", "0")
+    override_off = load_runtime_flags()
+    assert override_off.enable_feature_ingest is False
+    assert override_off.enable_feature_strict_read is False
+
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_FEATURE_INGEST", "1")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_FEATURE_STRICT_READ", "1")
+    override_on = load_runtime_flags()
+    assert override_on.enable_feature_ingest is True
+    assert override_on.enable_feature_strict_read is True
+
+
 def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_FACTOR_INGEST", "0")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_FACTOR_FINGERPRINT_REBUILD", "0")
@@ -170,6 +190,8 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     monkeypatch.setenv("TRADE_CANVAS_FACTOR_REBUILD_KEEP_CANDLES", "10")
     monkeypatch.setenv("TRADE_CANVAS_FACTOR_LOGIC_VERSION", "fingerprint-v2")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_OVERLAY_INGEST", "0")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_FEATURE_INGEST", "0")
+    monkeypatch.setenv("TRADE_CANVAS_ENABLE_FEATURE_STRICT_READ", "0")
     monkeypatch.setenv("TRADE_CANVAS_OVERLAY_WINDOW_CANDLES", "9")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_OVERLAY_ERROR", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_INGEST_COMPENSATE_NEW_CANDLES", "1")
@@ -184,7 +206,6 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     monkeypatch.setenv("TRADE_CANVAS_BLOCKING_WORKERS", "0")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_REPLAY_V1", "1")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_REPLAY_ENSURE_COVERAGE", "1")
-    monkeypatch.setenv("TRADE_CANVAS_ENABLE_REPLAY_PACKAGE", "1")
     monkeypatch.setenv("TRADE_CANVAS_MARKET_HISTORY_SOURCE", "freqtrade")
     monkeypatch.setenv("TRADE_CANVAS_ENABLE_DERIVED_TIMEFRAMES", "1")
     monkeypatch.setenv("TRADE_CANVAS_DERIVED_BASE_TIMEFRAME", "3m")
@@ -213,6 +234,8 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     assert flags.factor_rebuild_keep_candles == 100
     assert flags.factor_logic_version_override == "fingerprint-v2"
     assert flags.enable_overlay_ingest is False
+    assert flags.enable_feature_ingest is False
+    assert flags.enable_feature_strict_read is False
     assert flags.overlay_window_candles == 100
     assert flags.enable_ingest_compensate_overlay_error is True
     assert flags.enable_ingest_compensate_new_candles is True
@@ -233,7 +256,6 @@ def test_runtime_flags_replay_and_overlay_controls(monkeypatch) -> None:
     assert flags.blocking_workers == 1
     assert flags.enable_replay_v1 is True
     assert flags.enable_replay_ensure_coverage is True
-    assert flags.enable_replay_package is True
     assert flags.market_history_source == "freqtrade"
     assert flags.enable_derived_timeframes is True
     assert flags.derived_base_timeframe == "3m"

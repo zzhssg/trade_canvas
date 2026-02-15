@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..factor.manifest import build_default_factor_manifest
 from ..factor.slices_service import FactorSlicesService
 from ..factor.store import FactorStore
 from ..overlay.package_builder_v1 import (
@@ -15,9 +16,8 @@ from ..overlay.package_builder_v1 import (
 from ..overlay.store import OverlayStore
 from ..storage.candle_store import CandleStore
 from .package_protocol_v1 import (
-    ReplayFactorHeadSnapshotV1,
-    ReplayHistoryDeltaV1,
-    ReplayHistoryEventV1,
+    ReplayFactorSchemaV1,
+    ReplayFactorSnapshotV1,
     ReplayKlineBarV1,
     ReplayPackageMetadataV1,
 )
@@ -69,46 +69,9 @@ def build_replay_package_v1(
         for window in overlay_pkg.windows
         for bar in window.kline
     ]
-    from_time = int(overlay_pkg.metadata.from_candle_time)
-    to_time = int(overlay_pkg.metadata.to_candle_time)
-
-    events = factor_store.get_events_between_times(
-        series_id=params.series_id,
-        factor_name=None,
-        start_candle_time=int(from_time),
-        end_candle_time=int(to_time),
-        limit=200000,
-    )
-    history_events = [
-        ReplayHistoryEventV1(
-            event_id=int(event.id),
-            factor_name=str(event.factor_name),
-            candle_time=int(event.candle_time),
-            kind=str(event.kind),
-            event_key=str(event.event_key),
-            payload=dict(event.payload or {}),
-        )
-        for event in events
-    ]
-
-    history_deltas: list[ReplayHistoryDeltaV1] = []
-    events_sorted = sorted(events, key=lambda row: (int(row.candle_time), int(row.id)))
-    last_event_id = 0
-    event_idx = 0
-    for idx, bar in enumerate(kline_all):
-        prev_event_id = int(last_event_id)
-        while event_idx < len(events_sorted) and int(events_sorted[event_idx].candle_time) <= int(bar.time):
-            last_event_id = int(events_sorted[event_idx].id)
-            event_idx += 1
-        history_deltas.append(
-            ReplayHistoryDeltaV1(
-                idx=int(idx),
-                from_event_id=int(prev_event_id),
-                to_event_id=int(last_event_id),
-            )
-        )
-
-    head_snapshots: list[ReplayFactorHeadSnapshotV1] = []
+    factor_snapshots: list[ReplayFactorSnapshotV1] = []
+    factor_schema_state: dict[str, dict[str, set[str]]] = {}
+    last_snapshot_sig_by_factor: dict[str, str] = {}
     for bar in kline_all:
         slices = factor_slices_service.get_slices(
             series_id=params.series_id,
@@ -116,14 +79,45 @@ def build_replay_package_v1(
             window_candles=int(window_candles),
         )
         for factor_name, snapshot in (slices.snapshots or {}).items():
-            head_snapshots.append(
-                ReplayFactorHeadSnapshotV1(
-                    factor_name=str(factor_name),
-                    candle_time=int(bar.time),
-                    seq=0,
-                    head=dict(snapshot.head or {}),
-                )
+            factor_key = str(factor_name)
+            snapshot_payload = snapshot.model_dump(mode="json")
+            history_obj = snapshot_payload.get("history")
+            head_obj = snapshot_payload.get("head")
+            history_keys = set(history_obj.keys()) if isinstance(history_obj, dict) else set()
+            head_keys = set(head_obj.keys()) if isinstance(head_obj, dict) else set()
+            schema_state = factor_schema_state.setdefault(
+                factor_key,
+                {"history": set(), "head": set()},
             )
+            schema_state["history"].update(str(key) for key in history_keys)
+            schema_state["head"].update(str(key) for key in head_keys)
+
+            snapshot_sig = stable_json_dumps(snapshot_payload)
+            if last_snapshot_sig_by_factor.get(factor_key) != snapshot_sig:
+                factor_snapshots.append(
+                    ReplayFactorSnapshotV1(
+                        factor_name=factor_key,
+                        candle_time=int(bar.time),
+                        snapshot=snapshot,
+                    )
+                )
+                last_snapshot_sig_by_factor[factor_key] = snapshot_sig
+
+    default_factor_manifest = build_default_factor_manifest()
+    for spec in default_factor_manifest.specs():
+        factor_schema_state.setdefault(
+            str(spec.factor_name),
+            {"history": set(), "head": set()},
+        )
+
+    factor_schema = [
+        ReplayFactorSchemaV1(
+            factor_name=factor_name,
+            history_keys=sorted(schema_state["history"]),
+            head_keys=sorted(schema_state["head"]),
+        )
+        for factor_name, schema_state in sorted(factor_schema_state.items(), key=lambda item: str(item[0]))
+    ]
 
     metadata = ReplayPackageMetadataV1(
         schema_version=1,
@@ -136,15 +130,14 @@ def build_replay_package_v1(
         snapshot_interval=int(overlay_pkg.metadata.snapshot_interval),
         preload_offset=int(params.preload_offset),
         idx_to_time="windows[*].kline[idx].time",
+        factor_schema=factor_schema,
     )
     payload = {
         "schema_version": 1,
         "cache_key": str(cache_key),
         "metadata": metadata.model_dump(mode="json"),
         "windows": [window.model_dump(mode="json") for window in overlay_pkg.windows],
-        "history_events": [row.model_dump(mode="json") for row in history_events],
-        "history_deltas": [row.model_dump(mode="json") for row in history_deltas],
-        "factor_head_snapshots": [row.model_dump(mode="json") for row in head_snapshots],
+        "factor_snapshots": [row.model_dump(mode="json") for row in factor_snapshots],
         "candle_store_head_time": int(candle_store.head_time(params.series_id) or 0),
         "factor_store_last_event_id": int(factor_store.last_event_id(params.series_id)),
         "overlay_store_last_version_id": int(overlay_store.last_version_id(params.series_id)),

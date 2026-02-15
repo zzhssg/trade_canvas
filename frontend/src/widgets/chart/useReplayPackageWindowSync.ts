@@ -1,13 +1,19 @@
 import { useEffect } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { ReplayWindowBundle } from "../../state/replayStore";
-import type { Candle, GetFactorSlicesResponseV1, ReplayFactorHeadSnapshotV1, ReplayHistoryEventV1, ReplayKlineBarV1, ReplayPackageMetadataV1 } from "./types";
+import type {
+  Candle,
+  GetFactorSlicesResponseV1,
+  ReplayFactorSchemaV1,
+  ReplayFactorSnapshotV1,
+  ReplayKlineBarV1,
+  ReplayPackageMetadataV1
+} from "./types";
 
 type BuildReplayFactorSlices = (args: {
   atTime: number;
-  toEventId: number;
-  historyEvents: ReplayHistoryEventV1[];
-  headByTime: Record<number, Record<string, ReplayFactorHeadSnapshotV1>>;
+  factorSchema: ReplayFactorSchemaV1[];
+  factorSnapshotByTime: Record<number, Record<string, ReplayFactorSnapshotV1>>;
 }) => GetFactorSlicesResponseV1;
 type ApplyReplayPackageWindow = (bundle: ReplayWindowBundle, targetIdx: number) => string[];
 
@@ -16,7 +22,6 @@ type UseReplayPackageWindowSyncArgs = {
   status: string;
   metadata: ReplayPackageMetadataV1 | null;
   windows: Record<number, ReplayWindowBundle>;
-  historyEvents: ReplayHistoryEventV1[];
   ensureWindowRange: (startIdx: number, endIdx: number) => Promise<void>;
   replayIndex: number;
   replayFocusTime: number | null;
@@ -41,7 +46,6 @@ export function useReplayPackageWindowSync({
   status,
   metadata,
   windows,
-  historyEvents,
   ensureWindowRange,
   replayIndex,
   replayFocusTime,
@@ -105,13 +109,10 @@ export function useReplayPackageWindowSync({
       if (!candle) return;
       const toTime = candle.time as number;
       setReplayFocusTime(toTime);
-      const delta = bundle.historyDeltaByIdx[clamped];
-      const toEventId = delta ? delta.to_event_id : 0;
       const slices = buildReplayFactorSlices({
         atTime: toTime,
-        toEventId,
-        historyEvents,
-        headByTime: bundle.headByTime
+        factorSchema: meta.factor_schema ?? [],
+        factorSnapshotByTime: bundle.factorSnapshotByTime
       });
       lastFactorAtTimeRef.current = toTime;
       applyPenAndAnchorFromFactorSlices(slices);
@@ -120,9 +121,7 @@ export function useReplayPackageWindowSync({
     }
 
     void run();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [
     applyPenAndAnchorFromFactorSlices,
     applyReplayPackageWindow,
@@ -130,7 +129,6 @@ export function useReplayPackageWindowSync({
     candlesRef,
     enabled,
     ensureWindowRange,
-    historyEvents,
     lastFactorAtTimeRef,
     metadata,
     replayAllCandlesRef,

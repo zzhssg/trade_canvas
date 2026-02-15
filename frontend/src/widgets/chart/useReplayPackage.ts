@@ -3,8 +3,7 @@ import type { ReplayStatus, ReplayWindowBundle } from "../../state/replayStore";
 import { useReplayActions, useReplayPackageState } from "../../state/replayStoreSelectors";
 import { fetchReplayWindow } from "./api";
 import { buildWindowBundle, runReplayBuildFlow } from "./replayPackageRuntime";
-import type { ReplayCoverageStatusResponseV1, ReplayCoverageV1, ReplayHistoryEventV1, ReplayPackageMetadataV1 } from "./types";
-const ENABLE_REPLAY_PACKAGE_V1 = import.meta.env.VITE_ENABLE_REPLAY_PACKAGE_V1 === "1";
+import type { ReplayCoverageStatusResponseV1, ReplayCoverageV1, ReplayPackageMetadataV1 } from "./types";
 
 export type ReplayPackageParams = {
   seriesId: string;
@@ -21,7 +20,6 @@ type ReplayBuildStore = {
   setCoverage: (coverage: ReplayCoverageV1 | null) => void;
   setCoverageStatus: (status: ReplayCoverageStatusResponseV1 | null) => void;
   setMetadata: (metadata: ReplayPackageMetadataV1 | null) => void;
-  setHistoryEvents: (events: ReplayHistoryEventV1[]) => void;
   setJobInfo: (jobId: string | null, cacheKey: string | null) => void;
 };
 
@@ -29,7 +27,7 @@ type ReplayBuildSyncParams = Omit<ReplayPackageParams, "enabled"> & { effectiveE
 
 function useReplayPackageBuildSync(args: ReplayBuildSyncParams) {
   const { effectiveEnabled, seriesId, windowCandles, windowSize, snapshotInterval, store } = args;
-  const { resetPackage, setStatus, setError, setCoverage, setCoverageStatus, setMetadata, setHistoryEvents, setJobInfo } = store;
+  const { resetPackage, setStatus, setError, setCoverage, setCoverageStatus, setMetadata, setJobInfo } = store;
   useEffect(() => {
     if (!effectiveEnabled) {
       resetPackage();
@@ -47,7 +45,6 @@ function useReplayPackageBuildSync(args: ReplayBuildSyncParams) {
     setCoverage(null);
     setCoverageStatus(null);
     setMetadata(null);
-    setHistoryEvents([]);
     void runReplayBuildFlow({
       seriesId,
       windowCandles,
@@ -60,13 +57,12 @@ function useReplayPackageBuildSync(args: ReplayBuildSyncParams) {
       setCoverage,
       setCoverageStatus,
       setMetadata,
-      setHistoryEvents,
       setJobInfo
     });
     return () => {
       cancelled = true;
     };
-  }, [effectiveEnabled, resetPackage, seriesId, setCoverage, setCoverageStatus, setError, setHistoryEvents, setJobInfo, setMetadata, setStatus, snapshotInterval, windowCandles, windowSize]);
+  }, [effectiveEnabled, resetPackage, seriesId, setCoverage, setCoverageStatus, setError, setJobInfo, setMetadata, setStatus, snapshotInterval, windowCandles, windowSize]);
 }
 
 function useReplayWindowLoader(args: {
@@ -105,7 +101,7 @@ function useReplayWindowLoader(args: {
 
 export function useReplayPackage(params: ReplayPackageParams) {
   const { seriesId, enabled, windowCandles, windowSize, snapshotInterval } = params;
-  const effectiveEnabled = ENABLE_REPLAY_PACKAGE_V1 && enabled;
+  const effectiveEnabled = enabled;
   const replayPackageState = useReplayPackageState();
   const replayActions = useReplayActions();
   useReplayPackageBuildSync({
@@ -121,7 +117,6 @@ export function useReplayPackage(params: ReplayPackageParams) {
       setCoverage: replayActions.setCoverage,
       setCoverageStatus: replayActions.setCoverageStatus,
       setMetadata: replayActions.setMetadata,
-      setHistoryEvents: replayActions.setHistoryEvents,
       setJobInfo: replayActions.setJobInfo
     }
   });
@@ -139,7 +134,6 @@ export function useReplayPackage(params: ReplayPackageParams) {
     coverage: replayPackageState.coverage,
     coverageStatus: replayPackageState.coverageStatus,
     metadata: replayPackageState.metadata,
-    historyEvents: replayPackageState.historyEvents,
     windows: replayPackageState.windows,
     jobId: replayPackageState.jobId,
     cacheKey: replayPackageState.cacheKey,

@@ -63,7 +63,6 @@ def post_replay_build(
 def get_replay_status(
     job_id: str = Query(..., min_length=1),
     include_preload: int = Query(0, ge=0, le=1),
-    include_history: int = Query(0, ge=0, le=1),
     *,
     replay_service: ReplayServiceDep,
 ) -> ReplayStatusResponseV1:
@@ -72,7 +71,6 @@ def get_replay_status(
         payload = service.status(
             job_id=job_id,
             include_preload=bool(include_preload),
-            include_history=bool(include_history),
         )
         return ReplayStatusResponseV1.model_validate(payload)
     except ServiceError as exc:
@@ -89,12 +87,11 @@ def get_replay_window(
     service = _replay_service_or_404(replay_service)
     try:
         window = service.window(job_id=job_id, target_idx=int(target_idx))
-        head_snapshots, history_deltas = service.window_extras(job_id=job_id, window=window)
+        factor_snapshots = service.window_extras(job_id=job_id, window=window)
         return ReplayWindowResponseV1(
             job_id=str(job_id),
             window=window,
-            factor_head_snapshots=head_snapshots,
-            history_deltas=history_deltas,
+            factor_snapshots=factor_snapshots,
         )
     except ServiceError as exc:
         raise to_http_exception(exc) from exc

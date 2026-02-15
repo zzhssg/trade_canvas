@@ -19,8 +19,6 @@ type ResetReplayPackageStateArgs = {
   replayPenPreviewPointsRef: ReplayPenPreviewPointsRef;
   factorPullPendingTimeRef: MutableRefObject<number | null>;
   lastFactorAtTimeRef: MutableRefObject<number | null>;
-  replayPatchRef: MutableRefObject<OverlayInstructionPatchItemV1[]>;
-  replayPatchAppliedIdxRef: MutableRefObject<number>;
   setAnchorHighlightEpoch: Dispatch<SetStateAction<number>>;
   setPivotCount: (value: number) => void;
   setPenPointCount: (value: number) => void;
@@ -29,7 +27,6 @@ type ResetReplayPackageStateArgs = {
   setReplayPlaying: (value: boolean) => void;
   setReplayTotal: (value: number) => void;
   setReplayFocusTime: (value: number | null) => void;
-  setReplayFrame: (value: any) => void;
   setReplaySlices: (value: any) => void;
   setReplayCandle: (value: { candleId: string | null; atTime: number | null; activeIds?: string[] }) => void;
   setReplayDrawInstructions: (value: OverlayInstructionPatchItemV1[]) => void;
@@ -55,13 +52,10 @@ export function resetReplayPackageState(args: ResetReplayPackageStateArgs) {
   args.setPivotCount(0);
   args.setPenPointCount(0);
   args.setError(null);
-  args.replayPatchRef.current = [];
-  args.replayPatchAppliedIdxRef.current = 0;
   args.setReplayIndex(0);
   args.setReplayPlaying(false);
   args.setReplayTotal(0);
   args.setReplayFocusTime(null);
-  args.setReplayFrame(null);
   args.setReplaySlices(null);
   args.setReplayCandle({ candleId: null, atTime: null, activeIds: [] });
   args.setReplayDrawInstructions([]);
@@ -76,9 +70,6 @@ type SyncReplayFocusArgs = {
   replayAllCandlesRef: MutableRefObject<Array<Candle | null>>;
   setReplayIndex: (value: number) => void;
   setReplayFocusTime: (value: number | null) => void;
-  applyReplayOverlayAtTime: (time: number) => void;
-  fetchAndApplyAnchorHighlightAtTime: (time: number) => Promise<void>;
-  requestReplayFrameAtTime: (time: number) => Promise<void>;
 };
 
 export function syncReplayFocusFromIndex(args: SyncReplayFocusArgs) {
@@ -98,7 +89,4 @@ export function syncReplayFocusFromIndex(args: SyncReplayFocusArgs) {
     return;
   }
   args.setReplayFocusTime(time);
-  args.applyReplayOverlayAtTime(time);
-  void args.fetchAndApplyAnchorHighlightAtTime(time);
-  void args.requestReplayFrameAtTime(time);
 }

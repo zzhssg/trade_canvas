@@ -6,6 +6,7 @@ from typing import Awaitable, Callable
 from ..core.config import Settings
 from ..debug.hub import DebugHub
 from ..factor.orchestrator import FactorOrchestrator
+from ..feature.orchestrator import FeatureOrchestrator
 from ..ingest.supervisor import IngestSupervisor
 from ..ledger.sync_service import LedgerSyncService
 from .runtime_components import (
@@ -39,6 +40,13 @@ class MarketRuntimeBuildResult:
 
 
 @dataclass(frozen=True)
+class MarketRuntimeBuildOptions:
+    runtime_flags: RuntimeFlags | None = None
+    ingest_pipeline: IngestPipeline | None = None
+    feature_orchestrator: FeatureOrchestrator | None = None
+
+
+@dataclass(frozen=True)
 class _RuntimeBootstrap:
     runtime_flags: RuntimeFlags
     hub: CandleHub
@@ -60,6 +68,7 @@ def _build_runtime_bootstrap(
     settings: Settings,
     store: CandleStore,
     factor_orchestrator: FactorOrchestrator,
+    feature_orchestrator: FeatureOrchestrator | None,
     overlay_orchestrator: OverlayOrchestrator,
     runtime_flags: RuntimeFlags | None,
     ingest_pipeline: IngestPipeline | None,
@@ -75,6 +84,7 @@ def _build_runtime_bootstrap(
         pipeline = IngestPipeline(
             store=store,
             factor_orchestrator=factor_orchestrator,
+            feature_orchestrator=feature_orchestrator,
             overlay_orchestrator=overlay_orchestrator,
             hub=hub,
             overlay_compensate_on_error=bool(effective_runtime_flags.enable_ingest_compensate_overlay_error),
@@ -143,16 +153,17 @@ def build_market_runtime(
     overlay_orchestrator: OverlayOrchestrator,
     debug_hub: DebugHub,
     runtime_metrics: RuntimeMetrics,
-    runtime_flags: RuntimeFlags | None = None,
-    ingest_pipeline: IngestPipeline | None = None,
+    options: MarketRuntimeBuildOptions | None = None,
 ) -> MarketRuntimeBuildResult:
+    build_options = options or MarketRuntimeBuildOptions()
     bootstrap = _build_runtime_bootstrap(
         settings=settings,
         store=store,
         factor_orchestrator=factor_orchestrator,
+        feature_orchestrator=build_options.feature_orchestrator,
         overlay_orchestrator=overlay_orchestrator,
-        runtime_flags=runtime_flags,
-        ingest_pipeline=ingest_pipeline,
+        runtime_flags=build_options.runtime_flags,
+        ingest_pipeline=build_options.ingest_pipeline,
     )
     read_build = build_read_context(
         ReadContextBuildRequest(
@@ -182,6 +193,7 @@ def build_market_runtime(
             runtime_metrics=runtime_metrics,
             whitelist_series_ids=read_build.context.whitelist.series_ids,
             whitelist_ingest_on=read_build.whitelist_ingest_on,
+            feature_orchestrator=build_options.feature_orchestrator,
             ingest_pipeline=bootstrap.ingest_pipeline,
         )
     )

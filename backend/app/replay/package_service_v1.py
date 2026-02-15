@@ -24,9 +24,7 @@ from .coverage_service import ReplayCoverageCoordinator
 from .package_builder_v1 import ReplayBuildParamsV1, build_replay_package_v1, stable_json_dumps
 from .package_protocol_v1 import (
     ReplayCoverageV1,
-    ReplayFactorHeadSnapshotV1,
-    ReplayHistoryDeltaV1,
-    ReplayHistoryEventV1,
+    ReplayFactorSnapshotV1,
     ReplayPackageMetadataV1,
     ReplayWindowV1,
 )
@@ -76,7 +74,11 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
             "snapshot_interval": int(cfg.snapshot_interval),
             "preload_offset": 0,
         }
-        self._window_param_bounds = WindowParamBounds(window_candles_max=5000)
+        self._window_param_bounds = WindowParamBounds(
+            window_candles_min=1,
+            window_candles_max=5000,
+            window_size_min=1,
+        )
         self._reader = ReplayPackageReaderV1(candle_store=self._candle_store, root_dir=_replay_pkg_root())
         self._coverage_coordinator = ReplayCoverageCoordinator(
             candle_store=self._candle_store,
@@ -107,6 +109,7 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
     ) -> str:
         payload = {
             "schema": "replay_package_v1",
+            "logic_version": "factor_snapshots_v2",
             "series_id": series_id,
             "to_candle_time": int(to_time),
             "window_candles": int(window_candles),
@@ -218,7 +221,7 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
         )
         return ("building", reservation.job_id, reservation.cache_key)
 
-    def status(self, *, job_id: str, include_preload: bool, include_history: bool) -> dict[str, Any]:
+    def status(self, *, job_id: str, include_preload: bool) -> dict[str, Any]:
         normalized_job_id, cache_key = normalize_job_identity(job_id)
         status, tracked_job = self._resolve_build_status(
             job_id=normalized_job_id,
@@ -235,8 +238,6 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
             if include_preload and done_meta is not None:
                 preload = self._reader.read_preload_window(cache_key, done_meta)
                 out["preload_window"] = preload.model_dump(mode="json") if preload else None
-            if include_history:
-                out["history_events"] = [e.model_dump(mode="json") for e in self._reader.read_history_events(cache_key)]
             return out
         if status == "error":
             return error_status_payload(job_id=normalized_job_id, cache_key=cache_key, tracked_job=tracked_job)
@@ -253,7 +254,7 @@ class ReplayPackageServiceV1(PackageBuildServiceBase):
         *,
         job_id: str,
         window: ReplayWindowV1,
-    ) -> tuple[list[ReplayFactorHeadSnapshotV1], list[ReplayHistoryDeltaV1]]:
+    ) -> list[ReplayFactorSnapshotV1]:
         return self._reader.read_window_extras(cache_key=str(job_id), window=window)
 
     def ensure_coverage(

@@ -12,9 +12,9 @@ from ..factor.orchestrator import FactorOrchestrator
 from ..factor.runtime_config import build_factor_orchestrator_runtime_config
 from ..factor.slices_service import FactorSlicesService
 from ..factor.store import FactorStore
+from ..feature import FeatureOrchestrator, FeatureReadService, FeatureSettings, FeatureStore
 from ..ledger.sync_service import LedgerSyncService
 from ..overlay.orchestrator import OverlayOrchestrator, OverlaySettings
-from ..overlay.package_service_v1 import OverlayReplayPackageServiceV1
 from ..overlay.store import OverlayStore
 from ..pipelines import IngestPipeline
 from ..read_models import DrawReadService, FactorReadService, ReadRepairService, WorldReadService
@@ -31,6 +31,8 @@ class DomainCore:
     factor_store: FactorStore
     factor_orchestrator: FactorOrchestrator
     factor_slices_service: FactorSlicesService
+    feature_store: FeatureStore
+    feature_orchestrator: FeatureOrchestrator
     overlay_store: OverlayStore
     overlay_orchestrator: OverlayOrchestrator
     debug_hub: DebugHub
@@ -39,6 +41,7 @@ class DomainCore:
 @dataclass(frozen=True)
 class ReadCoreServices:
     factor_read_service: FactorReadService
+    feature_read_service: FeatureReadService
     draw_read_service: DrawReadService
     world_read_service: WorldReadService
 
@@ -47,7 +50,6 @@ class ReadCoreServices:
 class ReplayServices:
     replay_prepare_service: ReplayPrepareService
     replay_service: ReplayPackageServiceV1
-    overlay_pkg_service: OverlayReplayPackageServiceV1
 
 
 def _build_candle_store(
@@ -94,6 +96,14 @@ def build_domain_core(*, settings: Settings, runtime_flags: RuntimeFlags, postgr
         logic_version_override=factor_runtime_config.logic_version_override,
     )
     factor_slices_service = FactorSlicesService(candle_store=store, factor_store=factor_store)
+    feature_store = FeatureStore(db_path=settings.db_path)
+    feature_orchestrator = FeatureOrchestrator(
+        factor_store=factor_store,
+        feature_store=feature_store,
+        settings=FeatureSettings(
+            ingest_enabled=bool(runtime_flags.enable_feature_ingest),
+        ),
+    )
 
     overlay_store: OverlayStore
     if postgres_pool is not None:
@@ -126,6 +136,8 @@ def build_domain_core(*, settings: Settings, runtime_flags: RuntimeFlags, postgr
         factor_store=factor_store,
         factor_orchestrator=factor_orchestrator,
         factor_slices_service=factor_slices_service,
+        feature_store=feature_store,
+        feature_orchestrator=feature_orchestrator,
         overlay_store=overlay_store,
         overlay_orchestrator=overlay_orchestrator,
         debug_hub=debug_hub,
@@ -138,6 +150,11 @@ def build_read_core_services(*, core: DomainCore, runtime_flags: RuntimeFlags) -
         factor_store=core.factor_store,
         factor_slices_service=core.factor_slices_service,
         strict_mode=True,
+    )
+    feature_read_service = FeatureReadService(
+        store=core.store,
+        feature_store=core.feature_store,
+        strict_mode=bool(runtime_flags.enable_feature_strict_read),
     )
     draw_read_service = DrawReadService(
         store=core.store,
@@ -157,6 +174,7 @@ def build_read_core_services(*, core: DomainCore, runtime_flags: RuntimeFlags) -
     )
     return ReadCoreServices(
         factor_read_service=factor_read_service,
+        feature_read_service=feature_read_service,
         draw_read_service=draw_read_service,
         world_read_service=world_read_service,
     )
@@ -201,15 +219,9 @@ def build_replay_services(
             market_history_source=str(runtime_flags.market_history_source),
         ),
     )
-    overlay_pkg_service = OverlayReplayPackageServiceV1(
-        candle_store=core.store,
-        overlay_store=core.overlay_store,
-        replay_package_enabled=bool(runtime_flags.enable_replay_package),
-    )
     return ReplayServices(
         replay_prepare_service=replay_prepare_service,
         replay_service=replay_service,
-        overlay_pkg_service=overlay_pkg_service,
     )
 
 

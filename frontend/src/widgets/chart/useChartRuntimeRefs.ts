@@ -31,11 +31,6 @@ export function useChartRuntimeRefs(enableWorldFrame: boolean) {
 
   const replayAllCandlesRef = useRef<Array<Candle | null>>([]);
   const replayWindowIndexRef = useRef<number | null>(null);
-  const replayPatchRef = useRef<OverlayInstructionPatchItemV1[]>([]);
-  const replayPatchAppliedIdxRef = useRef<number>(0);
-  const replayFramePullInFlightRef = useRef(false);
-  const replayFramePendingTimeRef = useRef<number | null>(null);
-  const replayFrameLatestTimeRef = useRef<number | null>(null);
   const followPendingTimeRef = useRef<number | null>(null);
   const followTimerIdRef = useRef<number | null>(null);
 
@@ -92,11 +87,6 @@ export function useChartRuntimeRefs(enableWorldFrame: boolean) {
     setAnchorSwitchCount,
     replayAllCandlesRef,
     replayWindowIndexRef,
-    replayPatchRef,
-    replayPatchAppliedIdxRef,
-    replayFramePullInFlightRef,
-    replayFramePendingTimeRef,
-    replayFrameLatestTimeRef,
     followPendingTimeRef,
     followTimerIdRef,
     penSeriesRef,

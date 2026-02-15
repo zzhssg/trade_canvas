@@ -15,71 +15,6 @@ export type FactorSpec = {
   sub_features: FactorSubFeatureSpec[];
 };
 
-const FALLBACK_FACTOR_CATALOG: FactorSpec[] = [
-  {
-    key: "pivot",
-    label: "Pivot",
-    default_visible: true,
-    sub_features: [
-      { key: "pivot.major", label: "Major", default_visible: true },
-      { key: "pivot.minor", label: "Minor", default_visible: false }
-    ]
-  },
-  {
-    key: "pen",
-    label: "Pen",
-    default_visible: true,
-    sub_features: [
-      { key: "pen.confirmed", label: "Confirmed", default_visible: true },
-      { key: "pen.extending", label: "Extending", default_visible: true },
-      { key: "pen.candidate", label: "Candidate", default_visible: true }
-    ]
-  },
-  {
-    key: "zhongshu",
-    label: "Zhongshu",
-    default_visible: true,
-    sub_features: [
-      { key: "zhongshu.alive", label: "Alive", default_visible: true },
-      { key: "zhongshu.dead", label: "Dead", default_visible: true }
-    ]
-  },
-  {
-    key: "anchor",
-    label: "Anchor",
-    default_visible: true,
-    sub_features: [
-      { key: "anchor.current", label: "Current", default_visible: true },
-      { key: "anchor.history", label: "History", default_visible: true },
-      { key: "anchor.switch", label: "Switches", default_visible: true }
-    ]
-  },
-  {
-    key: "sr",
-    label: "SR",
-    default_visible: true,
-    sub_features: [
-      { key: "sr.active", label: "Active", default_visible: true },
-      { key: "sr.broken", label: "Broken", default_visible: false }
-    ]
-  },
-  {
-    key: "sma",
-    label: "SMA",
-    default_visible: false,
-    sub_features: [
-      { key: "sma_5", label: "SMA 5", default_visible: false },
-      { key: "sma_20", label: "SMA 20", default_visible: false }
-    ]
-  },
-  {
-    key: "signal",
-    label: "Signals",
-    default_visible: false,
-    sub_features: [{ key: "signal.entry", label: "Entry", default_visible: false }]
-  }
-];
-
 let cachedCatalog: FactorSpec[] | null = null;
 let inflightCatalog: Promise<FactorSpec[]> | null = null;
 
@@ -141,10 +76,11 @@ export async function fetchFactorCatalog(): Promise<FactorSpec[]> {
         return normalized;
       }
     } catch {
-      // fallback to local defaults
+      cachedCatalog = cachedCatalog ?? [];
+      return cachedCatalog;
     }
-    cachedCatalog = FALLBACK_FACTOR_CATALOG;
-    return FALLBACK_FACTOR_CATALOG;
+    cachedCatalog = cachedCatalog ?? [];
+    return cachedCatalog;
   })();
   const result = await inflightCatalog;
   inflightCatalog = null;
@@ -152,7 +88,7 @@ export async function fetchFactorCatalog(): Promise<FactorSpec[]> {
 }
 
 export function useFactorCatalog(): FactorSpec[] {
-  const [factors, setFactors] = useState<FactorSpec[]>(cachedCatalog ?? FALLBACK_FACTOR_CATALOG);
+  const [factors, setFactors] = useState<FactorSpec[]>(cachedCatalog ?? []);
   useEffect(() => {
     let alive = true;
     fetchFactorCatalog()
@@ -162,7 +98,7 @@ export function useFactorCatalog(): FactorSpec[] {
       })
       .catch(() => {
         if (!alive) return;
-        setFactors(FALLBACK_FACTOR_CATALOG);
+        setFactors([]);
       });
     return () => {
       alive = false;

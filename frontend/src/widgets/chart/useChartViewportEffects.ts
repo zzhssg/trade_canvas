@@ -80,7 +80,7 @@ export function useReplayViewportEffects(args: UseReplayViewportEffectsArgs) {
     if (!chart) return;
     const coord = chart.timeScale().timeToCoordinate(args.replayFocusTime as UTCTimestamp);
     if (coord == null || Number.isNaN(coord)) {
-      args.setReplayMaskX(null);
+      args.setReplayMaskX(0);
       return;
     }
     const widthPx = args.containerRef.current?.clientWidth ?? null;

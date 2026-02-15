@@ -54,7 +54,6 @@ export function useReplayPackageResetEffect(args: UseReplayPackageResetEffectArg
     args.setReplayCandle,
     args.setReplayDrawInstructions,
     args.setReplayFocusTime,
-    args.setReplayFrame,
     args.setReplayIndex,
     args.setReplayPlaying,
     args.setReplaySlices,
